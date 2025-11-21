@@ -1,0 +1,133 @@
+# AISIS Scraper: Data Interpretation & Storage Guide for Lovable
+
+This guide is for developers integrating the AISIS scraper's output into the Lovable platform. It details the data models, provides interpretation guidelines, and recommends best practices for storage and synchronization.
+
+## Overview
+
+The scraper extracts two primary institutional datasets from AISIS:
+1.  **Schedule of Classes**: A complete listing of all courses offered in a given term, including schedules, instructors, and slot availability.
+2.  **Official Curriculum**: The official list of required courses for every degree program.
+
+The data is extracted, transformed into a structured format, and synced to Supabase via the `github-sync` Edge Function.
+
+---
+
+## 1. Data Model: Schedule of Classes
+
+This model represents a single class section available in a specific term.
+
+### Example Scraped Data (Raw)
+
+This is the raw data format directly from `scraper.js` before transformation:
+
+```json
+{
+  "department": "ITMGT",
+  "subjectCode": "ITMGT 25",
+  "section": "A",
+  "title": "IT INFRASTRUCTURE & NETWORK TECHNOLOGIES",
+  "units": "3.0",
+  "time": "T-TH 09:00-10:30",
+  "room": "F302",
+  "instructor": "SY, JANSEN",
+  "maxSlots": "40",
+  "language": "ENGLISH",
+  "level": "U",
+  "freeSlots": "0",
+  "remarks": ""
+}
+```
+
+### Transformed Data & Supabase Storage
+
+The `supabase.js` manager transforms the raw data into a more structured format before sending it to the Supabase Edge Function. This transformed model is what Lovable's backend will receive.
+
+**Supabase Table:** `schedules`
+
+| Field Name | Supabase Type | Description & Interpretation | Example (Transformed) |
+| :--- | :--- | :--- | :--- |
+| `id` | `BIGSERIAL` | Primary Key. Auto-incrementing unique identifier. | `101` |
+| `term_code` | `TEXT` | **Crucial Context**. The academic term this schedule belongs to (e.g., `20253`). This is added during the sync process. | `"20253"` |
+| `department` | `TEXT` | **Crucial Context**. The department offering the course. Added during scraping. | `"ITMGT"` |
+| `subject_code` | `TEXT` | The unique code for the subject (e.g., `ITMGT 25`). | `"ITMGT 25"` |
+| `section` | `TEXT` | The specific class section (e.g., `A`, `B`, `C1`). | `"A"` |
+| `course_title` | `TEXT` | The full title of the course. | `"IT INFRASTRUCTURE..."` |
+| `units` | `NUMERIC` | The number of academic units. Parsed from a string to a number. | `3.0` |
+| `time_pattern` | `TEXT` | The original, human-readable time string from AISIS. Stored for reference. | `"T-TH 09:00-10:30"` |
+| `start_time` | `TIME` | **Parsed**. The start time in `HH:MM:SS` format. | `"09:00:00"` |
+| `end_time` | `TIME` | **Parsed**. The end time in `HH:MM:SS` format. | `"10:30:00"` |
+| `days_of_week` | `INTEGER[]` | **Parsed**. An array of integers representing the days. `M=1, T=2, W=3, TH=4, F=5, S=6, SU=0`. | `{2, 4}` |
+| `room` | `TEXT` | The assigned classroom or `TBA` if not yet assigned. | `"F302"` |
+| `instructor` | `TEXT` | The faculty member assigned to the class. | `"SY, JANSEN"` |
+| `max_capacity` | `INTEGER` | The maximum number of students allowed. Parsed from a string. | `40` |
+| `remarks` | `TEXT` | Any additional notes or restrictions from the registrar. | `""` |
+
+### Why this structure is important for Lovable:
+
+- **Structured Time**: Parsing the `time_pattern` into `start_time`, `end_time`, and `days_of_week` is essential for calendar-based features, conflict detection, and filtering in Lovable. Storing them as native `TIME` and `INTEGER[]` types allows for efficient database queries.
+- **Contextual Keys**: `term_code` and `department` are not part of the raw scraped data but are added during the process. They are **critical** for partitioning the data and ensuring that sync operations are atomic and don't corrupt data from other terms or departments.
+- **Data Integrity**: Storing `units` and `max_capacity` as numeric types ensures they can be used in calculations and are not subject to string-related errors.
+
+---
+
+## 2. Data Model: Official Curriculum
+
+This model represents a single course requirement within a specific degree program.
+
+### Example Scraped Data (Raw)
+
+```json
+{
+  "degree": "BS ITE",
+  "yearLevel": "FIRST YEAR",
+  "semester": "First Semester",
+  "courseCode": "ARTAP 10",
+  "description": "Art Appreciation",
+  "units": "3",
+  "category": "CORE"
+}
+```
+
+### Transformed Data & Supabase Storage
+
+**Supabase Table:** `curriculum`
+
+| Field Name | Supabase Type | Description & Interpretation | Example (Transformed) |
+| :--- | :--- | :--- | :--- |
+| `id` | `BIGSERIAL` | Primary Key. Auto-incrementing unique identifier. | `201` |
+| `degree_code` | `TEXT` | The code for the degree program (e.g., `BS ITE`). | `"BS ITE"` |
+| `year_level` | `TEXT` | The year level this course is intended for. This is a header from the page. | `"FIRST YEAR"` |
+| `semester` | `TEXT` | The semester this course is intended for. Also a page header. | `"First Semester"` |
+| `course_code` | `TEXT` | The unique code for the required course. | `"ARTAP 10"` |
+| `course_description`| `TEXT` | The full title of the course. | `"Art Appreciation"` |
+| `units` | `NUMERIC` | The number of academic units. Parsed from a string. | `3` |
+| `category` | `TEXT` | The category of the course (e.g., `CORE`, `MAJOR`, `ELECTIVE`). | `"CORE"` |
+
+### Why this structure is important for Lovable:
+
+- **Program-Centric View**: This model is designed to answer the question, "What courses do I need to take for my degree?" It's structured to be easily filtered by `degree_code`.
+- **Clear Progression**: `yearLevel` and `semester` provide a recommended timeline for students, which Lovable can use to build academic planners or progress trackers.
+- **Normalized Data**: By storing curriculum separately from schedules, we avoid data duplication. The `course_code` acts as a foreign key reference to the `schedules` table, allowing Lovable to link a required course to its available sections in a given term.
+
+---
+
+## 3. Data Synchronization Logic for Lovable's Backend
+
+The `github-sync` Edge Function is the bridge between the scraper and Lovable's database. It should be designed to handle data atomically to prevent inconsistencies.
+
+### Syncing Schedules
+
+- **Granularity**: The scraper syncs schedule data **per department, per term**. The function will receive a payload containing all classes for one department (e.g., `ITMGT`) for one term (e.g., `20253`).
+- **Recommended Logic (Transactional Upsert)**: To ensure data is always fresh and accurate, the Edge Function should perform the following steps in a single transaction:
+  1.  **DELETE** all records from the `schedules` table where `term_code` and `department` match the incoming payload.
+  2.  **INSERT** the new records from the payload.
+- **Why this way?**: This "delete-then-insert" approach automatically handles courses that have been removed, had their sections changed, or were updated. A simple `upsert` on a per-row basis would not remove classes that are no longer offered, leading to stale data in Lovable.
+
+### Syncing Curriculum
+
+- **Granularity**: The scraper syncs all curriculum data for **all degree programs at once**.
+- **Recommended Logic (Transactional Upsert)**:
+  1.  **DELETE** all records from the `curriculum` table.
+  2.  **INSERT** the new records from the payload.
+- **Why this way?**: Curricula change infrequently. A full refresh is the simplest and most robust way to ensure the data in Lovable is a perfect mirror of the source, preventing any discrepancies from outdated program requirements.
+
