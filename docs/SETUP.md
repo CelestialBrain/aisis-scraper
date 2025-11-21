@@ -1,92 +1,184 @@
-# Google Cloud & Service Account Setup Guide (LEGACY)
+# Supabase Setup Guide
 
-⚠️ **Note**: This guide is for the **old, more complex** service account method. The project now uses a **simpler public sheet approach** with just an API key. See the main README.md for the new simplified setup.
+This guide provides detailed instructions for setting up the Supabase integration for the AISIS scraper.
 
-**Only use this guide if you need private sheet access with service account authentication.**
+## Overview
 
----
+The AISIS scraper syncs data to Supabase using an Edge Function endpoint. This approach provides:
+- **Serverless architecture**: No need to manage backend infrastructure
+- **Secure API authentication**: Protected with API keys
+- **Real-time data sync**: Automatic updates to your Supabase database
+- **Scalability**: Handles large datasets efficiently
 
-This guide provides detailed, step-by-step instructions for setting up a Google Cloud project, enabling the Google Sheets API, and creating a service account with the necessary permissions to allow the scraper to update your Google Sheet.
+## Prerequisites
 
-## Step 1: Create a New Google Cloud Project
+- A Supabase account ([sign up here](https://supabase.com))
+- Basic familiarity with Supabase Edge Functions
+- Node.js 18+ installed locally for testing
 
-1.  **Go to the Google Cloud Console**: [https://console.cloud.google.com/](https://console.cloud.google.com/)
+## Step 1: Create a Supabase Project
 
-2.  **Create a new project**:
-    *   Click the project dropdown in the top navigation bar.
-    *   Click **New Project**.
-    *   Enter a **Project name** (e.g., `aisis-data-scraper`).
-    *   Select a **Billing account** if required.
-    *   Click **Create**.
+1. **Go to Supabase**: [https://supabase.com](https://supabase.com)
+2. **Create a new project**:
+   - Click **New Project**
+   - Enter a **Project name** (e.g., `aisis-data`)
+   - Set a **Database password** (save this securely)
+   - Select a **Region** close to your location
+   - Click **Create new project**
 
-3.  **Select your new project** from the project dropdown.
+## Step 2: Set Up Database Tables
 
-## Step 2: Enable the Google Sheets API
+You'll need to create tables to store the scraped data. Here are the recommended schemas:
 
-1.  **Navigate to the API Library**:
-    *   In the Google Cloud Console, open the navigation menu (hamburger icon in the top left).
-    *   Go to `APIs & Services` > `Library`.
+### Schedules Table
 
-2.  **Search for the Google Sheets API**:
-    *   In the search bar, type `Google Sheets API` and press Enter.
-    *   Click on the **Google Sheets API** result.
+```sql
+CREATE TABLE schedules (
+  id BIGSERIAL PRIMARY KEY,
+  term_code TEXT NOT NULL,
+  department TEXT NOT NULL,
+  subject_code TEXT NOT NULL,
+  section TEXT,
+  course_title TEXT,
+  units NUMERIC,
+  time_pattern TEXT,
+  start_time TIME,
+  end_time TIME,
+  days_of_week INTEGER[],
+  room TEXT,
+  instructor TEXT,
+  language TEXT,
+  level TEXT,
+  remarks TEXT,
+  max_capacity INTEGER,
+  delivery_mode TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
 
-3.  **Enable the API**:
-    *   Click the **Enable** button. This may take a few moments.
+CREATE INDEX idx_schedules_term_dept ON schedules(term_code, department);
+CREATE INDEX idx_schedules_subject ON schedules(subject_code);
+```
 
-## Step 3: Create a Service Account
+### Curriculum Table
 
-A service account is a special type of Google account that an application (like our scraper) can use to make authorized API calls.
+```sql
+CREATE TABLE curriculum (
+  id BIGSERIAL PRIMARY KEY,
+  degree_code TEXT NOT NULL,
+  year_level INTEGER,
+  semester INTEGER,
+  course_code TEXT NOT NULL,
+  course_description TEXT,
+  units NUMERIC,
+  category TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
 
-1.  **Go to the Service Accounts page**:
-    *   In the navigation menu, go to `IAM & Admin` > `Service Accounts`.
+CREATE INDEX idx_curriculum_degree ON curriculum(degree_code);
+CREATE INDEX idx_curriculum_course ON curriculum(course_code);
+```
 
-2.  **Create a new service account**:
-    *   Click **+ Create Service Account** at the top of the page.
-    *   **Service account name**: Enter a name (e.g., `aisis-sheets-updater`).
-    *   **Service account ID**: This will be automatically generated.
-    *   **Description**: Add a description (e.g., `Service account for the AISIS scraper to update Google Sheets`).
-    *   Click **Create and Continue**.
+## Step 3: Deploy the Edge Function
 
-3.  **Grant permissions (optional but recommended)**:
-    *   In the **Role** dropdown, select `Project` > `Editor`. This gives the service account broad permissions within the project. For a more secure setup, you could create a custom role with only the necessary permissions, but `Editor` is sufficient for this project.
-    *   Click **Continue**.
+You'll need to deploy a `github-sync` Edge Function that receives data from the scraper and inserts it into your database.
 
-4.  **Grant user access (optional)**:
-    *   You can skip this section. Click **Done**.
+1. **Install Supabase CLI**:
+   ```bash
+   npm install -g supabase
+   ```
 
-## Step 4: Create and Download a Service Account Key
+2. **Initialize Supabase locally** (in your project directory):
+   ```bash
+   supabase init
+   ```
 
-The key is a JSON file that contains the credentials your scraper will use to authenticate.
+3. **Create the Edge Function**:
+   ```bash
+   supabase functions new github-sync
+   ```
 
-1.  **Find your new service account** in the list.
+4. **Implement the function** to handle incoming data and insert it into your tables (refer to Supabase Edge Functions documentation for details).
 
-2.  **Create a key**:
-    *   Click the three-dot menu (Actions) on the right side of your service account.
-    *   Select **Manage keys**.
-    *   Click **Add Key** > **Create new key**.
+5. **Deploy the function**:
+   ```bash
+   supabase functions deploy github-sync
+   ```
 
-3.  **Choose the key type**:
-    *   Select **JSON** as the key type.
-    *   Click **Create**.
+## Step 4: Generate an API Key
 
-4.  **Download and save the key**:
-    *   A JSON file will be automatically downloaded to your computer. **This is the only time you can download this file, so keep it safe!**
-    *   This JSON file contains the `private_key`, `client_email`, and other credentials you'll need for the GitHub Secrets.
+1. Go to your Supabase project dashboard
+2. Navigate to **Settings** > **API**
+3. Copy your **anon/public** key or create a custom **service role** key for enhanced security
+4. This will be your `SUPABASE_SYNC_KEY`
 
-## Step 5: Find Your Service Account Email
+## Step 5: Configure GitHub Secrets
 
-1.  Go back to the **Service Accounts** page (`IAM & Admin` > `Service Accounts`).
-2.  Your service account's email address will be listed in the **Email** column. It will look something like this:
-    `aisis-sheets-updater@your-project-id.iam.gserviceaccount.com`
+In your GitHub repository:
 
-**You will need this email address to share your Google Sheet with the service account.**
+1. Go to **Settings** > **Secrets and variables** > **Actions**
+2. Add the following secrets:
+   - `AISIS_USERNAME`: Your AISIS username
+   - `AISIS_PASSWORD`: Your AISIS password
+   - `SUPABASE_SYNC_KEY`: The API key from Step 4
+
+## Step 6: Update the Sync URL (if needed)
+
+If your Supabase project URL is different, update it in `src/supabase.js`:
+
+```javascript
+this.url = 'https://YOUR_PROJECT_ID.supabase.co/functions/v1/github-sync';
+```
+
+Replace `YOUR_PROJECT_ID` with your actual Supabase project ID.
+
+## Testing Locally
+
+Before running on GitHub Actions, test the scraper locally:
+
+1. Create a `.env` file with your credentials:
+   ```
+   AISIS_USERNAME=your_username
+   AISIS_PASSWORD=your_password
+   SUPABASE_SYNC_KEY=your_sync_key
+   ```
+
+2. Run the scraper:
+   ```bash
+   npm start
+   ```
+
+3. Check your Supabase dashboard to verify data was synced correctly
+
+## Troubleshooting
+
+### Data not syncing
+- Verify your `SUPABASE_SYNC_KEY` is correct
+- Check the Edge Function logs in Supabase dashboard
+- Ensure your database tables exist and have the correct schema
+
+### Authentication errors
+- Verify your AISIS credentials are correct
+- Check if AISIS is accessible from your network
+
+### Edge Function errors
+- Review the function logs in Supabase dashboard
+- Ensure the function is deployed and active
+- Verify the API endpoint URL is correct
+
+## Security Best Practices
+
+- **Never commit credentials**: Always use environment variables or GitHub Secrets
+- **Use service role keys carefully**: They have full database access
+- **Enable Row Level Security (RLS)**: Protect your data with Supabase RLS policies
+- **Rotate API keys regularly**: Update keys periodically for security
 
 ## What's Next?
 
-Now that you have your service account set up and the JSON key file downloaded, you can proceed with the following steps:
+Once your Supabase integration is set up:
+1. The scraper will run automatically on schedule via GitHub Actions
+2. Data will be synced to your Supabase database
+3. You can query and use the data in your applications via Supabase client libraries
 
-1.  **Share your Google Sheet** with the service account email, giving it **Editor** permissions.
-2.  **Configure the GitHub Secrets** in your repository using the information from the downloaded JSON file and your Google Sheet ID.
-
-**Note**: If you're using the new simplified public sheet method, you don't need any of this! Just follow the instructions in the main README.md instead.
+For more information on Supabase Edge Functions, visit the [official documentation](https://supabase.com/docs/guides/functions).
