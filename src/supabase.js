@@ -1,4 +1,4 @@
-import fetch from 'node-fetch'; // Falls back to native fetch in Node 18+ if not installed
+'''import fetch from 'node-fetch'; // Falls back to native fetch in Node 18+ if not installed
 
 export class SupabaseManager {
   constructor(syncKey) {
@@ -72,4 +72,4 @@ export class SupabaseManager {
       delivery_mode: null 
     }));
   }
-}
+}'''
