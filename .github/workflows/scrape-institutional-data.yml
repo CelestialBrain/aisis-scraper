@@ -1,0 +1,33 @@
+name: Scrape Institutional Data
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Runs every 6 hours
+  workflow_dispatch:       # Allows you to run it manually from the Actions tab
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm install
+        
+      - name: Run scraper
+        env:
+          # These link to the secrets you set in GitHub Settings
+          AISIS_USERNAME: ${{ secrets.AISIS_USERNAME }}
+          AISIS_PASSWORD: ${{ secrets.AISIS_PASSWORD }}
+          GOOGLE_SPREADSHEET_ID: ${{ secrets.GOOGLE_SPREADSHEET_ID }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          SUPABASE_SYNC_KEY: ${{ secrets.SUPABASE_SYNC_KEY }}
+        run: npm start
