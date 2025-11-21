@@ -1,7 +1,6 @@
 import dotenv from 'dotenv';
 import { AISISScraper } from './scraper.js';
-import { SheetsManager } from './sheets.js';
-import { SupabaseManager } from './supabase.js'; // [NEW] Import Supabase Manager
+import { SupabaseManager } from './supabase.js';
 import fs from 'fs';
 
 // Load environment variables
@@ -20,9 +19,7 @@ async function main() {
     const requiredEnvVars = [
       'AISIS_USERNAME',
       'AISIS_PASSWORD',
-      'GOOGLE_SPREADSHEET_ID',
-      'GOOGLE_API_KEY',
-      'SUPABASE_SYNC_KEY' // [NEW] Added requirement
+      'SUPABASE_SYNC_KEY'
     ];
 
     const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
@@ -51,19 +48,7 @@ async function main() {
     fs.writeFileSync(backupFile, JSON.stringify(scrapedData, null, 2));
     console.log(`\n💾 Data backed up to: ${backupFile}`);
 
-    // Initialize Google Sheets manager (simplified - no authentication needed!)
-    try {
-      const sheetsManager = new SheetsManager(
-        process.env.GOOGLE_SPREADSHEET_ID,
-        process.env.GOOGLE_API_KEY
-      );
-      // Update Google Sheets
-      await sheetsManager.updateAllData(scrapedData);
-    } catch (e) {
-      console.error("   ⚠️ Skipping Sheets update due to error:", e.message);
-    }
-
-    // 5. Sync to Supabase (New Logic)
+    // Sync to Supabase
     console.log('\n☁️ Starting Supabase Sync...');
     const supabase = new SupabaseManager(process.env.SUPABASE_SYNC_KEY);
     
@@ -94,9 +79,6 @@ async function main() {
     console.log('✅ AISIS Data Scraper - Completed Successfully!');
     console.log('═══════════════════════════════════════════════════════\n');
 
-    // Print summary (kept from original but slightly moved)
-    // ... (Standard summary logs would go here if you kept them, but exiting 0 is key)
-    
     process.exit(0);
 
   } catch (error) {
