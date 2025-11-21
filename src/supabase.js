@@ -93,6 +93,23 @@ export class SupabaseManager {
   }
 
   /**
+   * Transform AISIS Curriculum data to Lovable/Supabase format
+   */
+  transformCurriculumData(curriculumItems) {
+    return curriculumItems.map(item => {
+      return {
+        degree_code: item.degree,
+        year_level: item.yearLevel,
+        semester: item.semester,
+        course_code: item.courseCode,
+        course_description: item.description,
+        units: parseFloat(item.units) || 0,
+        category: item.category || null
+      };
+    });
+  }
+
+  /**
    * Transform AISIS Schedule data to Lovable/Supabase format
    */
   transformScheduleData(scheduleItems) {

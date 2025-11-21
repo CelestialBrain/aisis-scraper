@@ -1,63 +1,54 @@
 import dotenv from 'dotenv';
 import { AISISScraper } from './scraper.js';
 import { SupabaseManager } from './supabase.js';
-import fs from 'fs';
 
 // Load environment variables
 dotenv.config();
 
 /**
- * Main execution function
+ * Main Execution Pipeline
+ * Combines production-grade scraper (v2) with Supabase sync (v1)
  */
 async function main() {
   console.log('═══════════════════════════════════════════════════════');
-  console.log('🎓 AISIS Data Scraper - Starting...');
+  console.log('🎓 AISIS Data Scraper - Production Edition');
   console.log('═══════════════════════════════════════════════════════\n');
 
+  // 1. Validation
+  const { AISIS_USERNAME, AISIS_PASSWORD, SUPABASE_SYNC_KEY } = process.env;
+  
+  if (!AISIS_USERNAME || !AISIS_PASSWORD) {
+    console.error('❌ FATAL: Missing AISIS credentials. Please set AISIS_USERNAME and AISIS_PASSWORD.');
+    process.exit(1);
+  }
+
+  if (!SUPABASE_SYNC_KEY) {
+    console.error('❌ FATAL: Missing SUPABASE_SYNC_KEY. Please set it in your environment variables.');
+    process.exit(1);
+  }
+
+  const scraper = new AISISScraper(AISIS_USERNAME, AISIS_PASSWORD);
+
   try {
-    // Validate environment variables
-    const requiredEnvVars = [
-      'AISIS_USERNAME',
-      'AISIS_PASSWORD',
-      'SUPABASE_SYNC_KEY'
-    ];
+    // 2. Initialization & Login
+    await scraper.init();
+    await scraper.login();
 
-    const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
-    if (missingVars.length > 0) {
-      throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
-    }
+    // 3. Execution (Targeted Scraping - Only institutional data)
+    const scheduleData = await scraper.scrapeSchedule();
+    const curriculumData = await scraper.scrapeCurriculum();
 
-    // Initialize scraper
-    const scraper = new AISISScraper(
-      process.env.AISIS_USERNAME,
-      process.env.AISIS_PASSWORD
-    );
-
-    // Scrape all data
-    const scrapedData = await scraper.scrapeAll();
-
-    // Save scraped data to JSON file (for backup)
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const backupFile = `./data/backup_${timestamp}.json`;
-    
-    // Create data directory if it doesn't exist
-    if (!fs.existsSync('./data')) {
-      fs.mkdirSync('./data', { recursive: true });
-    }
-    
-    fs.writeFileSync(backupFile, JSON.stringify(scrapedData, null, 2));
-    console.log(`\n💾 Data backed up to: ${backupFile}`);
-
-    // Sync to Supabase
+    // 4. Supabase Sync
     console.log('\n☁️ Starting Supabase Sync...');
-    const supabase = new SupabaseManager(process.env.SUPABASE_SYNC_KEY);
+    const supabase = new SupabaseManager(SUPABASE_SYNC_KEY);
     
     // Set the current term (Update this manually when the semester changes)
     const CURRENT_TERM = '20253'; 
 
-    if (scrapedData.scheduleOfClasses && scrapedData.scheduleOfClasses.length > 0) {
+    // Sync Schedule Data
+    if (scheduleData && scheduleData.length > 0) {
       // Group data by department because Lovable expects per-department sync
-      const schedulesByDept = scrapedData.scheduleOfClasses.reduce((acc, item) => {
+      const schedulesByDept = scheduleData.reduce((acc, item) => {
         const dept = item.department || 'UNKNOWN';
         if (!acc[dept]) acc[dept] = [];
         acc[dept].push(item);
@@ -75,6 +66,15 @@ async function main() {
       console.log("   ⚠️ No schedule data found to sync.");
     }
 
+    // Sync Curriculum Data
+    if (curriculumData && curriculumData.length > 0) {
+      const formattedCurriculum = supabase.transformCurriculumData(curriculumData);
+      await supabase.syncToSupabase('curriculum', formattedCurriculum);
+      console.log(`   ✅ Successfully synced ${formattedCurriculum.length} curriculum items`);
+    } else {
+      console.log("   ⚠️ No curriculum data found to sync.");
+    }
+
     console.log('\n═══════════════════════════════════════════════════════');
     console.log('✅ AISIS Data Scraper - Completed Successfully!');
     console.log('═══════════════════════════════════════════════════════\n');
@@ -90,8 +90,9 @@ async function main() {
     console.error('');
     
     process.exit(1);
+  } finally {
+    await scraper.close();
   }
 }
 
-// Run main function
 main();
