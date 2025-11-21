@@ -20,8 +20,7 @@ async function main() {
       'AISIS_USERNAME',
       'AISIS_PASSWORD',
       'GOOGLE_SPREADSHEET_ID',
-      'GOOGLE_SERVICE_ACCOUNT_EMAIL',
-      'GOOGLE_PRIVATE_KEY'
+      'GOOGLE_API_KEY'
     ];
 
     const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
@@ -50,27 +49,13 @@ async function main() {
     fs.writeFileSync(backupFile, JSON.stringify(scrapedData, null, 2));
     console.log(`\n💾 Data backed up to: ${backupFile}`);
 
-    // Initialize Google Sheets manager
-    const credentials = {
-      type: 'service_account',
-      project_id: process.env.GOOGLE_PROJECT_ID || 'aisis-scraper',
-      private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID || '',
-      private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      client_id: process.env.GOOGLE_CLIENT_ID || '',
-      auth_uri: 'https://accounts.google.com/o/oauth2/auth',
-      token_uri: 'https://oauth2.googleapis.com/token',
-      auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
-      client_x509_cert_url: `https://www.googleapis.com/robot/v1/metadata/x509/${encodeURIComponent(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL)}`
-    };
-
+    // Initialize Google Sheets manager (simplified - no authentication needed!)
     const sheetsManager = new SheetsManager(
       process.env.GOOGLE_SPREADSHEET_ID,
-      credentials
+      process.env.GOOGLE_API_KEY
     );
 
-    // Authenticate and update Google Sheets
-    await sheetsManager.authenticate();
+    // Update Google Sheets
     await sheetsManager.updateAllData(scrapedData);
 
     console.log('\n═══════════════════════════════════════════════════════');

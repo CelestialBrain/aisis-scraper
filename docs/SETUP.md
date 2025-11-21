@@ -1,4 +1,10 @@
-# Google Cloud & Service Account Setup Guide
+# Google Cloud & Service Account Setup Guide (LEGACY)
+
+⚠️ **Note**: This guide is for the **old, more complex** service account method. The project now uses a **simpler public sheet approach** with just an API key. See the main README.md for the new simplified setup.
+
+**Only use this guide if you need private sheet access with service account authentication.**
+
+---
 
 This guide provides detailed, step-by-step instructions for setting up a Google Cloud project, enabling the Google Sheets API, and creating a service account with the necessary permissions to allow the scraper to update your Google Sheet.
 
@@ -83,4 +89,4 @@ Now that you have your service account set up and the JSON key file downloaded, 
 1.  **Share your Google Sheet** with the service account email, giving it **Editor** permissions.
 2.  **Configure the GitHub Secrets** in your repository using the information from the downloaded JSON file and your Google Sheet ID.
 
-Refer back to the main `README.md` for instructions on configuring your GitHub Secrets.
+**Note**: If you're using the new simplified public sheet method, you don't need any of this! Just follow the instructions in the main README.md instead.

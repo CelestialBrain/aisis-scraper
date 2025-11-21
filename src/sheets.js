@@ -1,37 +1,14 @@
 import { google } from 'googleapis';
 
 /**
- * Google Sheets Manager
- * Handles authentication and data updates to Google Sheets
+ * Google Sheets Manager (Simplified for Public Sheets)
+ * Uses API key authentication for public sheets - no service account needed!
  */
 export class SheetsManager {
-  constructor(spreadsheetId, credentials) {
+  constructor(spreadsheetId, apiKey) {
     this.spreadsheetId = spreadsheetId;
-    this.credentials = credentials;
-    this.sheets = null;
-  }
-
-  /**
-   * Authenticate with Google Sheets API
-   */
-  async authenticate() {
-    console.log('🔐 Authenticating with Google Sheets...');
-    
-    try {
-      const auth = new google.auth.GoogleAuth({
-        credentials: this.credentials,
-        scopes: ['https://www.googleapis.com/auth/spreadsheets']
-      });
-
-      const authClient = await auth.getClient();
-      this.sheets = google.sheets({ version: 'v4', auth: authClient });
-      
-      console.log('✅ Google Sheets authentication successful');
-      return true;
-    } catch (error) {
-      console.error('❌ Authentication failed:', error.message);
-      throw error;
-    }
+    this.apiKey = apiKey;
+    this.sheets = google.sheets({ version: 'v4', auth: apiKey });
   }
 
   /**
@@ -46,6 +23,7 @@ export class SheetsManager {
       console.log(`   Cleared sheet: ${sheetName}`);
     } catch (error) {
       console.error(`   ⚠️ Error clearing ${sheetName}:`, error.message);
+      throw error;
     }
   }
 
@@ -76,6 +54,7 @@ export class SheetsManager {
       console.log(`   ✅ Updated ${sheetName}: ${rows.length} rows`);
     } catch (error) {
       console.error(`   ❌ Error updating ${sheetName}:`, error.message);
+      throw error;
     }
   }
 
