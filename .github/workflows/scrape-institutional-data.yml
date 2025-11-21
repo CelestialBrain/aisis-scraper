@@ -24,10 +24,7 @@ jobs:
         
       - name: Run scraper
         env:
-          # These link to the secrets you set in GitHub Settings
           AISIS_USERNAME: ${{ secrets.AISIS_USERNAME }}
           AISIS_PASSWORD: ${{ secrets.AISIS_PASSWORD }}
-          GOOGLE_SPREADSHEET_ID: ${{ secrets.GOOGLE_SPREADSHEET_ID }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           SUPABASE_SYNC_KEY: ${{ secrets.SUPABASE_SYNC_KEY }}
         run: npm start
