@@ -49,7 +49,7 @@ export class SupabaseManager {
   }
 
   /**
-   * Parse time pattern like "TH 7:00-10:00" to extract start/end times
+   * Helper: Parse time pattern like "TH 7:00-10:00" to extract start/end times
    */
   parseTimePattern(timePattern) {
     if (!timePattern) return { start: null, end: null, days: null };
@@ -67,18 +67,20 @@ export class SupabaseManager {
         return `${hours.padStart(2, '0')}:${minutes}:00`;
       };
       
-      // Extract day codes (e.g., "TH" -> [2, 4] for Tuesday/Thursday)
-      const dayPattern = timePattern.split(' ')[0];
+      // Extract day codes
+      // Mapping: M=1, T=2, W=3, TH=4, F=5, S=6, SU=0
+      const dayPattern = timePattern.split(' ')[0].toUpperCase();
       const days = [];
       
-      // Simple parsing - you may need to enhance this
       if (dayPattern.includes('TH')) days.push(4);
       else if (dayPattern.includes('T')) days.push(2);
-      if (dayPattern.includes('W')) days.push(3);
-      if (dayPattern.includes('M')) days.push(1);
-      if (dayPattern.includes('F')) days.push(5);
-      if (dayPattern.includes('S')) days.push(6);
       
+      if (dayPattern.includes('M')) days.push(1);
+      if (dayPattern.includes('W')) days.push(3);
+      if (dayPattern.includes('F')) days.push(5);
+      if (dayPattern.includes('S') && !dayPattern.includes('U')) days.push(6);
+      if (dayPattern.includes('SU')) days.push(0);
+
       return {
         start: formatTime(startTime),
         end: formatTime(endTime),
@@ -98,11 +100,11 @@ export class SupabaseManager {
       const parsedTime = this.parseTimePattern(item.time);
       
       return {
-        subject_code: item.subjectCode,      // e.g., 'ME 11'
-        section: item.section,               // e.g., 'THX1'
+        subject_code: item.subjectCode,
+        section: item.section,
         course_title: item.title,
         units: parseFloat(item.units) || 0,
-        time_pattern: item.time,             // e.g., 'TH 7:00-10:00'
+        time_pattern: item.time,
         room: item.room,
         instructor: item.instructor,
         department: item.department,
@@ -110,8 +112,10 @@ export class SupabaseManager {
         level: item.level,
         remarks: item.remarks,
         max_capacity: item.maxSlots,
-        start_time: parsedTime.start || '00:00:00',  // Provide fallback
-        end_time: parsedTime.end || '23:59:59',      // Provide fallback
+        
+        // Fixed fields using the parser (Critical Fix):
+        start_time: parsedTime.start || '00:00:00', 
+        end_time: parsedTime.end || '23:59:59',     
         days_of_week: parsedTime.days,
         delivery_mode: null
       };
