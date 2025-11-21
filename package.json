@@ -1,0 +1,28 @@
+{
+  "name": "aisis-scraper",
+  "version": "1.0.0",
+  "description": "This project contains a Node.js-based web scraper that automatically logs into AISIS, scrapes 11 different data categories, and exports the data to a Google Sheet. The scraper is designed to run on a schedule using GitHub Actions.",
+  "main": "src/index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CelestialBrain/aisis-scraper.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/CelestialBrain/aisis-scraper/issues"
+  },
+  "homepage": "https://github.com/CelestialBrain/aisis-scraper#readme",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "puppeteer": "^22.10.0"
+  }
+}
