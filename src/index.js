@@ -1,7 +1,7 @@
 import { AISISScraper } from './scraper.js';
 import { SupabaseManager } from './supabase.js';
-import fs from 'fs'; // ✅ ADDED
-import path from 'path'; // ✅ ADDED
+import fs from 'fs';
+import path from 'path';
 import 'dotenv/config';
 
 async function main() {
@@ -16,7 +16,7 @@ async function main() {
     process.exit(1);
   }
 
-  // ✅ FIX: Use correct term format from HAR (not '20253')
+  // ✅ FIX: Correct Term Format (Matches HAR file)
   const CURRENT_TERM = '2025-1'; 
 
   const scraper = new AISISScraper(AISIS_USERNAME, AISIS_PASSWORD);
@@ -26,7 +26,7 @@ async function main() {
     await scraper.init();
     await scraper.login();
 
-    // ✅ FIX: Pass the term to the scraper
+    // ✅ FIX: Pass the term variable to the scraper
     const scheduleData = await scraper.scrapeSchedule(CURRENT_TERM);
     const curriculumData = await scraper.scrapeCurriculum();
 
@@ -58,7 +58,7 @@ async function main() {
       fs.writeFileSync('data/curriculum.json', JSON.stringify(curriculumData, null, 2));
       console.log(`   💾 Saved ${curriculumData.length} curriculum items to data/curriculum.json`);
       
-      // Optional: Sync Curriculum (Uncomment when table is ready)
+      // ✅ FIX: Sync Curriculum to Supabase
       const formattedCurr = supabase.transformCurriculumData(curriculumData);
       await supabase.syncToSupabase('curriculum', formattedCurr);
     }
