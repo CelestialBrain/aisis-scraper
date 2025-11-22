@@ -2,35 +2,40 @@ import { AISISScraper } from './scraper.js';
 import { SupabaseManager } from './supabase.js';
 import { GoogleSheetsManager } from './sheets.js';
 import fs from 'fs';
-import path from 'path';
-import 'dotenv/config';
 
 async function runInBatches(items, batchSize, fn) {
+  const results = [];
   for (let i = 0; i < items.length; i += batchSize) {
     const batch = items.slice(i, i + batchSize);
-    await Promise.all(batch.map(fn));
+    const batchResults = await Promise.allSettled(batch.map(fn));
+    results.push(...batchResults);
   }
+  return results;
 }
 
 async function main() {
   console.log('═══════════════════════════════════════════════════════');
-  console.log('🎓 AISIS Schedule Scraper (Schedule Only)');
+  console.log('🎓 AISIS Schedule Scraper');
   console.log('═══════════════════════════════════════════════════════\n');
 
   const { 
-    AISIS_USERNAME, AISIS_PASSWORD, DATA_INGEST_TOKEN, 
-    GOOGLE_SERVICE_ACCOUNT, SPREADSHEET_ID 
+    AISIS_USERNAME, 
+    AISIS_PASSWORD, 
+    DATA_INGEST_TOKEN, 
+    GOOGLE_SERVICE_ACCOUNT, 
+    SPREADSHEET_ID 
   } = process.env;
   
   if (!AISIS_USERNAME || !AISIS_PASSWORD) {
-    console.error('❌ FATAL: Missing credentials.');
+    console.error('❌ FATAL: Missing AISIS credentials in environment variables');
+    console.error('   Please set AISIS_USERNAME and AISIS_PASSWORD');
     process.exit(1);
   }
 
-  const CURRENT_TERM_FALLBACK = '2025-1'; 
+  const CURRENT_TERM = '2024-2'; // Updated to match Python script
 
   const scraper = new AISISScraper(AISIS_USERNAME, AISIS_PASSWORD);
-  const supabase = new SupabaseManager(DATA_INGEST_TOKEN);
+  const supabase = DATA_INGEST_TOKEN ? new SupabaseManager(DATA_INGEST_TOKEN) : null;
   
   let sheets = null;
   if (GOOGLE_SERVICE_ACCOUNT && SPREADSHEET_ID) {
@@ -42,94 +47,100 @@ async function main() {
     }
   }
 
-  let attempt = 0;
-  const maxAttempts = 2;
-  let scheduleData = [];
-
-  while (attempt < maxAttempts) {
-    try {
-      attempt++;
-      console.log(`\n🔄 Attempt ${attempt} of ${maxAttempts}`);
-      
-      await scraper.init();
-      await scraper.login();
-
-      // Verify login worked
-      console.log('   🔍 Verifying session...');
-      if (!await scraper.verifySession()) {
-        throw new Error('Session verification failed immediately after login');
-      }
-
-      console.log('✅ Session verified, starting data extraction...');
-
-      // 1. SCRAPE SCHEDULE ONLY
-      scheduleData = await scraper.scrapeSchedule(CURRENT_TERM_FALLBACK);
-      
-      // If we get here without errors, break the retry loop
-      console.log(`✅ Successfully scraped ${scheduleData.length} classes on attempt ${attempt}`);
-      break;
-      
-    } catch (error) {
-      console.error(`❌ Attempt ${attempt} failed:`, error.message);
-      
-      if (attempt >= maxAttempts) {
-        console.error('💥 All attempts failed. Exiting.');
-        // Even if failed, try to process whatever data we have
-        break;
-      }
-      
-      console.log('🔄 Retrying in 5 seconds...');
-      await new Promise(resolve => setTimeout(resolve, 5000));
-    }
-  }
-
-  if (!fs.existsSync('data')) fs.mkdirSync('data');
-
-  // --- PROCESS SCHEDULES ---
-  if (scheduleData.length > 0) {
-    const cleanSchedule = supabase.transformScheduleData(scheduleData);
+  try {
+    // Initialize and login
+    await scraper.init();
+    const loginSuccess = await scraper.login();
     
-    // 1. Local Backup
-    fs.writeFileSync('data/courses.json', JSON.stringify(cleanSchedule, null, 2));
-    console.log(`   💾 Saved ${scheduleData.length} classes to data/courses.json`);
-
-    // 2. Supabase Sync (Parallel Batches)
-    if (DATA_INGEST_TOKEN) {
-      console.log('   🚀 Starting Parallel Supabase Sync...');
-      
-      const byDept = scheduleData.reduce((acc, item) => {
-        const d = item.department || 'UNKNOWN';
-        if (!acc[d]) acc[d] = [];
-        acc[d].push(item);
-        return acc;
-      }, {});
-      
-      const departments = Object.keys(byDept);
-      
-      await runInBatches(departments, 3, async (dept) => {
-        const batchData = supabase.transformScheduleData(byDept[dept]);
-        const supabaseBatch = batchData.map(d => ({
-            ...d,
-            days_of_week: JSON.parse(d.days_of_week)
-        }));
-        const termCode = batchData[0]?.term_code || CURRENT_TERM_FALLBACK;
-        await supabase.syncToSupabase('schedules', supabaseBatch, termCode, dept);
-      });
+    if (!loginSuccess) {
+      throw new Error('Login failed');
     }
 
-    // 3. Google Sheets Sync
-    if (sheets) {
-      await sheets.syncData(SPREADSHEET_ID, 'Schedules', cleanSchedule);
+    // Scrape schedule data
+    console.log('\n📥 Scraping schedule data...');
+    const scheduleData = await scraper.scrapeSchedule(CURRENT_TERM);
+
+    if (!fs.existsSync('data')) fs.mkdirSync('data');
+
+    if (scheduleData.length > 0) {
+      const cleanSchedule = supabase ? supabase.transformScheduleData(scheduleData) : scheduleData;
+      
+      // 1. Local backup
+      fs.writeFileSync('data/courses.json', JSON.stringify(cleanSchedule, null, 2));
+      console.log(`   💾 Saved ${scheduleData.length} courses to data/courses.json`);
+
+      // 2. Supabase Sync
+      if (supabase) {
+        console.log('   🚀 Starting Supabase Sync...');
+        
+        // Group by department for batch processing
+        const byDept = scheduleData.reduce((acc, item) => {
+          const dept = item.department || 'UNKNOWN';
+          if (!acc[dept]) acc[dept] = [];
+          acc[dept].push(item);
+          return acc;
+        }, {});
+        
+        const departments = Object.keys(byDept);
+        let successCount = 0;
+        let errorCount = 0;
+        
+        const results = await runInBatches(departments, 3, async (dept) => {
+          try {
+            const batchData = supabase.transformScheduleData(byDept[dept]);
+            const supabaseBatch = batchData.map(d => ({
+              ...d,
+              days_of_week: JSON.parse(d.days_of_week)
+            }));
+            
+            const success = await supabase.syncToSupabase('schedules', supabaseBatch, CURRENT_TERM, dept);
+            if (success) successCount++; else errorCount++;
+            return success;
+          } catch (error) {
+            console.error(`   ❌ Failed to sync ${dept}:`, error.message);
+            errorCount++;
+            return false;
+          }
+        });
+        
+        console.log(`   📊 Supabase Sync Results: ${successCount} successful, ${errorCount} failed`);
+      } else {
+        console.log('   ⚠️ Supabase sync skipped (no DATA_INGEST_TOKEN)');
+      }
+
+      // 3. Google Sheets Sync
+      if (sheets) {
+        console.log('   📊 Syncing to Google Sheets...');
+        try {
+          await sheets.syncData(SPREADSHEET_ID, 'Schedules', cleanSchedule);
+          console.log('   ✅ Google Sheets sync completed');
+        } catch (error) {
+          console.error('   ❌ Google Sheets sync failed:', error.message);
+        }
+      }
+
+    } else {
+      console.warn("   ⚠️ No schedule data found. This might indicate:");
+      console.warn("      - No courses available for the current term");
+      console.warn("      - Session expired during scraping");
+      console.warn("      - AISIS system changes");
     }
-  } else {
-    console.warn("   ⚠️ No schedule data found.");
+
+    console.log('\n✅ Scraping completed successfully!');
+    process.exit(0);
+
+  } catch (error) {
+    console.error('\n❌ Scraping failed:', error.message);
+    console.error('Stack trace:', error.stack);
+    process.exit(1);
   }
-
-  console.log('\n✅ Done!');
-  process.exit(0);
 }
 
-main().catch(error => {
-  console.error('\n❌ Failed:', error);
+// Handle uncaught errors
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
   process.exit(1);
 });
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error
