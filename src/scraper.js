@@ -7,42 +7,63 @@ import fetchCookie from 'fetch-cookie';
 if (!fs.existsSync('debug')) fs.mkdirSync('debug');
 
 const jar = new CookieJar();
-const fetchWithJar = fetchCookie(global.fetch, jar);
+// Use node-fetch if available, otherwise fall back to global fetch
+let fetchWithJar;
+try {
+  const { default: nodeFetch } = await import('node-fetch');
+  fetchWithJar = fetchCookie(nodeFetch, jar);
+} catch (error) {
+  fetchWithJar = fetchCookie(global.fetch, jar);
+}
 
 export class AISISScraper {
   constructor(username, password) {
     this.username = username;
     this.password = password;
     this.baseUrl = 'https://aisis.ateneo.edu';
-    this.session = null;
     this.loggedIn = false;
   }
 
   async init() {
     console.log('🚀 Initializing AISIS Scraper...');
-    this.session = fetchWithJar;
   }
 
   async _request(url, options = {}) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
+    const timeout = setTimeout(() => controller.abort(), 45000); // Increased timeout
     
     const defaultHeaders = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.9',
-      'Connection': 'keep-alive'
+      'Connection': 'keep-alive',
+      'Origin': this.baseUrl,
+      'Referer': `${this.baseUrl}/j_aisis/login.do`
     };
 
     const opts = {
       ...options,
       headers: { ...defaultHeaders, ...options.headers },
       signal: controller.signal,
-      redirect: 'follow'
+      redirect: 'manual' // Handle redirects manually to preserve cookies
     };
 
     try {
-      const response = await this.session(url, opts);
+      let response = await fetchWithJar(url, opts);
+      
+      // Handle redirects manually to preserve session
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location');
+        if (location) {
+          const redirectUrl = new URL(location, this.baseUrl).toString();
+          console.log(`   🔄 Following redirect to: ${redirectUrl}`);
+          response = await fetchWithJar(redirectUrl, {
+            ...opts,
+            redirect: 'manual'
+          });
+        }
+      }
+      
       return response;
     } catch (err) {
       if (err.name === 'AbortError') throw new Error('Request timeout');
@@ -56,14 +77,21 @@ export class AISISScraper {
     console.log('🔐 Logging into AISIS...');
     
     try {
-      // First, get the login page to establish session
+      // First, get the login page to establish session and get any required tokens
+      console.log('   📥 Loading login page...');
       const getResponse = await this._request(`${this.baseUrl}/j_aisis/login.do`);
       const loginHtml = await getResponse.text();
       
-      // Extract any required tokens from the login form if needed
+      // Extract any required tokens from the login form
       const $ = cheerio.load(loginHtml);
-      const rnd = $('input[name="rnd"]').val() || this._generateRandom();
+      let rnd = $('input[name="rnd"]').val();
       
+      // If no rnd found in form, generate one like the Python script
+      if (!rnd) {
+        rnd = this._generateRandom();
+        console.log(`   🔧 Generated rnd token: ${rnd.substring(0, 20)}...`);
+      }
+
       const formData = new URLSearchParams();
       formData.append('userName', this.username);
       formData.append('password', this.password);
@@ -71,34 +99,63 @@ export class AISISScraper {
       formData.append('command', 'login');
       formData.append('rnd', rnd);
 
+      console.log('   📤 Sending login credentials...');
       const loginResponse = await this._request(`${this.baseUrl}/j_aisis/login.do`, {
         method: 'POST',
         body: formData.toString(),
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'Origin': this.baseUrl,
           'Referer': `${this.baseUrl}/j_aisis/login.do`
         }
       });
 
       const responseText = await loginResponse.text();
+      const finalUrl = loginResponse.url;
       
-      // Check if login was successful
-      if (responseText.includes('User Identified As') || responseText.includes('MY INDIVIDUAL PROGRAM OF STUDY')) {
+      console.log(`   📍 Login response URL: ${finalUrl}`);
+      console.log(`   📊 Login response status: ${loginResponse.status}`);
+      
+      // Check if login was successful using multiple indicators
+      const successIndicators = [
+        responseText.includes('User Identified As'),
+        responseText.includes('MY INDIVIDUAL PROGRAM OF STUDY'),
+        responseText.includes('Welcome'),
+        finalUrl.includes('home.do'),
+        finalUrl.includes('J_VMCS.do')
+      ];
+
+      if (successIndicators.some(indicator => indicator)) {
         this.loggedIn = true;
         console.log('✅ Login successful');
         
-        // Save cookies for debugging
+        // Save session info for debugging
         const cookies = await jar.getCookies(this.baseUrl);
-        fs.writeFileSync('debug/cookies.json', JSON.stringify(cookies, null, 2));
+        console.log(`   🍪 Session cookies: ${cookies.length}`);
+        
+        fs.writeFileSync('debug/login_success.html', responseText.substring(0, 5000));
+        fs.writeFileSync('debug/cookies.json', JSON.stringify(cookies.map(c => ({
+          key: c.key,
+          value: c.value ? `${c.value.substring(0, 20)}...` : 'empty',
+          domain: c.domain,
+          path: c.path
+        })), null, 2));
         
         return true;
       } else {
         console.error('❌ Login failed - incorrect credentials or system error');
+        
+        // Save debug info
+        fs.writeFileSync('debug/login_failed.html', responseText);
+        
         if (responseText.includes('Invalid') || responseText.includes('incorrect')) {
           throw new Error('Invalid username or password');
         }
-        return false;
+        
+        if (responseText.includes('sign in') || responseText.includes('login')) {
+          throw new Error('Still on login page - authentication failed');
+        }
+        
+        throw new Error('Unknown login failure');
       }
     } catch (error) {
       console.error('⛔ Login error:', error.message);
@@ -107,12 +164,14 @@ export class AISISScraper {
   }
 
   _generateRandom() {
-    return 'r' + Array.from(crypto.getRandomValues(new Uint8Array(10)))
-      .map(b => b.toString(16).padStart(2, '0')).join('');
+    // Generate random string like the Python script: r + 20 hex chars
+    const bytes = new Uint8Array(10);
+    crypto.getRandomValues(bytes);
+    return 'r' + Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
   async warmup() {
-    console.log('🔥 Warming up session...');
+    console.log('🔥 Warming up session before scraping...');
     
     const formData = new URLSearchParams();
     formData.append('command', 'displayResults');
@@ -126,22 +185,24 @@ export class AISISScraper {
         body: formData.toString(),
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'Origin': this.baseUrl,
           'Referer': `${this.baseUrl}/j_aisis/J_VCSC.do`
         }
       });
 
       const text = await response.text();
       
-      if (response.ok && !text.includes('sign in') && !text.includes('login')) {
+      // Check if we're still logged in
+      if (response.ok && !text.includes('sign in') && !text.includes('login.do')) {
         console.log('✅ Session warmup successful');
         return true;
       } else {
-        console.error('❌ Session warmup failed');
+        console.error('❌ Session warmup failed - session may have expired');
+        this.loggedIn = false;
         return false;
       }
     } catch (error) {
       console.error('❌ Warmup error:', error.message);
+      this.loggedIn = false;
       return false;
     }
   }
@@ -151,11 +212,12 @@ export class AISISScraper {
       throw new Error('Not logged in. Call login() first.');
     }
 
-    console.log(`📅 Scraping schedule for term: ${term}`);
+    console.log(`\n📅 Scraping schedule for term: ${term}`);
     
-    // Run warmup first
+    // Run warmup first to ensure session is active
+    console.log('   🔄 Verifying session...');
     if (!await this.warmup()) {
-      throw new Error('Session warmup failed');
+      throw new Error('Session expired during warmup');
     }
 
     const departments = [
@@ -164,11 +226,12 @@ export class AISISScraper {
       "HI", "SOHUM", "DISCS", "SALT", "INTAC", "IS", "JSP", "KSP", 
       "LAS", "MAL", "MA", "ML", "NSTP (ADAST)", "NSTP (OSCI)", 
       "PH", "PE", "PS", "POS", "PSY", "QMIT", "SB", "SOCSCI", 
-      "SA", "TH", "TMP", "ITMGT", "MATH", "MIS", "CS", "HUM", 
-      "LIT", "MGT", "MKT", "NF", "NS"
+      "SA", "TH", "TMP"
     ];
 
     const allCourses = [];
+    let successCount = 0;
+    let failCount = 0;
     
     for (const dept of departments) {
       console.log(`   📚 Scraping ${dept}...`);
@@ -177,20 +240,35 @@ export class AISISScraper {
         const courses = await this._scrapeDepartment(term, dept);
         if (courses && courses.length > 0) {
           allCourses.push(...courses);
+          successCount++;
           console.log(`   ✅ ${dept}: ${courses.length} courses`);
         } else {
           console.log(`   ⚠️  ${dept}: No courses found`);
+          successCount++;
         }
         
-        // Rate limiting
-        await this._delay(1000);
+        // Rate limiting - be more conservative
+        await this._delay(1500);
       } catch (error) {
         console.error(`   ❌ ${dept}: ${error.message}`);
-        continue;
+        failCount++;
+        
+        // If we're getting session errors, stop early
+        if (error.message.includes('Session Expired') || error.message.includes('login page')) {
+          console.error('   💥 Session expired, stopping scrape');
+          break;
+        }
+        
+        // Continue with other departments on other errors
+        await this._delay(1000);
       }
     }
 
-    console.log(`✅ Total courses scraped: ${allCourses.length}`);
+    console.log(`\n📊 Scraping Summary:`);
+    console.log(`   ✅ Successful: ${successCount} departments`);
+    console.log(`   ❌ Failed: ${failCount} departments`);
+    console.log(`   📚 Total courses: ${allCourses.length}`);
+    
     return allCourses;
   }
 
@@ -201,12 +279,17 @@ export class AISISScraper {
     formData.append('deptCode', deptCode);
     formData.append('subjCode', 'ALL');
 
+    // Debug: check cookies before request
+    const cookiesBefore = await jar.getCookies(this.baseUrl);
+    if (cookiesBefore.length === 0) {
+      throw new Error('No session cookies available');
+    }
+
     const response = await this._request(`${this.baseUrl}/j_aisis/J_VCSC.do`, {
       method: 'POST',
       body: formData.toString(),
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Origin': this.baseUrl,
         'Referer': `${this.baseUrl}/j_aisis/J_VCSC.do`
       }
     });
@@ -217,9 +300,18 @@ export class AISISScraper {
 
     const html = await response.text();
     
+    // Save response for debugging
+    fs.writeFileSync(`debug/${deptCode}_response.html`, html.substring(0, 10000));
+    
     // Check if session is still valid
-    if (html.includes('sign in') || html.includes('login.do')) {
-      throw new Error('Session expired');
+    if (html.includes('sign in') || html.includes('login.do') || html.includes('User Name:')) {
+      this.loggedIn = false;
+      throw new Error('Session Expired: login page returned');
+    }
+
+    // Check if we got a valid response with course data
+    if (!html.includes('Subject') && !html.includes('Section') && !html.includes('Course')) {
+      throw new Error('Unexpected page structure - no course data found');
     }
 
     return this._parseCourses(html, deptCode);
@@ -229,14 +321,21 @@ export class AISISScraper {
     const $ = cheerio.load(html);
     const courses = [];
     
-    // Find all course cells (similar to Python version)
-    const courseCells = $('td.text02');
-    console.log(`   DEBUG: Found ${courseCells.length} course cells for ${deptCode}`);
+    // Look for course tables - try multiple selectors
+    let courseCells = $('td.text02');
+    
+    // If no cells found with that class, try other common patterns
+    if (courseCells.length === 0) {
+      courseCells = $('td').filter((i, elem) => {
+        const text = $(elem).text().trim();
+        return text && !text.includes('Subject') && !text.includes('Section') && text.length > 0;
+      });
+    }
+    
+    console.log(`   DEBUG: Found ${courseCells.length} potential course cells for ${deptCode}`);
     
     if (courseCells.length === 0) {
       console.log(`   DEBUG: No course cells found for ${deptCode}`);
-      // Save HTML for debugging
-      fs.writeFileSync(`debug/${deptCode}_no_cells.html`, html.substring(0, 5000));
       return courses;
     }
 
@@ -245,7 +344,7 @@ export class AISISScraper {
       if (i + 13 >= courseCells.length) break;
       
       const cells = courseCells.slice(i, i + 14);
-      const cellTexts = cells.map((_, cell) => $(cell).text().trim());
+      const cellTexts = cells.map((_, cell) => $(cell).text().trim()).get();
       
       const timeText = cellTexts[4];
       
@@ -256,7 +355,7 @@ export class AISISScraper {
         title: this._cleanText(cellTexts[2]),
         units: this._cleanText(cellTexts[3]),
         time: this._cleanText(timeText).replace(/\(FULLY ONSITE\)|\(FULLY ONLINE\)|~|\(\)$/g, '').trim(),
-        room: cellTexts[5].includes('TBA') ? 'TBA' : this._cleanText(cellTexts[5]),
+        room: cellTexts[5] && cellTexts[5].includes('TBA') ? 'TBA' : this._cleanText(cellTexts[5]),
         instructor: this._cleanText(cellTexts[6]),
         maxSlots: this._cleanText(cellTexts[7] || ''),
         language: this._cleanText(cellTexts[8] || ''),
@@ -266,7 +365,7 @@ export class AISISScraper {
       };
 
       // Only add if we have a valid course code
-      if (course.subjectCode && !course.subjectCode.trim().match(/^\s*$/)) {
+      if (course.subjectCode && course.subjectCode.trim() && !course.subjectCode.match(/^\s*$/)) {
         courses.push(course);
       }
     }
