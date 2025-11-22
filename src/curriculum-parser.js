@@ -169,7 +169,7 @@ export function parseCurriculumHtml(html, degCode, label) {
       const category = cellTexts[4] || null;
       
       // Only add row if we have at least a course code
-      if (courseCode && courseCode.trim()) {
+      if (courseCode?.trim()) {
         rows.push({
           deg_code: degCode,
           program_label: label,
@@ -179,8 +179,8 @@ export function parseCurriculumHtml(html, degCode, label) {
           course_code: courseCode.trim(),
           course_title: courseTitle.trim(),
           units: parseUnits(unitsText),
-          prerequisites: prerequisites && prerequisites.trim() ? prerequisites.trim() : null,
-          category: category && category.trim() ? category.trim() : null
+          prerequisites: prerequisites?.trim() || null,
+          category: category?.trim() || null
         });
       }
     }

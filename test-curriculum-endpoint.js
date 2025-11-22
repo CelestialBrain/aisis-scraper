@@ -6,7 +6,7 @@
  */
 
 import { AISISScraper } from './src/scraper.js';
-import { parseAllCurricula } from './src/curriculum-parser.js';
+import { parseAllCurricula, parseCurriculumHtml } from './src/curriculum-parser.js';
 import 'dotenv/config';
 
 async function testCurriculumEndpoint() {
@@ -70,7 +70,6 @@ async function testCurriculumEndpoint() {
       
       // Test 3: Parse HTML to structured data
       console.log('\n📝 Test 3: Parsing curriculum HTML to structured data...\n');
-      const { parseCurriculumHtml } = await import('./src/curriculum-parser.js');
       const parsedRows = parseCurriculumHtml(html, testDegCode, degreePrograms[0].label);
       
       console.log(`   ✅ Parsed ${parsedRows.length} course rows`);
