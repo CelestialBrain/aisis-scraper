@@ -1,26 +1,27 @@
 import fetch from 'node-fetch'; // Falls back to native fetch in Node 18+ if not installed
 
 export class SupabaseManager {
-  constructor(syncKey) {
-    this.syncKey = syncKey;
-    this.url = 'https://npnringvuiystpxbntvj.supabase.co/functions/v1/github-sync';
+  constructor(ingestToken) {
+    this.ingestToken = ingestToken;
+    this.url = 'https://npnringvuiystpxbntvj.supabase.co/functions/v1/github-data-ingest';
   }
 
   /**
-   * Sync data to Supabase via github-sync Edge Function
+   * Sync data to Supabase via github-data-ingest Edge Function
    */
   async syncToSupabase(dataType, data, termCode = null, department = null) {
     console.log(`   ☁️ Syncing ${data.length} ${dataType} records for ${department || 'all'}...`);
 
     const payload = {
-      type: dataType,
-      data: data
+      data_type: dataType,
+      records: data,
+      metadata: {}
     };
 
     // Add context fields for schedules
     if (dataType === 'schedules') {
-      payload.term_code = termCode;
-      payload.department = department;
+      payload.metadata.term_code = termCode;
+      payload.metadata.department = department;
     }
 
     try {
@@ -28,7 +29,7 @@ export class SupabaseManager {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': this.syncKey
+          'Authorization': `Bearer ${this.ingestToken}`
         },
         body: JSON.stringify(payload)
       });

@@ -23,8 +23,8 @@ This project contains a Node.js-based web scraper that automatically logs into A
 You'll need a Supabase project with the appropriate Edge Function endpoint configured to receive scraped data.
 
 1. Create a Supabase project at [https://supabase.com](https://supabase.com)
-2. Deploy the `github-sync` Edge Function (see your Supabase project documentation)
-3. Generate an API key for the sync endpoint
+2. Deploy the `github-data-ingest` Edge Function (see your Supabase project documentation)
+3. Generate an authentication token for the data ingest endpoint
 
 ### 2. Configure GitHub Secrets
 
@@ -32,7 +32,7 @@ In your GitHub repository, go to `Settings` > `Secrets and variables` > `Actions
 
 - `AISIS_USERNAME`: Your AISIS username
 - `AISIS_PASSWORD`: Your AISIS password
-- `SUPABASE_SYNC_KEY`: The API key for your Supabase sync endpoint
+- `DATA_INGEST_TOKEN`: The authentication token for your Supabase data ingest endpoint
 
 ### 3. Update Term Code
 
@@ -46,7 +46,7 @@ const CURRENT_TERM = '20253'; // Update this when the semester changes
 
 - **GitHub Actions**: The `.github/workflows/scrape.yml` file defines the workflow. It runs on a schedule, checks out the code, installs dependencies, and runs the scraper.
 - **Scraper (`src/scraper.js`)**: This script uses Puppeteer to launch a headless Chrome browser, log in to AISIS, and navigate to the schedule and curriculum pages to scrape the data using native DOM extraction.
-- **Supabase Sync (`src/supabase.js`)**: This script transforms the scraped data and syncs it to Supabase via the `github-sync` Edge Function endpoint.
+- **Supabase Sync (`src/supabase.js`)**: This script transforms the scraped data and syncs it to Supabase via the `github-data-ingest` Edge Function endpoint.
 - **Main Script (`src/index.js`)**: This is the entry point that orchestrates the scraper and the Supabase sync manager.
 
 ## Running Locally (for Testing)
@@ -72,7 +72,7 @@ const CURRENT_TERM = '20253'; // Update this when the semester changes
    ```
    AISIS_USERNAME=your_username
    AISIS_PASSWORD=your_password
-   SUPABASE_SYNC_KEY=your_sync_key
+   DATA_INGEST_TOKEN=your_ingest_token
    ```
 
 4. **Run the scraper**:

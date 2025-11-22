@@ -15,15 +15,15 @@ async function main() {
   console.log('═══════════════════════════════════════════════════════\n');
 
   // 1. Validation
-  const { AISIS_USERNAME, AISIS_PASSWORD, SUPABASE_SYNC_KEY } = process.env;
+  const { AISIS_USERNAME, AISIS_PASSWORD, DATA_INGEST_TOKEN } = process.env;
   
   if (!AISIS_USERNAME || !AISIS_PASSWORD) {
     console.error('❌ FATAL: Missing AISIS credentials. Please set AISIS_USERNAME and AISIS_PASSWORD.');
     process.exit(1);
   }
 
-  if (!SUPABASE_SYNC_KEY) {
-    console.error('❌ FATAL: Missing SUPABASE_SYNC_KEY. Please set it in your environment variables.');
+  if (!DATA_INGEST_TOKEN) {
+    console.error('❌ FATAL: Missing DATA_INGEST_TOKEN. Please set it in your environment variables.');
     process.exit(1);
   }
 
@@ -40,7 +40,7 @@ async function main() {
 
     // 4. Supabase Sync
     console.log('\n☁️ Starting Supabase Sync...');
-    const supabase = new SupabaseManager(SUPABASE_SYNC_KEY);
+    const supabase = new SupabaseManager(DATA_INGEST_TOKEN);
     
     // Set the current term (Update this manually when the semester changes)
     const CURRENT_TERM = '20253'; 

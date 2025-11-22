@@ -82,7 +82,7 @@ CREATE INDEX idx_curriculum_course ON curriculum(course_code);
 
 ## Step 3: Deploy the Edge Function
 
-You'll need to deploy a `github-sync` Edge Function that receives data from the scraper and inserts it into your database.
+You'll need to deploy a `github-data-ingest` Edge Function that receives data from the scraper and inserts it into your database.
 
 1. **Install Supabase CLI**:
    ```bash
@@ -96,14 +96,14 @@ You'll need to deploy a `github-sync` Edge Function that receives data from the 
 
 3. **Create the Edge Function**:
    ```bash
-   supabase functions new github-sync
+   supabase functions new github-data-ingest
    ```
 
 4. **Implement the function** to handle incoming data and insert it into your tables (refer to Supabase Edge Functions documentation for details).
 
 5. **Deploy the function**:
    ```bash
-   supabase functions deploy github-sync
+   supabase functions deploy github-data-ingest
    ```
 
 ## Step 4: Generate an API Key
@@ -111,7 +111,7 @@ You'll need to deploy a `github-sync` Edge Function that receives data from the 
 1. Go to your Supabase project dashboard
 2. Navigate to **Settings** > **API**
 3. Copy your **anon/public** key or create a custom **service role** key for enhanced security
-4. This will be your `SUPABASE_SYNC_KEY`
+4. This will be your `DATA_INGEST_TOKEN`
 
 ## Step 5: Configure GitHub Secrets
 
@@ -121,14 +121,14 @@ In your GitHub repository:
 2. Add the following secrets:
    - `AISIS_USERNAME`: Your AISIS username
    - `AISIS_PASSWORD`: Your AISIS password
-   - `SUPABASE_SYNC_KEY`: The API key from Step 4
+   - `DATA_INGEST_TOKEN`: The authentication token from Step 4
 
 ## Step 6: Update the Sync URL (if needed)
 
 If your Supabase project URL is different, update it in `src/supabase.js`:
 
 ```javascript
-this.url = 'https://YOUR_PROJECT_ID.supabase.co/functions/v1/github-sync';
+this.url = 'https://YOUR_PROJECT_ID.supabase.co/functions/v1/github-data-ingest';
 ```
 
 Replace `YOUR_PROJECT_ID` with your actual Supabase project ID.
@@ -141,7 +141,7 @@ Before running on GitHub Actions, test the scraper locally:
    ```
    AISIS_USERNAME=your_username
    AISIS_PASSWORD=your_password
-   SUPABASE_SYNC_KEY=your_sync_key
+   DATA_INGEST_TOKEN=your_ingest_token
    ```
 
 2. Run the scraper:
@@ -154,7 +154,7 @@ Before running on GitHub Actions, test the scraper locally:
 ## Troubleshooting
 
 ### Data not syncing
-- Verify your `SUPABASE_SYNC_KEY` is correct
+- Verify your `DATA_INGEST_TOKEN` is correct
 - Check the Edge Function logs in Supabase dashboard
 - Ensure your database tables exist and have the correct schema
 

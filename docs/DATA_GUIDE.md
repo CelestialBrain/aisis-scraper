@@ -8,7 +8,7 @@ The scraper extracts two primary institutional datasets from AISIS:
 1.  **Schedule of Classes**: A complete listing of all courses offered in a given term, including schedules, instructors, and slot availability.
 2.  **Official Curriculum**: The official list of required courses for every degree program.
 
-The data is extracted, transformed into a structured format, and synced to Supabase via the `github-sync` Edge Function.
+The data is extracted, transformed into a structured format, and synced to Supabase via the `github-data-ingest` Edge Function.
 
 ---
 
@@ -42,7 +42,7 @@ This is the raw data format directly from `scraper.js` before transformation:
 
 The `supabase.js` manager transforms the raw data into a more structured format before sending it to the Supabase Edge Function. This transformed model is what Lovable's backend will receive.
 
-**Supabase Table:** `schedules`
+**Supabase Table:** `aisis_schedules`
 
 | Field Name | Supabase Type | Description & Interpretation | Example (Transformed) |
 | :--- | :--- | :--- | :--- |
@@ -90,7 +90,7 @@ This model represents a single course requirement within a specific degree progr
 
 ### Transformed Data & Supabase Storage
 
-**Supabase Table:** `curriculum`
+**Supabase Table:** `aisis_curriculum`
 
 | Field Name | Supabase Type | Description & Interpretation | Example (Transformed) |
 | :--- | :--- | :--- | :--- |
@@ -113,21 +113,40 @@ This model represents a single course requirement within a specific degree progr
 
 ## 3. Data Synchronization Logic for Lovable's Backend
 
-The `github-sync` Edge Function is the bridge between the scraper and Lovable's database. It should be designed to handle data atomically to prevent inconsistencies.
+The `github-data-ingest` Edge Function is the bridge between the scraper and Lovable's database. It uses upsert logic (insert or update) to keep data synchronized.
 
 ### Syncing Schedules
 
 - **Granularity**: The scraper syncs schedule data **per department, per term**. The function will receive a payload containing all classes for one department (e.g., `ITMGT`) for one term (e.g., `20253`).
-- **Recommended Logic (Transactional Upsert)**: To ensure data is always fresh and accurate, the Edge Function should perform the following steps in a single transaction:
-  1.  **DELETE** all records from the `schedules` table where `term_code` and `department` match the incoming payload.
-  2.  **INSERT** the new records from the payload.
-- **Why this way?**: This "delete-then-insert" approach automatically handles courses that have been removed, had their sections changed, or were updated. A simple `upsert` on a per-row basis would not remove classes that are no longer offered, leading to stale data in Lovable.
+- **Current Logic (Upsert)**: The Edge Function uses upsert logic that:
+  1.  **Inserts** new records that don't exist
+  2.  **Updates** existing records based on matching primary keys
+  3.  **Preserves** old records that aren't in the current payload
+- **Payload Format**:
+  ```json
+  {
+    "data_type": "schedules",
+    "records": [...],
+    "metadata": {
+      "term_code": "20253",
+      "department": "ITMGT"
+    }
+  }
+  ```
 
 ### Syncing Curriculum
 
 - **Granularity**: The scraper syncs all curriculum data for **all degree programs at once**.
-- **Recommended Logic (Transactional Upsert)**:
-  1.  **DELETE** all records from the `curriculum` table.
-  2.  **INSERT** the new records from the payload.
-- **Why this way?**: Curricula change infrequently. A full refresh is the simplest and most robust way to ensure the data in Lovable is a perfect mirror of the source, preventing any discrepancies from outdated program requirements.
+- **Current Logic (Upsert)**: The Edge Function uses the same upsert logic as schedules:
+  1.  **Inserts** new curriculum records
+  2.  **Updates** existing records based on matching keys
+  3.  **Preserves** records not in the current payload
+- **Payload Format**:
+  ```json
+  {
+    "data_type": "curriculum",
+    "records": [...],
+    "metadata": {}
+  }
+  ```
 
