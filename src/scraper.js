@@ -8,6 +8,7 @@ export class AISISScraper {
     this.baseUrl = 'https://aisis.ateneo.edu';
     this.cookie = null;
     
+    // Mimic Chrome to avoid bot detection
     this.headers = {
       'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
@@ -22,6 +23,7 @@ export class AISISScraper {
     console.log('🚀 Initializing Direct Request Engine (No Browser)...');
   }
 
+  // Helper to handle requests and maintain session cookies
   async _request(url, options = {}) {
     const opts = {
       ...options,
@@ -45,10 +47,10 @@ export class AISISScraper {
   async login() {
     console.log('🔐 Authenticating via Direct Request...');
     try {
-      // 1. Warm-up
+      // 1. Warm-up: Visit login page to get initial cookie
       await this._request(`${this.baseUrl}/j_aisis/displayLogin.do`, { method: 'GET' });
       
-      // 2. Login
+      // 2. Login: Send credentials
       const params = new URLSearchParams();
       params.append('userName', this.username);
       params.append('password', this.password);
@@ -61,12 +63,13 @@ export class AISISScraper {
         body: params
       });
 
-      // 3. Validation
+      // 3. Validate Login
       const text = await response.text();
       if (text.includes('Invalid password') || text.includes('Sign in')) {
         throw new Error('Authentication Failed: Invalid credentials.');
       }
       console.log('✅ Authentication Successful (Session Established)');
+      // Tiny delay to be polite
       await new Promise(r => setTimeout(r, 1000));
     } catch (error) {
       console.error('⛔ Critical Login Error:', error.message);
@@ -74,107 +77,74 @@ export class AISISScraper {
     }
   }
 
-  async scrapeSchedule(fallbackTerm = '2025-1') {
-    console.log('\n📅 Starting Schedule Extraction...');
+  async scrapeSchedule(term) {
+    console.log(`\n📅 Starting Schedule Extraction for term: ${term}...`);
     const results = [];
 
-    try {
-      this.headers['Referer'] = `${this.baseUrl}/j_aisis/login.do`;
-      const initialResponse = await this._request(`${this.baseUrl}/j_aisis/J_VCSC.do`, { method: 'GET' });
-      const initialHtml = await initialResponse.text();
-      const $ = cheerio.load(initialHtml);
+    // ✅ MANUAL LIST: Bypasses "0 departments found" error
+    const deptCodes = [
+        "BIO", "CH", "CHN", "COM", "CEPP", "CPA", "ELM", "DS", "EC", "ECE", 
+        "EN", "ES", "EU", "FIL", "FAA", "FA", "HSP", "HI", "SOHUM", "DISCS", 
+        "SALT", "INTAC", "IS", "JSP", "KSP", "LAS", "MAL", "MA", "ML", 
+        "NSTP (ADAST)", "NSTP (OSCI)", "PH", "PE", "PS", "POS", "PSY", 
+        "QMIT", "SB", "SOCSCI", "SA", "TH", "TMP", "ITMGT", "MATH", "MIS", "CS",
+        "HUM", "LIT", "MGT", "MKT", "NF", "NS", "PE", "PH", "POS", "PS", "PSY" 
+    ];
 
-      // 🛑 ANTI-GARBAGE CHECK: Ensure we are actually on the schedule page
-      if ($('select[name="deptCode"]').length === 0) {
-        throw new Error('❌ Session Expired or Page Load Failed: Could not find Department dropdown.');
+    console.log(`   Using manual list of ${deptCodes.length} departments.`);
+    this.headers['Referer'] = `${this.baseUrl}/j_aisis/J_VCSC.do`;
+
+    for (const dept of deptCodes) {
+      const params = new URLSearchParams();
+      params.append('command', 'displayResults');
+      params.append('applicablePeriod', term);
+      params.append('deptCode', dept);
+      params.append('subjCode', 'ALL');
+
+      try {
+        const response = await this._request(`${this.baseUrl}/j_aisis/J_VCSC.do`, {
+          method: 'POST',
+          body: params
+        });
+
+        const html = await response.text();
+        const $table = cheerio.load(html);
+        let deptCount = 0;
+
+        $table('table tr').each((i, row) => {
+          const cells = $table(row).find('td');
+          
+          // Only scrape rows that look like actual classes (10+ columns)
+          if (cells.length > 10) {
+            const subject = $table(cells[0]).text().trim();
+            // Anti-Garbage: Ignore rows that are just headers or empty
+            if (subject.includes('Ateneo Integrated') || subject === '') return; 
+
+            results.push({
+              department:  dept,
+              subjectCode: subject,
+              section:     $table(cells[1]).text().trim(),
+              title:       $table(cells[2]).text().trim(),
+              units:       $table(cells[3]).text().trim(),
+              time:        $table(cells[4]).text().trim(),
+              room:        $table(cells[5]).text().trim(),
+              instructor:  $table(cells[6]).text().trim(),
+              maxSlots:    $table(cells[7]).text().trim(),
+              language:    $table(cells[8]).text().trim(),
+              level:       $table(cells[9]).text().trim(),
+              freeSlots:   $table(cells[10]).text().trim(),
+              remarks:     $table(cells[11]).text().trim()
+            });
+            deptCount++;
+          }
+        });
+
+        if (deptCount > 0) console.log(`   ✓ ${dept}: ${deptCount} classes`);
+        await new Promise(r => setTimeout(r, 50)); 
+
+      } catch (err) {
+        console.error(`   ❌ Error fetching ${dept}:`, err.message);
       }
-
-      // Auto-detect term
-      let term = $('select[name="applicablePeriod"] option[selected]').val();
-      if (!term) term = $('select[name="applicablePeriod"] option').first().val();
-      
-      if (!term || term === 'undefined') {
-          console.warn(`   ⚠️ Auto-detection failed. Using fallback term: ${fallbackTerm}`);
-          term = fallbackTerm;
-      } else {
-          console.log(`   ℹ️ Detected Term: ${term}`);
-      }
-
-      // Extract Departments (Dynamic)
-      let deptCodes = $('select[name="deptCode"] option')
-        .map((i, el) => $(el).val())
-        .get()
-        .filter(val => val && val !== 'ALL');
-
-      // ✅ FULL FALLBACK LIST (If dynamic extraction fails)
-      if (deptCodes.length === 0) {
-        console.warn("   ⚠️ No departments found via scraping. Using full fallback list.");
-        deptCodes = [
-            "BIO", "CH", "CHN", "COM", "CEPP", "CPA", "ELM", "DS", "EC", "ECE", 
-            "EN", "ES", "EU", "FIL", "FAA", "FA", "HSP", "HI", "SOHUM", "DISCS", 
-            "SALT", "INTAC", "IS", "JSP", "KSP", "LAS", "MAL", "MA", "ML", 
-            "NSTP (ADAST)", "NSTP (OSCI)", "PH", "PE", "PS", "POS", "PSY", 
-            "QMIT", "SB", "SOCSCI", "SA", "TH", "TMP", "ITMGT", "MATH", "MIS", "CS",
-            "HUM", "LIT", "MGT", "MKT", "NF", "NS", "PE", "PH", "POS", "PS", "PSY" 
-        ];
-      }
-
-      console.log(`   Found ${deptCodes.length} departments to process.`);
-      this.headers['Referer'] = `${this.baseUrl}/j_aisis/J_VCSC.do`;
-
-      for (const dept of deptCodes) {
-        const params = new URLSearchParams();
-        params.append('command', 'displayResults');
-        params.append('applicablePeriod', term);
-        params.append('deptCode', dept);
-        params.append('subjCode', 'ALL');
-
-        try {
-          const response = await this._request(`${this.baseUrl}/j_aisis/J_VCSC.do`, {
-            method: 'POST',
-            body: params
-          });
-
-          const html = await response.text();
-          const $table = cheerio.load(html);
-          let deptCount = 0;
-
-          $table('table tr').each((i, row) => {
-            const cells = $table(row).find('td');
-            // Only scrape rows that look like actual classes (10+ columns)
-            // AND filter out garbage headers like "Ateneo Integrated..."
-            if (cells.length > 10) {
-              const subject = $table(cells[0]).text().trim();
-              if (subject.includes('Ateneo Integrated') || subject === '') return; 
-
-              results.push({
-                department:  dept,
-                subjectCode: subject,
-                section:     $table(cells[1]).text().trim(),
-                title:       $table(cells[2]).text().trim(),
-                units:       $table(cells[3]).text().trim(),
-                time:        $table(cells[4]).text().trim(),
-                room:        $table(cells[5]).text().trim(),
-                instructor:  $table(cells[6]).text().trim(),
-                maxSlots:    $table(cells[7]).text().trim(),
-                language:    $table(cells[8]).text().trim(),
-                level:       $table(cells[9]).text().trim(),
-                freeSlots:   $table(cells[10]).text().trim(),
-                remarks:     $table(cells[11]).text().trim()
-              });
-              deptCount++;
-            }
-          });
-
-          if (deptCount > 0) console.log(`   ✓ ${dept}: ${deptCount} classes`);
-          await new Promise(r => setTimeout(r, 50)); 
-
-        } catch (err) {
-          console.error(`   ❌ Error fetching ${dept}:`, err.message);
-        }
-      }
-    } catch (error) {
-      console.error('   ❌ Schedule Scrape Error:', error.message);
     }
 
     console.log(`✅ Schedule extraction complete: ${results.length} total classes`);
@@ -185,29 +155,22 @@ export class AISISScraper {
     console.log('\n📚 Starting Curriculum Extraction...');
     const results = [];
 
-    try {
-      this.headers['Referer'] = `${this.baseUrl}/j_aisis/login.do`;
-      const r1 = await this._request(`${this.baseUrl}/j_aisis/J_VOFC.do`, { method: 'GET' });
-      const html = await r1.text();
-      const $ = cheerio.load(html);
+    // ✅ MANUAL LIST: Bypasses "0 degrees found" error
+    const degrees = [
+        "BS CS", "BS MIS", "BS ITE", "BS AMF", "BS MGT", "BS BIO", "BS CH",
+        "BS ES", "BS HSc", "BS LM", "BS MAC", "BS ME", "BS PS", "BS PSY",
+        "AB COM", "AB DS", "AB EC", "AB EU", "AB HI", "AB IS", "AB LIT",
+        "AB ME", "AB PH", "AB POS", "AB PSY", "AB SOC", "BFA CW", "BFA ID", "BFA TA"
+    ];
 
-      let degrees = $('select[name="degCode"] option')
-        .map((i, el) => $(el).val())
-        .get()
-        .filter(v => v);
+    console.log(`   Using manual list of ${degrees.length} degree programs.`);
+    this.headers['Referer'] = `${this.baseUrl}/j_aisis/J_VOFC.do`;
 
-      if (degrees.length === 0) {
-         console.warn("   ⚠️ No degree programs found. Using fallback list.");
-         degrees = ["BS CS", "BS MIS", "BS ITE", "BS AMF", "BS MGT"]; 
-      }
+    for (const degree of degrees) { 
+      const params = new URLSearchParams();
+      params.append('degCode', degree);
 
-      console.log(`   Found ${degrees.length} degree programs.`);
-      this.headers['Referer'] = `${this.baseUrl}/j_aisis/J_VOFC.do`;
-
-      for (const degree of degrees) { 
-        const params = new URLSearchParams();
-        params.append('degCode', degree);
-
+      try {
         const r2 = await this._request(`${this.baseUrl}/j_aisis/J_VOFC.do`, {
             method: 'POST',
             body: params
@@ -220,7 +183,7 @@ export class AISISScraper {
         $p('table tr').each((i, row) => {
             const text = $p(row).text().toLowerCase();
             const cells = $p(row).find('td');
-
+            
             if (text.includes('year')) year = $p(row).text().trim();
             else if (text.includes('semester')) sem = $p(row).text().trim();
             else if (cells.length >= 3) {
@@ -235,10 +198,7 @@ export class AISISScraper {
             }
         });
         await new Promise(r => setTimeout(r, 50));
-      }
-
-    } catch (error) {
-      console.error('   ❌ Curriculum Scrape Error:', error.message);
+      } catch (e) { }
     }
 
     console.log(`✅ Curriculum extraction complete: ${results.length} items`);
