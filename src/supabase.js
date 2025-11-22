@@ -1,4 +1,5 @@
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+// Add this import at the top
+import fetch from 'node-fetch';
 
 export class SupabaseManager {
   constructor(ingestToken) {
