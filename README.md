@@ -19,17 +19,32 @@ This project contains a Node.js-based web scraper that automatically logs into A
 
 ## Curriculum Scraping Status
 
-**Status**: ⚠️ **EXPERIMENTAL** - Curriculum scraping is now functional but UI-dependent
+**Status**: ⚠️ **EXPERIMENTAL** - Curriculum scraping is now functional with structured parsing (like schedules)
 
 ### How It Works
 
-The curriculum scraper uses the `J_VOFC.do` endpoint discovered through HAR file analysis:
+The curriculum scraper uses the `J_VOFC.do` endpoint discovered through HAR file analysis and now includes **structured parsing**:
 
 1. **GET** `J_VOFC.do` - Retrieves a form with a dropdown containing all curriculum versions
 2. **Parse** `<select name="degCode">` - Extracts curriculum version identifiers (e.g., `BS CS_2024_1`)
 3. **POST** `J_VOFC.do` with `degCode=<value>` - Fetches curriculum HTML for each version
-4. **Flatten** HTML to structured text - Converts curriculum tables to tab-separated format
-5. **Sync** to Supabase and Google Sheets - Saves curriculum data alongside schedules
+4. **Parse HTML** to structured rows - Extracts year/semester headers and course data into structured objects (**NEW**)
+5. **Sync** to Supabase and Google Sheets - Saves flat course rows with columns like schedules (**IMPROVED**)
+
+### Structured Output
+
+The curriculum scraper now produces **row-based structured data** similar to schedules, with each course as a separate row containing:
+- `deg_code` - Degree program code
+- `program_label` - Human-readable program name
+- `year_level` - 1-4
+- `semester` - 1-2
+- `course_code` - Course identifier
+- `course_title` - Course name
+- `units` - Numeric units
+- `prerequisites` - Prerequisites or null
+- `category` - Course category (M, C, etc.) or null
+
+This enables direct use in Google Sheets with proper columns, matching the schedule scraping behavior.
 
 ### Important Warnings
 

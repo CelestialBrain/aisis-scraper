@@ -6,6 +6,7 @@
  */
 
 import { AISISScraper } from './src/scraper.js';
+import { parseAllCurricula, parseCurriculumHtml } from './src/curriculum-parser.js';
 import 'dotenv/config';
 
 async function testCurriculumEndpoint() {
@@ -67,8 +68,30 @@ async function testCurriculumEndpoint() {
       const html = await scraper._scrapeDegree(testDegCode);
       console.log(`   ✅ Received HTML: ${html.length} characters`);
       
-      // Test 3: Flatten HTML to text
-      console.log('\n📝 Test 3: Flattening curriculum HTML to text...\n');
+      // Test 3: Parse HTML to structured data
+      console.log('\n📝 Test 3: Parsing curriculum HTML to structured data...\n');
+      const parsedRows = parseCurriculumHtml(html, testDegCode, degreePrograms[0].label);
+      
+      console.log(`   ✅ Parsed ${parsedRows.length} course rows`);
+      
+      if (parsedRows.length > 0) {
+        console.log('\n   Sample parsed course row:');
+        const sample = parsedRows[0];
+        console.log(`   deg_code: ${sample.deg_code}`);
+        console.log(`   program_label: ${sample.program_label}`);
+        console.log(`   year_level: ${sample.year_level}`);
+        console.log(`   semester: ${sample.semester}`);
+        console.log(`   course_code: ${sample.course_code}`);
+        console.log(`   course_title: ${sample.course_title}`);
+        console.log(`   units: ${sample.units}`);
+        console.log(`   prerequisites: ${sample.prerequisites}`);
+        console.log(`   category: ${sample.category}`);
+      } else {
+        console.warn('\n   ⚠️  No courses parsed from HTML - parser may need adjustment');
+      }
+      
+      // Test 3b: Also show flattened text for comparison
+      console.log('\n📝 Test 3b: Flattening curriculum HTML to text (legacy)...\n');
       const flattenedText = scraper._flattenCurriculumHtmlToText(html);
       console.log(`   ✅ Flattened text: ${flattenedText.length} characters`);
       console.log('\n   First 500 characters of flattened text:');
@@ -101,15 +124,33 @@ async function testCurriculumEndpoint() {
 
     const curricula = await scraper.scrapeCurriculum();
     
+    // Parse all curricula with the new parser
+    const { programs, allRows } = parseAllCurricula(curricula);
+    
     console.log(`\n📊 Test Results:`);
-    console.log(`   Total scraped: ${curricula.length}`);
+    console.log(`   Total scraped: ${curricula.length} programs`);
+    console.log(`   Total parsed: ${programs.length} programs with ${allRows.length} course rows`);
     
     if (curricula.length > 0) {
-      console.log('\n   Sample curriculum record:');
+      console.log('\n   Sample raw curriculum record:');
       const sample = curricula[0];
       console.log(`   degCode: ${sample.degCode}`);
       console.log(`   label: ${sample.label}`);
+      console.log(`   html length: ${sample.html ? sample.html.length : 0} characters`);
       console.log(`   raw_text length: ${sample.raw_text.length} characters`);
+      
+      if (allRows.length > 0) {
+        console.log('\n   Sample structured course row:');
+        const row = allRows[0];
+        console.log(`   deg_code: ${row.deg_code}`);
+        console.log(`   program_label: ${row.program_label}`);
+        console.log(`   year_level: ${row.year_level}`);
+        console.log(`   semester: ${row.semester}`);
+        console.log(`   course_code: ${row.course_code}`);
+        console.log(`   course_title: ${row.course_title}`);
+        console.log(`   units: ${row.units}`);
+      }
+      
       console.log('\n   ✅ All tests passed!');
     } else {
       console.warn('\n   ⚠️  No curricula scraped - check logs above for errors');

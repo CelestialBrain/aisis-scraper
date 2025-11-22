@@ -1,6 +1,7 @@
 import { AISISScraper } from './scraper.js';
 import { SupabaseManager } from './supabase.js';
 import { GoogleSheetsManager } from './sheets.js';
+import { parseAllCurricula } from './curriculum-parser.js';
 import fs from 'fs';
 import 'dotenv/config';
 
@@ -74,23 +75,48 @@ async function main() {
     if (!fs.existsSync('data')) fs.mkdirSync('data');
 
     if (curriculumData.length > 0) {
-      console.log(`\n💾 Processing ${curriculumData.length} curriculum courses...`);
+      console.log(`\n💾 Processing ${curriculumData.length} curriculum programs...`);
       
-      const cleanCurriculum = supabase ? supabase.transformCurriculumData(curriculumData) : curriculumData;
+      // Parse curriculum HTML into structured course rows
+      console.log('   🔍 Parsing curriculum HTML into structured course rows...');
+      const { programs, allRows } = parseAllCurricula(curriculumData);
       
-      // 1. Local backup
-      fs.writeFileSync('data/curriculum.json', JSON.stringify(cleanCurriculum, null, 2));
-      console.log(`   ✅ Saved ${curriculumData.length} curriculum courses to data/curriculum.json`);
+      console.log(`   ✅ Parsed ${programs.length} programs into ${allRows.length} course rows`);
+      
+      // 1. Local backup - save both detailed programs and flattened rows
+      const curriculumOutput = {
+        programs,      // Detailed view with programs and their rows
+        allRows,       // Flattened view for easy querying
+        metadata: {
+          totalPrograms: programs.length,
+          totalCourses: allRows.length,
+          scrapedAt: new Date().toISOString()
+        }
+      };
+      
+      fs.writeFileSync('data/curriculum.json', JSON.stringify(curriculumOutput, null, 2));
+      console.log(`   ✅ Saved ${programs.length} programs (${allRows.length} courses) to data/curriculum.json`);
 
-      // 2. Supabase Sync
-      if (supabase) {
+      // 2. Supabase Sync - use flattened rows
+      if (supabase && allRows.length > 0) {
         console.log('   🚀 Starting Supabase Sync...');
         
-        // Sync curriculum data to Supabase
-        // The backend API supports 'curriculum' as a valid data type
-        // See docs/DATA_GUIDE.md for curriculum data model details
+        // Transform the structured rows to match Supabase schema
+        // The allRows already have the correct field names from the parser
+        const transformedRows = allRows.map(row => ({
+          degree_code: row.deg_code,
+          program_label: row.program_label,
+          year_level: row.year_level,
+          semester: row.semester,
+          course_code: row.course_code,
+          course_title: row.course_title,
+          units: row.units,
+          prerequisites: row.prerequisites,
+          category: row.category
+        }));
+        
         try {
-          const success = await supabase.syncToSupabase('curriculum', cleanCurriculum, null, null);
+          const success = await supabase.syncToSupabase('curriculum', transformedRows, null, null);
           if (success) {
             console.log('   ✅ Supabase sync completed successfully');
           } else {
@@ -100,14 +126,15 @@ async function main() {
           console.error('   ❌ Supabase sync failed:', error.message);
         }
       } else {
-        console.log('   ⚠️ Supabase sync skipped (no DATA_INGEST_TOKEN)');
+        console.log('   ⚠️ Supabase sync skipped (no DATA_INGEST_TOKEN or no rows)');
       }
 
-      // 3. Google Sheets Sync
-      if (sheets) {
+      // 3. Google Sheets Sync - use flattened rows (like schedules)
+      if (sheets && allRows.length > 0) {
         console.log('   📊 Syncing to Google Sheets...');
         try {
-          await sheets.syncData(SPREADSHEET_ID, 'Curriculum', cleanCurriculum);
+          // Sync flattened rows to Sheets, similar to how schedules are synced
+          await sheets.syncData(SPREADSHEET_ID, 'Curriculum', allRows);
           console.log('   ✅ Google Sheets sync completed');
         } catch (error) {
           console.error('   ❌ Google Sheets sync failed:', error.message);
