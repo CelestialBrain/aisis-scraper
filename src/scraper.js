@@ -23,9 +23,8 @@ export class AISISScraper {
   }
 
   async _request(url, options = {}) {
-    // 15s Timeout to prevent hanging
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const timeout = setTimeout(() => controller.abort(), 15000); // 15s Timeout
 
     const opts = {
       ...options,
@@ -83,7 +82,6 @@ export class AISISScraper {
     }
   }
 
-  // Helper to get the active term
   async _getPayloadTerm() {
       try {
         const response = await this._request(`${this.baseUrl}/j_aisis/J_VCSC.do`, { method: 'GET' });
@@ -154,7 +152,6 @@ export class AISISScraper {
   }
 
   async scrapeSchedule(fallbackTerm) {
-    // Auto-detect term first
     let term = await this._getPayloadTerm();
     if (!term || term === 'undefined') {
         console.warn(`   ⚠️ Auto-detection failed. Using fallback: ${fallbackTerm}`);
@@ -164,19 +161,19 @@ export class AISISScraper {
     console.log(`\n📅 Starting Schedule Extraction for term: ${term}...`);
     const results = [];
 
+    // Cleaned manual list (53 depts)
     const deptCodes = [
         "BIO", "CH", "CHN", "COM", "CEPP", "CPA", "ELM", "DS", "EC", "ECE", 
         "EN", "ES", "EU", "FIL", "FAA", "FA", "HSP", "HI", "SOHUM", "DISCS", 
         "SALT", "INTAC", "IS", "JSP", "KSP", "LAS", "MAL", "MA", "ML", 
         "NSTP (ADAST)", "NSTP (OSCI)", "PH", "PE", "PS", "POS", "PSY", 
-        "QMIT", "SB", "SOCSCI", "SA", "TH", "TMP", "ITMGT", "MATH", "MIS", "CS",
-        "HUM", "LIT", "MGT", "MKT", "NF", "NS", "PE", "PH", "POS", "PS", "PSY" 
+        "QMIT", "SB", "SOCSCI", "SA", "TH", "TMP", 
+        "ITMGT", "MATH", "MIS", "CS", "HUM", "LIT", "MGT", "MKT", "NF", "NS"
     ];
 
     console.log(`   Using manual list of ${deptCodes.length} departments.`);
     this.headers['Referer'] = `${this.baseUrl}/j_aisis/J_VCSC.do`;
 
-    // Batch Size: 5 (Safe & Fast)
     const BATCH_SIZE = 5; 
     for (let i = 0; i < deptCodes.length; i += BATCH_SIZE) {
         const batch = deptCodes.slice(i, i + BATCH_SIZE);
