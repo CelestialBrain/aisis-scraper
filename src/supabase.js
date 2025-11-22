@@ -12,13 +12,11 @@ export class SupabaseManager {
     const payload = {
       data_type: dataType,
       records: data,
-      metadata: {}
+      metadata: {
+        term_code: termCode,
+        department: department
+      }
     };
-
-    if (dataType === 'schedules') {
-      payload.metadata.term_code = termCode;
-      payload.metadata.department = department;
-    }
 
     try {
       const response = await fetch(this.url, {
@@ -89,6 +87,19 @@ export class SupabaseManager {
     }
   }
 
+  // ✅ THIS IS THE MISSING FUNCTION YOU NEED
+  transformCurriculumData(curriculumItems) {
+    return curriculumItems.map(item => ({
+      degree_code: item.degreeCode,
+      year_level: item.yearLevel,
+      semester: item.semester,
+      course_code: item.courseCode,
+      course_title: item.courseTitle,
+      units: this.safeFloat(item.units),
+      category: item.category || null
+    }));
+  }
+
   transformScheduleData(scheduleItems) {
     return scheduleItems.map(item => {
       const parsedTime = this.parseTimePattern(item.time_pattern);
@@ -96,16 +107,16 @@ export class SupabaseManager {
       return {
         subject_code: item.subjectCode,
         section: item.section,
-        course_title: item.title, // Matches DB column
+        course_title: item.courseTitle, 
         units: this.safeFloat(item.units),
-        time_pattern: item.time,
+        time_pattern: item.time_pattern,
         room: item.room,
         instructor: item.instructor,
         department: item.department,
         language: item.language,
         level: item.level,
         remarks: item.remarks,
-        max_capacity: this.safeInt(item.maxSlots),
+        max_capacity: this.safeInt(item.max_capacity),
         
         start_time: parsedTime.start || '00:00:00', 
         end_time: parsedTime.end || '23:59:59',     
