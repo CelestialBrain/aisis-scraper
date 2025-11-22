@@ -42,62 +42,92 @@ async function main() {
     }
   }
 
-  try {
-    await scraper.init();
-    await scraper.login();
+  let attempt = 0;
+  const maxAttempts = 3;
+  let scheduleData = [];
 
-    // 1. SCRAPE SCHEDULE ONLY
-    const scheduleData = await scraper.scrapeSchedule(CURRENT_TERM_FALLBACK);
-
-    if (!fs.existsSync('data')) fs.mkdirSync('data');
-
-    // --- PROCESS SCHEDULES ---
-    if (scheduleData.length > 0) {
-      const cleanSchedule = supabase.transformScheduleData(scheduleData);
+  while (attempt < maxAttempts) {
+    try {
+      attempt++;
+      console.log(`\n🔄 Attempt ${attempt} of ${maxAttempts}`);
       
-      // 1. Local Backup
-      fs.writeFileSync('data/courses.json', JSON.stringify(cleanSchedule, null, 2));
-      console.log(`   💾 Saved ${scheduleData.length} classes to data/courses.json`);
+      await scraper.init();
+      await scraper.login();
 
-      // 2. Supabase Sync (Parallel Batches)
-      if (DATA_INGEST_TOKEN) {
-        console.log('   🚀 Starting Parallel Supabase Sync...');
-        
-        const byDept = scheduleData.reduce((acc, item) => {
-          const d = item.department || 'UNKNOWN';
-          if (!acc[d]) acc[d] = [];
-          acc[d].push(item);
-          return acc;
-        }, {});
-        
-        const departments = Object.keys(byDept);
-        
-        await runInBatches(departments, 5, async (dept) => {
-          const batchData = supabase.transformScheduleData(byDept[dept]);
-          const supabaseBatch = batchData.map(d => ({
-              ...d,
-              days_of_week: JSON.parse(d.days_of_week)
-          }));
-          const termCode = batchData[0]?.term_code || CURRENT_TERM_FALLBACK;
-          await supabase.syncToSupabase('schedules', supabaseBatch, termCode, dept);
-        });
+      // Verify login worked
+      if (!await scraper.verifySession()) {
+        throw new Error('Session verification failed after login');
       }
 
-      // 3. Google Sheets Sync
-      if (sheets) {
-        await sheets.syncData(SPREADSHEET_ID, 'Schedules', cleanSchedule);
+      console.log('✅ Session verified, starting data extraction...');
+
+      // 1. SCRAPE SCHEDULE ONLY
+      scheduleData = await scraper.scrapeSchedule(CURRENT_TERM_FALLBACK);
+      
+      // If we get here without errors, break the retry loop
+      console.log(`✅ Successfully scraped ${scheduleData.length} classes on attempt ${attempt}`);
+      break;
+      
+    } catch (error) {
+      console.error(`❌ Attempt ${attempt} failed:`, error.message);
+      
+      if (attempt >= maxAttempts) {
+        console.error('💥 All attempts failed. Exiting.');
+        process.exit(1);
       }
-    } else {
-      console.warn("   ⚠️ No schedule data found.");
+      
+      console.log('🔄 Retrying in 3 seconds...');
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+  }
+
+  if (!fs.existsSync('data')) fs.mkdirSync('data');
+
+  // --- PROCESS SCHEDULES ---
+  if (scheduleData.length > 0) {
+    const cleanSchedule = supabase.transformScheduleData(scheduleData);
+    
+    // 1. Local Backup
+    fs.writeFileSync('data/courses.json', JSON.stringify(cleanSchedule, null, 2));
+    console.log(`   💾 Saved ${scheduleData.length} classes to data/courses.json`);
+
+    // 2. Supabase Sync (Parallel Batches)
+    if (DATA_INGEST_TOKEN) {
+      console.log('   🚀 Starting Parallel Supabase Sync...');
+      
+      const byDept = scheduleData.reduce((acc, item) => {
+        const d = item.department || 'UNKNOWN';
+        if (!acc[d]) acc[d] = [];
+        acc[d].push(item);
+        return acc;
+      }, {});
+      
+      const departments = Object.keys(byDept);
+      
+      await runInBatches(departments, 5, async (dept) => {
+        const batchData = supabase.transformScheduleData(byDept[dept]);
+        const supabaseBatch = batchData.map(d => ({
+            ...d,
+            days_of_week: JSON.parse(d.days_of_week)
+        }));
+        const termCode = batchData[0]?.term_code || CURRENT_TERM_FALLBACK;
+        await supabase.syncToSupabase('schedules', supabaseBatch, termCode, dept);
+      });
     }
 
-    console.log('\n✅ Done!');
-    process.exit(0);
-
-  } catch (error) {
-    console.error('\n❌ Failed:', error);
-    process.exit(1);
+    // 3. Google Sheets Sync
+    if (sheets) {
+      await sheets.syncData(SPREADSHEET_ID, 'Schedules', cleanSchedule);
+    }
+  } else {
+    console.warn("   ⚠️ No schedule data found.");
   }
+
+  console.log('\n✅ Done!');
+  process.exit(0);
 }
 
-main();
+main().catch(error => {
+  console.error('\n❌ Failed:', error);
+  process.exit(1);
+});
