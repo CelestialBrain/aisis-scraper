@@ -16,6 +16,9 @@ logs/
 *.log
 npm-debug.log*
 
+# Test files (development only)
+test-*.js
+
 # OS specific
 .DS_Store
 Thumbs.db

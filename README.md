@@ -14,10 +14,24 @@ This project contains a Node.js-based web scraper that automatically logs into A
 
 ## Data Categories Scraped
 
-1. **Schedule of Classes**: All available class schedules for all departments (runs every 6 hours).
-2. **Official Curriculum**: All official curriculum for all degree programs (runs weekly).
+1. **Schedule of Classes**: All available class schedules for all departments (runs every 6 hours). ✅ **Working**
+2. **Official Curriculum**: ⚠️ **NOT SUPPORTED** - The AISIS system does not provide a public endpoint for scraping official curriculum data. See [Curriculum Scraping Limitation](#curriculum-scraping-limitation) below for details.
 
-Each data category has its own dedicated scraper and workflow for efficient, independent operation.
+## Curriculum Scraping Limitation
+
+**Important**: Curriculum scraping is currently not supported due to AISIS system limitations.
+
+### Why It Doesn't Work
+- The endpoint `/j_aisis/J_VOPC.do` (View Official Program Curriculum) does not exist (returns HTTP 404)
+- `J_VIPS.do` (View Individual Program of Study) is student-specific and requires individual student context
+- Official curricula are published as PDFs on the Ateneo website, not available through AISIS scraping API
+
+### Alternative Solutions
+1. **Scrape public curriculum pages**: Extract curriculum from publicly available Ateneo curriculum pages
+2. **Manual curriculum data**: Maintain a manually curated JSON file with curriculum information
+3. **Request API access**: Contact AISIS administrators to request dedicated API access for curriculum data
+
+The curriculum scraper workflow will complete successfully but return empty results with informative messages.
 
 ## Getting Started
 
@@ -111,21 +125,21 @@ If no override is provided, the scraper will auto-detect and use the currently s
 
 4. **Run the scraper**:
    
-   For class schedules:
+   For class schedules (working):
    ```bash
    npm start
    ```
    
-   For curriculum data:
+   For curriculum data (not supported - see limitation above):
    ```bash
-   npm run curriculum
+   npm run curriculum  # Will complete but return no data
    ```
 
 ## Architecture
 
 This is a **fast and stable scraper (v3)** that:
 - Uses direct HTTP requests for reliability and speed
-- Focuses on institutional data (schedules and curriculum)
+- Focuses on institutional data (class schedules)
 - Syncs directly to Supabase via Edge Functions
 - Includes robust error handling and data transformation
 

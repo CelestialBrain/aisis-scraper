@@ -4,9 +4,21 @@ import { GoogleSheetsManager } from './sheets.js';
 import fs from 'fs';
 import 'dotenv/config';
 
+/**
+ * IMPORTANT: Curriculum scraping is NOT SUPPORTED
+ * 
+ * This script exists for compatibility but will not scrape curriculum data.
+ * The AISIS system does not provide a public endpoint for scraping official
+ * curriculum data for all degree programs.
+ * 
+ * See README.md section "Curriculum Scraping Limitation" for details and
+ * alternative solutions.
+ */
+
 async function main() {
   console.log('═══════════════════════════════════════════════════════');
   console.log('🎓 AISIS Curriculum Scraper');
+  console.log('   ⚠️  NOTE: Curriculum scraping is NOT supported');
   console.log('═══════════════════════════════════════════════════════\n');
 
   const { 
@@ -94,11 +106,11 @@ async function main() {
       }
 
     } else {
-      console.warn('\n⚠️ No curriculum data found.');
-      console.log("   This could be because:");
-      console.log("   - No curriculum data is available in AISIS");
-      console.log("   - The session expired during scraping");
-      console.log("   - There are issues with the AISIS system");
+      console.warn('\n⚠️ No curriculum data scraped.');
+      console.log("   Reason:");
+      console.log("   - Curriculum scraping is not supported by AISIS");
+      console.log("   - The J_VOPC.do endpoint does not exist (HTTP 404)");
+      console.log("   - See README.md for alternative solutions");
     }
 
     console.log('\n✅ Curriculum scraping completed!');
