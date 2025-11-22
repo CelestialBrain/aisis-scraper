@@ -18,6 +18,12 @@ const LOGIN_FAILURE_MARKERS = [
   'login.do'
 ];
 
+// Retry configuration for HTTP errors
+const RETRY_CONFIG = {
+  MAX_RETRIES: 1,
+  RETRY_DELAY_MS: 2000
+};
+
 export class AISISScraper {
   constructor(username, password) {
     this.username = username;
@@ -289,6 +295,7 @@ export class AISISScraper {
       // If no option is explicitly selected, use the first option
       if (selectedOption.length === 0) {
         selectedOption = select.find('option').first();
+        console.log('   ℹ️  No option explicitly selected, using first option as fallback');
       }
 
       if (selectedOption.length === 0) {
@@ -298,8 +305,8 @@ export class AISISScraper {
       const term = selectedOption.attr('value');
       const termText = selectedOption.text().trim();
 
-      if (!term) {
-        throw new Error('Selected option has no value attribute');
+      if (!term || term.trim() === '') {
+        throw new Error('Selected option has no value attribute or is empty');
       }
 
       console.log(`   ✅ Detected term: ${term} (${termText})`);
@@ -399,10 +406,10 @@ export class AISISScraper {
         const errorMsg = `HTTP ${response.status} for dept ${deptCode}, term ${term}`;
         
         // Retry once on 5xx errors (server errors)
-        if (response.status >= 500 && response.status < 600 && retryCount === 0) {
-          console.log(`   ⚠️  ${errorMsg} - retrying in 2 seconds...`);
-          await this._delay(2000);
-          return this._scrapeDepartment(term, deptCode, 1);
+        if (response.status >= 500 && response.status < 600 && retryCount < RETRY_CONFIG.MAX_RETRIES) {
+          console.log(`   ⚠️  ${errorMsg} - retrying in ${RETRY_CONFIG.RETRY_DELAY_MS / 1000} seconds...`);
+          await this._delay(RETRY_CONFIG.RETRY_DELAY_MS);
+          return this._scrapeDepartment(term, deptCode, retryCount + 1);
         }
         
         throw new Error(errorMsg);
