@@ -18,9 +18,55 @@ export class SupabaseManager {
       return record;
     });
 
+    // For large datasets (especially schedules), batch the requests to avoid 504 timeouts
+    // The Edge Function also batches internally, but client-side batching provides an additional layer
+    const CLIENT_BATCH_SIZE = 500; // Send max 500 records per HTTP request
+    
+    if (normalizedData.length > CLIENT_BATCH_SIZE) {
+      console.log(`   📦 Batching into ${Math.ceil(normalizedData.length / CLIENT_BATCH_SIZE)} requests...`);
+      
+      let totalSynced = 0;
+      let hasErrors = false;
+      
+      for (let i = 0; i < normalizedData.length; i += CLIENT_BATCH_SIZE) {
+        const batch = normalizedData.slice(i, i + CLIENT_BATCH_SIZE);
+        const batchNum = Math.floor(i / CLIENT_BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(normalizedData.length / CLIENT_BATCH_SIZE);
+        
+        console.log(`   📤 Sending batch ${batchNum}/${totalBatches} (${batch.length} records)...`);
+        
+        const success = await this.sendBatch(dataType, batch, termCode, department);
+        
+        if (success) {
+          totalSynced += batch.length;
+        } else {
+          hasErrors = true;
+          console.error(`   ⚠️ Batch ${batchNum} failed`);
+        }
+        
+        // Small delay between batches to avoid overwhelming the Edge Function
+        if (i + CLIENT_BATCH_SIZE < normalizedData.length) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      }
+      
+      if (!hasErrors) {
+        console.log(`   ✅ Supabase: All batches synced successfully (${totalSynced}/${normalizedData.length} records)`);
+        return true;
+      } else {
+        console.error(`   ⚠️ Supabase: Partial sync (${totalSynced}/${normalizedData.length} records synced)`);
+        return false;
+      }
+    }
+    
+    // For smaller datasets, send in a single request
+    return await this.sendBatch(dataType, normalizedData, termCode, department);
+  }
+
+  async sendBatch(dataType, records, termCode = null, department = null) {
     const payload = {
       data_type: dataType,
-      records: normalizedData,
+      records: records,
       metadata: {
         term_code: termCode,
         department: department
@@ -43,7 +89,6 @@ export class SupabaseManager {
       });
 
       if (response.ok) {
-        console.log(`   ✅ Supabase: Success`);
         return true;
       } else {
         const text = await response.text();
