@@ -5,6 +5,18 @@ import { CookieJar } from 'tough-cookie';
 // Use node-fetch directly instead of fetch-cookie
 const { default: fetch } = await import('node-fetch');
 
+// Login/session validation patterns
+const LOGIN_SUCCESS_MARKERS = [
+  'User Identified As',
+  'MY INDIVIDUAL PROGRAM OF STUDY',
+  'Welcome'
+];
+
+const LOGIN_FAILURE_MARKERS = [
+  'sign in',
+  'login.do'
+];
+
 export class AISISScraper {
   constructor(username, password) {
     this.username = username;
@@ -77,10 +89,27 @@ export class AISISScraper {
     try {
       let response = await fetch(url, opts);
       
-      // Store cookies from response
-      const setCookie = response.headers.get('set-cookie');
-      if (setCookie) {
-        await this.cookieJar.setCookie(setCookie, url);
+      // Store cookies from response - handle multiple Set-Cookie headers
+      // node-fetch's headers.raw() returns an array for Set-Cookie
+      let setCookies = [];
+      if (response.headers.raw && typeof response.headers.raw === 'function') {
+        const rawHeaders = response.headers.raw();
+        if (rawHeaders['set-cookie']) {
+          setCookies = rawHeaders['set-cookie'];
+        }
+      } else {
+        // Fallback for compatibility
+        const setCookie = response.headers.get('set-cookie');
+        if (setCookie) {
+          setCookies = [setCookie];
+        }
+      }
+      
+      // Process all cookies
+      if (setCookies.length > 0) {
+        for (const cookie of setCookies) {
+          await this.cookieJar.setCookie(cookie, url);
+        }
         // Save cookies immediately after receiving new ones
         await this._saveCookies();
       }
@@ -112,7 +141,7 @@ export class AISISScraper {
         const response = await this._request(`${this.baseUrl}/j_aisis/J_VMCS.do`);
         const text = await response.text();
         
-        if (text.includes('MY INDIVIDUAL PROGRAM OF STUDY') || text.includes('User Identified As')) {
+        if (LOGIN_SUCCESS_MARKERS.some(marker => text.includes(marker))) {
             console.log('   ✅ Existing session is valid!');
             return true;
         } else {
@@ -151,20 +180,48 @@ export class AISISScraper {
 
       const responseText = await loginResponse.text();
       
-      // Check for successful login
-      if (responseText.includes('User Identified As') || 
-          responseText.includes('MY INDIVIDUAL PROGRAM OF STUDY') ||
-          responseText.includes('Welcome')) {
+      // Check for successful login markers in HTML
+      if (LOGIN_SUCCESS_MARKERS.some(marker => responseText.includes(marker))) {
         
-        this.loggedIn = true;
-        console.log('✅ Login successful');
+        console.log('   ✅ Login response contains success markers');
         
         // Force save after successful login
         await this._saveCookies();
 
-        // Verify we have session cookies
+        // Validation 1: Verify we have session cookies
         const cookies = await this.cookieJar.getCookies(this.baseUrl);
-        console.log(`   🍪 Session cookies: ${cookies.length}`);
+        console.log(`   🍪 Session cookies after login: ${cookies.length}`);
+        
+        if (cookies.length === 0) {
+          console.error('❌ Login failed: no session cookies were set');
+          return false;
+        }
+        
+        // Validation 2: Test protected page to confirm session is valid
+        console.log('   🔍 Verifying session with protected page...');
+        try {
+          const protectedPageUrl = new URL('/j_aisis/J_VMCS.do', this.baseUrl).toString();
+          const testResponse = await this._request(protectedPageUrl);
+          const testText = await testResponse.text();
+          
+          if (LOGIN_FAILURE_MARKERS.some(marker => testText.includes(marker))) {
+            console.error('❌ Post-login protected page still shows login screen');
+            return false;
+          }
+          
+          if (LOGIN_SUCCESS_MARKERS.some(marker => testText.includes(marker))) {
+            console.log('   ✅ Post-login protected page check passed');
+          } else {
+            console.warn('   ⚠️ Protected page validation inconclusive, proceeding anyway');
+          }
+        } catch (error) {
+          console.error(`   ⚠️ Protected page check failed: ${error.message}`);
+          console.error('   Proceeding with login anyway as cookies were set');
+        }
+        
+        // All validations passed
+        this.loggedIn = true;
+        console.log('✅ Login successful');
         
         return true;
       } else {
@@ -268,7 +325,7 @@ export class AISISScraper {
     const html = await response.text();
     
     // Check for session expiry
-    if (html.includes('sign in') || html.includes('login.do')) {
+    if (LOGIN_FAILURE_MARKERS.some(marker => html.includes(marker))) {
       throw new Error('Session expired');
     }
 
