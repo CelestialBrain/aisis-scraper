@@ -20,7 +20,6 @@ async function main() {
     process.exit(1);
   }
 
-  // Fallback Term (Will auto-detect if possible)
   const CURRENT_TERM_FALLBACK = '2025-1'; 
 
   const scraper = new AISISScraper(AISIS_USERNAME, AISIS_PASSWORD);
@@ -40,21 +39,19 @@ async function main() {
     await scraper.init();
     await scraper.login();
 
-    // Only Scrape Schedule
+    // Only scrape schedule
     const scheduleData = await scraper.scrapeSchedule(CURRENT_TERM_FALLBACK);
 
     if (!fs.existsSync('data')) fs.mkdirSync('data');
 
-    // --- PROCESS SCHEDULES ---
     if (scheduleData.length > 0) {
-      // 1. Clean Data
       const cleanSchedule = supabase.transformScheduleData(scheduleData);
       
-      // 2. Save Local Backup
+      // 1. Local Backup
       fs.writeFileSync('data/courses.json', JSON.stringify(cleanSchedule, null, 2));
       console.log(`   💾 Saved ${scheduleData.length} classes to data/courses.json`);
 
-      // 3. Sync to Supabase (Batched by Dept)
+      // 2. Supabase Sync
       if (DATA_INGEST_TOKEN) {
         const byDept = scheduleData.reduce((acc, item) => {
           const d = item.department || 'UNKNOWN';
@@ -65,7 +62,6 @@ async function main() {
 
         for (const dept of Object.keys(byDept)) {
           const batchData = supabase.transformScheduleData(byDept[dept]);
-          // Fix array format for Supabase
           const supabaseBatch = batchData.map(d => ({
               ...d,
               days_of_week: JSON.parse(d.days_of_week)
@@ -74,12 +70,12 @@ async function main() {
         }
       }
 
-      // 4. Sync to Google Sheets (All at once)
+      // 3. Google Sheets Sync
       if (sheets) {
         await sheets.syncData(SPREADSHEET_ID, 'Schedules', cleanSchedule);
       }
     } else {
-      console.warn("   ⚠️ No schedule data found (Term might be empty).");
+      console.warn("   ⚠️ No schedule data found.");
     }
 
     console.log('\n✅ Done!');
