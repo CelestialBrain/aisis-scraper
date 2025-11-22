@@ -1,26 +1,26 @@
-name: Scrape Institutional Data
+name: AISIS Scrape
 
 on:
+  workflow_dispatch:
   schedule:
-    - cron: '0 */6 * * *'  # Runs every 6 hours
-  workflow_dispatch:       # Allows you to run it manually from the Actions tab
+    - cron: '0 */6 * * *' # every 6 hours (adjust as needed)
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-        
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
-          
+          cache: 'npm'
+
       - name: Install dependencies
-        run: npm install
-        
+        run: npm ci
+
       - name: Run scraper
         env:
           AISIS_USERNAME: ${{ secrets.AISIS_USERNAME }}
