@@ -8,18 +8,23 @@ import path from 'path';
  * regression detection to alert when record counts drop significantly.
  */
 export class BaselineManager {
+  // Default configuration constants
+  static DEFAULT_DROP_THRESHOLD = 5.0;  // 5% drop threshold
+  static MIN_THRESHOLD = 0.0;
+  static MAX_THRESHOLD = 100.0;
+  
   constructor(baselineDir = 'logs/baselines') {
     this.baselineDir = baselineDir;
     this.ensureBaselineDir();
     
     // Configuration with validation
-    const rawThreshold = parseFloat(process.env.BASELINE_DROP_THRESHOLD || '5.0');
+    const rawThreshold = parseFloat(process.env.BASELINE_DROP_THRESHOLD || BaselineManager.DEFAULT_DROP_THRESHOLD.toString());
     
     // Validate threshold is within reasonable bounds (0-100%)
-    if (isNaN(rawThreshold) || rawThreshold < 0 || rawThreshold > 100) {
+    if (isNaN(rawThreshold) || rawThreshold < BaselineManager.MIN_THRESHOLD || rawThreshold > BaselineManager.MAX_THRESHOLD) {
       console.warn(`   ⚠️ Invalid BASELINE_DROP_THRESHOLD: ${process.env.BASELINE_DROP_THRESHOLD}`);
-      console.warn(`   Using default: 5.0%`);
-      this.dropThresholdPercent = 5.0;
+      console.warn(`   Using default: ${BaselineManager.DEFAULT_DROP_THRESHOLD}%`);
+      this.dropThresholdPercent = BaselineManager.DEFAULT_DROP_THRESHOLD;
     } else {
       this.dropThresholdPercent = rawThreshold;
     }
