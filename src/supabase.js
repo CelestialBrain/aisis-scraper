@@ -59,18 +59,11 @@ export class SupabaseManager {
       }
     };
 
-    if (dataType === 'schedules') {
-      payload.metadata.term_code = termCode;
-      payload.metadata.department = department;
-    }
-
     // Retry configuration
     const MAX_RETRIES = 5;
     const INITIAL_DELAY_MS = 1000; // 1 second
     const MAX_DELAY_MS = 32000; // 32 seconds cap
     const RETRYABLE_STATUS_CODES = [500, 502, 503, 504, 522, 524];
-
-    let lastError = null;
     
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
@@ -105,8 +98,6 @@ export class SupabaseManager {
           }
         }
       } catch (error) {
-        lastError = error;
-        
         if (attempt < MAX_RETRIES) {
           const delayMs = Math.min(INITIAL_DELAY_MS * Math.pow(2, attempt), MAX_DELAY_MS);
           console.log(`   ⚠️ Retry ${attempt + 1}/${MAX_RETRIES}: Network error - ${error.message}`);

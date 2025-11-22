@@ -171,6 +171,8 @@ async function testRetryConfiguration() {
   console.log();
   console.log(`   📊 Backoff sequence:`);
   
+  // Note: These constants match the values in src/supabase.js sendRequest()
+  // Keep them in sync if the implementation changes
   const MAX_RETRIES = 5;
   const INITIAL_DELAY_MS = 1000;
   const MAX_DELAY_MS = 32000;
