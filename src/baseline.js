@@ -12,8 +12,18 @@ export class BaselineManager {
     this.baselineDir = baselineDir;
     this.ensureBaselineDir();
     
-    // Configuration
-    this.dropThresholdPercent = parseFloat(process.env.BASELINE_DROP_THRESHOLD || '5.0');
+    // Configuration with validation
+    const rawThreshold = parseFloat(process.env.BASELINE_DROP_THRESHOLD || '5.0');
+    
+    // Validate threshold is within reasonable bounds (0-100%)
+    if (isNaN(rawThreshold) || rawThreshold < 0 || rawThreshold > 100) {
+      console.warn(`   ⚠️ Invalid BASELINE_DROP_THRESHOLD: ${process.env.BASELINE_DROP_THRESHOLD}`);
+      console.warn(`   Using default: 5.0%`);
+      this.dropThresholdPercent = 5.0;
+    } else {
+      this.dropThresholdPercent = rawThreshold;
+    }
+    
     this.warnOnly = process.env.BASELINE_WARN_ONLY !== 'false'; // Default to warn-only mode
   }
 

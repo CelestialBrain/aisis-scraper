@@ -1,5 +1,7 @@
 import { BaselineManager } from '../src/baseline.js';
 import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
 /**
  * Test baseline manager functionality
@@ -9,8 +11,8 @@ async function testBaselineManager() {
   console.log('🧪 Testing Baseline Manager');
   console.log('═══════════════════════════════════════════════════════\n');
 
-  // Use a test directory
-  const testDir = '/tmp/test-baselines';
+  // Use a test directory in system temp (cross-platform compatible)
+  const testDir = path.join(os.tmpdir(), 'test-baselines');
   const manager = new BaselineManager(testDir);
 
   console.log('📋 Test 1: First run (no previous baseline)\n');

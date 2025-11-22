@@ -23,6 +23,13 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Download previous baselines
+        uses: actions/download-artifact@v4
+        with:
+          name: baselines
+          path: logs/baselines/
+        continue-on-error: true  # Don't fail if no previous baseline exists
+
       - name: Run scraper
         env:
           AISIS_USERNAME: ${{ secrets.AISIS_USERNAME }}
@@ -35,4 +42,15 @@ jobs:
           # AISIS_TERM: '2025-1'
           # Optional: Performance tuning (default: 2000)
           # SUPABASE_CLIENT_BATCH_SIZE: '2000'
+          # Optional: Regression detection (defaults: 5.0, true)
+          # BASELINE_DROP_THRESHOLD: '5.0'
+          # BASELINE_WARN_ONLY: 'true'
         run: npm start
+      
+      - name: Upload baselines for next run
+        uses: actions/upload-artifact@v4
+        if: always()  # Upload even if scraper fails
+        with:
+          name: baselines
+          path: logs/baselines/
+          retention-days: 90  # Keep baselines for 90 days

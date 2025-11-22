@@ -110,6 +110,10 @@ async function main() {
       console.log(`   ✅ Saved ${scheduleData.length} courses to data/courses.json`);
 
       // 2. Baseline comparison and regression detection
+      // NOTE: We check for regression BEFORE syncing to Supabase
+      // This allows us to detect data loss issues early and decide whether to proceed
+      // The baseline is still recorded even if we decide not to sync bad data
+      
       // Extract per-department counts for detailed analysis
       const deptCounts = {};
       for (const course of scheduleData) {
@@ -125,6 +129,7 @@ async function main() {
       );
       
       // Record new baseline for future comparisons
+      // This happens regardless of regression detection to maintain continuity
       baselineManager.recordBaseline(usedTerm, scheduleData.length, deptCounts, {
         scrapeTime: phaseTimings.scraping,
         departmentCount: Object.keys(deptCounts).length

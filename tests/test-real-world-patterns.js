@@ -8,6 +8,11 @@ const __dirname = dirname(__filename);
 
 /**
  * Test real-world patterns from English department
+ * 
+ * NOTE: This test directly calls the private _parseCourses() method to unit test
+ * the parser in isolation, without requiring network access or authentication.
+ * This is intentional for fast, deterministic testing of edge cases.
+ * 
  * This validates that the parser handles actual AISIS data correctly
  */
 async function testRealWorldPatterns() {

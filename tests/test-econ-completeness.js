@@ -8,6 +8,11 @@ const __dirname = dirname(__filename);
 
 /**
  * Test Economics department completeness with various edge cases
+ * 
+ * NOTE: This test directly calls the private _parseCourses() method to unit test
+ * the parser in isolation, without requiring network access or authentication.
+ * This is intentional for fast, deterministic testing of edge cases.
+ * 
  * This serves as a regression test for data completeness issues
  */
 async function testEconCompleteness() {
