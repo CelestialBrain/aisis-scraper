@@ -2,33 +2,75 @@
 import fetch from 'node-fetch';
 
 export class SupabaseManager {
-  constructor(ingestToken) {
+  constructor(ingestToken, supabaseUrl = null) {
     this.ingestToken = ingestToken;
-    this.url = 'https://npnringvuiystpxbntvj.supabase.co/functions/v1/github-data-ingest';
+    // Read from environment variable or fallback to parameter or default
+    const baseUrl = supabaseUrl || process.env.SUPABASE_URL || 'https://npnringvuiystpxbntvj.supabase.co';
+    this.url = `${baseUrl}/functions/v1/github-data-ingest`;
   }
 
-  async syncToSupabase(dataType, data, termCode = null, department = null) {
+  async syncToSupabase(dataType, data, termCode = null, department = null, programCode = null) {
     console.log(`   ☁️ Supabase: Syncing ${data.length} ${dataType} records...`);
 
-    // Defensive: ensure each record has term_code if missing
+    // Defensive: ensure each record has necessary metadata if missing
     const normalizedData = data.map(record => {
+      const enriched = { ...record };
       if (dataType === 'schedules' && termCode && !record.term_code) {
-        return { ...record, term_code: termCode };
+        enriched.term_code = termCode;
       }
-      return record;
+      if (dataType === 'curriculum' && programCode && !record.program_code) {
+        enriched.program_code = programCode;
+      }
+      return enriched;
     });
 
-    // Send all records in a single HTTP request
-    // The Edge Function handles internal batching (BATCH_SIZE=100) for database writes
-    console.log(`   📤 Sending ${normalizedData.length} records to Supabase Edge Function...`);
+    // Client-side batching: split into 500-record chunks to avoid 504 timeouts
+    const CLIENT_BATCH_SIZE = 500;
+    const totalRecords = normalizedData.length;
+    const batches = [];
     
-    const success = await this.sendRequest(dataType, normalizedData, termCode, department);
+    for (let i = 0; i < totalRecords; i += CLIENT_BATCH_SIZE) {
+      batches.push(normalizedData.slice(i, i + CLIENT_BATCH_SIZE));
+    }
+
+    console.log(`   📦 Split into ${batches.length} client-side batch(es) of up to ${CLIENT_BATCH_SIZE} records each`);
+
+    let successCount = 0;
+    let failureCount = 0;
+
+    // Process each batch
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      const batchNum = batchIndex + 1;
+      
+      console.log(`   📤 Sending batch ${batchNum}/${batches.length} (${batch.length} records) to Supabase...`);
+      
+      const success = await this.sendRequest(dataType, batch, termCode, department, programCode);
+      
+      if (success) {
+        successCount += batch.length;
+        console.log(`   ✅ Batch ${batchNum}/${batches.length}: Successfully synced ${batch.length} records`);
+      } else {
+        failureCount += batch.length;
+        console.error(`   ⚠️ Batch ${batchNum}/${batches.length}: Failed to sync ${batch.length} records`);
+      }
+    }
+
+    // Summary
+    console.log(`\n   📊 Sync Summary:`);
+    console.log(`      Total records: ${totalRecords}`);
+    console.log(`      Successful: ${successCount}`);
+    console.log(`      Failed: ${failureCount}`);
+    console.log(`      Batches: ${batches.length}\n`);
     
-    if (success) {
-      console.log(`   ✅ Supabase: Successfully synced ${normalizedData.length} records`);
+    if (failureCount === 0) {
+      console.log(`   ✅ Supabase: All ${totalRecords} records synced successfully`);
       return true;
+    } else if (successCount > 0) {
+      console.log(`   ⚠️ Supabase: Partial success - ${successCount}/${totalRecords} records synced`);
+      return false;
     } else {
-      console.error(`   ⚠️ Supabase: Sync failed for ${normalizedData.length} records`);
+      console.error(`   ❌ Supabase: All batches failed - 0/${totalRecords} records synced`);
       return false;
     }
   }
@@ -43,20 +85,54 @@ export class SupabaseManager {
    * - Max retries: 5 (total time: ~63 seconds max)
    * - Logs each retry attempt with status and message
    * 
-   * @param {string} dataType - Type of data ('schedules' or 'curriculum')
+   * @param {string} dataType - Type of data ('schedules', 'curriculum', or 'courses')
    * @param {Array} records - Array of records to send
    * @param {string|null} termCode - Term code for schedules
    * @param {string|null} department - Department code
+   * @param {string|null} programCode - Program code for curriculum
    * @returns {Promise<boolean>} True if successful, false if all retries failed
    */
-  async sendRequest(dataType, records, termCode = null, department = null) {
+  async sendRequest(dataType, records, termCode = null, department = null, programCode = null) {
+    // Build metadata with GitHub Actions context
+    const metadata = {};
+    
+    // Add context-specific metadata
+    if (termCode) metadata.term_code = termCode;
+    if (department) metadata.department = department;
+    if (programCode) metadata.program_code = programCode;
+    
+    // Add GitHub Actions context if available
+    if (process.env.GITHUB_WORKFLOW) {
+      metadata.workflow_name = process.env.GITHUB_WORKFLOW;
+    }
+    if (process.env.GITHUB_RUN_ID) {
+      metadata.run_id = process.env.GITHUB_RUN_ID;
+    }
+    if (process.env.GITHUB_SERVER_URL && process.env.GITHUB_REPOSITORY && process.env.GITHUB_RUN_ID) {
+      metadata.run_url = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+    }
+    if (process.env.GITHUB_REPOSITORY) {
+      metadata.repository = process.env.GITHUB_REPOSITORY;
+    }
+    if (process.env.GITHUB_SHA) {
+      metadata.commit_sha = process.env.GITHUB_SHA;
+    }
+    
+    // Determine trigger type
+    if (process.env.GITHUB_EVENT_NAME === 'schedule') {
+      metadata.trigger = 'schedule';
+    } else if (process.env.GITHUB_EVENT_NAME === 'workflow_dispatch') {
+      metadata.trigger = 'manual';
+    } else if (process.env.GITHUB_ACTIONS) {
+      metadata.trigger = 'github-actions';
+    } else {
+      metadata.trigger = 'manual';
+    }
+
     const payload = {
       data_type: dataType,
       records: records,
-      metadata: {
-        term_code: termCode,
-        department: department
-      }
+      metadata: metadata
     };
 
     // Retry configuration
@@ -80,6 +156,17 @@ export class SupabaseManager {
           if (attempt > 0) {
             console.log(`   ✅ Request succeeded on retry attempt ${attempt}`);
           }
+          
+          // Parse and log response for better visibility
+          try {
+            const responseData = await response.json();
+            if (responseData.inserted !== undefined) {
+              console.log(`   📊 Edge function response: ${responseData.inserted}/${responseData.total || records.length} records upserted`);
+            }
+          } catch (e) {
+            // Response might not be JSON, that's ok
+          }
+          
           return true;
         } else {
           const text = await response.text();
@@ -197,6 +284,24 @@ export class SupabaseManager {
         course_description: item.description,
         units: this.safeFloat(item.units),
         category: item.category || 'CORE'
+      };
+    });
+  }
+
+  /**
+   * Transform courses data for the courses table
+   * This is for generic course catalog data (not schedule-specific)
+   */
+  transformCoursesData(courseItems) {
+    return courseItems.map(item => {
+      return {
+        course_code: item.courseCode || item.course_code,
+        course_title: item.title || item.course_title,
+        units: this.safeFloat(item.units),
+        description: item.description || null,
+        school_id: item.school_id || 'ADMU', // Default to Ateneo
+        department: item.department || null,
+        level: item.level || null
       };
     });
   }
