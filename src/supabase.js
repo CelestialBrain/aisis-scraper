@@ -82,7 +82,35 @@ export class SupabaseManager {
     console.log(`      Total records: ${totalRecords}`);
     console.log(`      Successful: ${successCount}`);
     console.log(`      Failed: ${failureCount}`);
-    console.log(`      Batches: ${batches.length}\n`);
+    console.log(`      Batches: ${batches.length}`);
+    
+    // Enhanced: Show per-department breakdown
+    if (dataType === 'schedules' && normalizedData.length > 0) {
+      const deptCounts = {};
+      for (const record of normalizedData) {
+        const dept = record.department || 'UNKNOWN';
+        deptCounts[dept] = (deptCounts[dept] || 0) + 1;
+      }
+      
+      const sortedDepts = Object.entries(deptCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10); // Top 10 departments
+      
+      if (sortedDepts.length > 0) {
+        console.log(`\n      📋 Top ${sortedDepts.length} Departments by Record Count:`);
+        for (const [dept, count] of sortedDepts) {
+          console.log(`         ${dept.padEnd(20)}: ${count.toString().padStart(4)} records`);
+        }
+        
+        if (Object.keys(deptCounts).length > 10) {
+          console.log(`         ... and ${Object.keys(deptCounts).length - 10} more departments`);
+        }
+        
+        console.log(`         Total departments: ${Object.keys(deptCounts).length}`);
+      }
+    }
+    
+    console.log(); // Empty line for readability
     
     if (failureCount === 0) {
       console.log(`   ✅ Supabase: All ${totalRecords} records synced successfully`);
