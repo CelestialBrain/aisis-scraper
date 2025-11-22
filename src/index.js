@@ -43,7 +43,7 @@ async function main() {
   }
 
   let attempt = 0;
-  const maxAttempts = 3;
+  const maxAttempts = 2;
   let scheduleData = [];
 
   while (attempt < maxAttempts) {
@@ -55,8 +55,9 @@ async function main() {
       await scraper.login();
 
       // Verify login worked
+      console.log('   🔍 Verifying session...');
       if (!await scraper.verifySession()) {
-        throw new Error('Session verification failed after login');
+        throw new Error('Session verification failed immediately after login');
       }
 
       console.log('✅ Session verified, starting data extraction...');
@@ -73,11 +74,12 @@ async function main() {
       
       if (attempt >= maxAttempts) {
         console.error('💥 All attempts failed. Exiting.');
-        process.exit(1);
+        // Even if failed, try to process whatever data we have
+        break;
       }
       
-      console.log('🔄 Retrying in 3 seconds...');
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      console.log('🔄 Retrying in 5 seconds...');
+      await new Promise(resolve => setTimeout(resolve, 5000));
     }
   }
 
@@ -104,7 +106,7 @@ async function main() {
       
       const departments = Object.keys(byDept);
       
-      await runInBatches(departments, 5, async (dept) => {
+      await runInBatches(departments, 3, async (dept) => {
         const batchData = supabase.transformScheduleData(byDept[dept]);
         const supabaseBatch = batchData.map(d => ({
             ...d,
