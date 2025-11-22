@@ -8,7 +8,7 @@ const jar = new CookieJar();
 const fetchWithJar = fetchCookie(globalThis.fetch, jar);
 
 function delay(ms) {
-  return new Promise(r => setTimeout(r, ms));
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 export class AISISScraper {
@@ -17,12 +17,12 @@ export class AISISScraper {
     this.password = password;
     this.baseUrl = 'https://aisis.ateneo.edu';
     this.headers = {
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-      // Content-Type set per-request if needed
-      'Origin': this.baseUrl,
-      'Referer': `${this.baseUrl}/j_aisis/login.do`,
-      'Connection': 'keep-alive'
+      'User-Agent':
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      Origin: this.baseUrl,
+      Referer: `${this.baseUrl}/j_aisis/login.do`,
+      Connection: 'keep-alive'
     };
   }
 
@@ -39,7 +39,7 @@ export class AISISScraper {
       ...options,
       headers,
       redirect: 'follow',
-      signal: controller.signal,
+      signal: controller.signal
     };
 
     try {
@@ -69,10 +69,10 @@ export class AISISScraper {
       params.append('command', 'login');
       params.append('rnd', rnd);
 
-      const loginResp = await this._request(`${this.baseUrl}/j_aisis/login.do`, {
+      await this._request(`${this.baseUrl}/j_aisis/login.do`, {
         method: 'POST',
         body: params.toString(),
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Referer': `${this.baseUrl}/j_aisis/displayLogin.do` }
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', Referer: `${this.baseUrl}/j_aisis/displayLogin.do` }
       });
 
       // After POST, ensure we actually landed on an authenticated page by fetching known landing
@@ -83,8 +83,8 @@ export class AISISScraper {
         throw new Error('Authentication Failed: landing page did not contain expected markers');
       }
 
-      // Debug: show collected cookies (optional)
-      const cookies = await new Promise((res, rej) => jar.getCookies(this.baseUrl, (err, c) => err ? rej(err) : res(c)));
+      // Optional debug: show collected cookies (uncomment if needed)
+      // const cookies = await new Promise((res, rej) => jar.getCookies(this.baseUrl, (err, c) => err ? rej(err) : res(c)));
       // console.log('DEBUG cookies after login:', cookies.map(c => c.cookieString()));
 
       console.log('✅ Authentication Successful');
@@ -119,7 +119,7 @@ export class AISISScraper {
       const resp = await this._request(`${this.baseUrl}/j_aisis/J_VCSC.do`, {
         method: 'POST',
         body: params.toString(),
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Referer': `${this.baseUrl}/j_aisis/J_VCSC.do` }
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', Referer: `${this.baseUrl}/j_aisis/J_VCSC.do` }
       });
 
       const html = await resp.text();
