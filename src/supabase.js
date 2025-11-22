@@ -126,4 +126,18 @@ export class SupabaseManager {
       };
     });
   }
+
+  transformCurriculumData(curriculumItems) {
+    return curriculumItems.map(item => {
+      return {
+        degree_code: item.degree,
+        year_level: item.yearLevel,
+        semester: item.semester,
+        course_code: item.courseCode,
+        course_description: item.description,
+        units: this.safeFloat(item.units),
+        category: item.category || 'CORE'
+      };
+    });
+  }
 }
