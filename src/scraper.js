@@ -12,10 +12,44 @@ export class AISISScraper {
     this.baseUrl = 'https://aisis.ateneo.edu';
     this.cookieJar = new CookieJar();
     this.loggedIn = false;
+    
+    // Define the file path for saving cookies
+    this.cookieFile = 'cookies.json';
   }
 
   async init() {
     console.log('🚀 Initializing AISIS Scraper...');
+    // Try to load existing cookies on startup
+    await this._loadCookies();
+  }
+
+  // Method to load cookies from file
+  async _loadCookies() {
+    if (fs.existsSync(this.cookieFile)) {
+      try {
+        const data = fs.readFileSync(this.cookieFile, 'utf8');
+        const json = JSON.parse(data);
+        // Reconstruct the jar from the saved JSON
+        this.cookieJar = CookieJar.deserializeSync(json);
+        this.loggedIn = true; // Assume logged in if cookies exist (validation happens in login())
+        console.log('   📂 Loaded session from cookies.json');
+      } catch (err) {
+        console.error('   ⚠️ Error loading cookies:', err.message);
+        // If error, start with fresh jar
+        this.cookieJar = new CookieJar();
+      }
+    }
+  }
+
+  // Method to save cookies to file
+  async _saveCookies() {
+    try {
+      // Serialize the entire jar to a JSON object
+      const serialized = this.cookieJar.serializeSync();
+      fs.writeFileSync(this.cookieFile, JSON.stringify(serialized, null, 2));
+    } catch (err) {
+      console.error('   ⚠️ Error saving cookies:', err.message);
+    }
   }
 
   async _request(url, options = {}) {
@@ -47,6 +81,8 @@ export class AISISScraper {
       const setCookie = response.headers.get('set-cookie');
       if (setCookie) {
         await this.cookieJar.setCookie(setCookie, url);
+        // Save cookies immediately after receiving new ones
+        await this._saveCookies();
       }
 
       // Handle redirects
@@ -68,6 +104,27 @@ export class AISISScraper {
   }
 
   async login() {
+    // If we already loaded cookies, try to validate the session first
+    if (this.loggedIn) {
+      console.log('   Testing existing session...');
+      try {
+        // Try to access a protected page to see if cookies are still valid
+        const response = await this._request(`${this.baseUrl}/j_aisis/J_VMCS.do`);
+        const text = await response.text();
+        
+        if (text.includes('MY INDIVIDUAL PROGRAM OF STUDY') || text.includes('User Identified As')) {
+            console.log('   ✅ Existing session is valid!');
+            return true;
+        } else {
+            console.log('   ⚠️ Existing session expired. Re-logging in...');
+            this.loggedIn = false;
+        }
+      } catch (e) {
+        console.log('   ⚠️ Session validation failed. Re-logging in...');
+        this.loggedIn = false;
+      }
+    }
+
     console.log('🔐 Logging into AISIS...');
     
     try {
@@ -102,6 +159,9 @@ export class AISISScraper {
         this.loggedIn = true;
         console.log('✅ Login successful');
         
+        // Force save after successful login
+        await this._saveCookies();
+
         // Verify we have session cookies
         const cookies = await this.cookieJar.getCookies(this.baseUrl);
         console.log(`   🍪 Session cookies: ${cookies.length}`);
