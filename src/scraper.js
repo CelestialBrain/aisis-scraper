@@ -518,4 +518,191 @@ export class AISISScraper {
   _delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
+
+  /**
+   * Scrape curriculum data for all degree programs
+   * @returns {Promise<Array>} Array of curriculum records
+   */
+  async scrapeCurriculum() {
+    if (!this.loggedIn) {
+      throw new Error('Not logged in');
+    }
+
+    console.log('\n📚 Scraping Official Curriculum...');
+    
+    // List of degree programs to scrape
+    // Based on typical AISIS curriculum page structure
+    const degreePrograms = [
+      "BS ITE", "BS CS", "BS DS", "BS AMF", "BS APS", "BS CH", "BS AME",
+      "BS BIO", "BS CTM", "BS CHE", "BS COE", "BS ECE", "BS ES", "BS IE",
+      "BS ME", "BS LM", "BS MIS", "AB COM", "AB DipIR", "AB DS", "AB EC",
+      "AB EU", "AB IS-HI", "AB IS-JPL", "AB LIT-ENG", "AB LIT-FIL", 
+      "AB PH", "AB POS", "AB PSY", "BFA AM", "BFA CW", "BFA ID",
+      "BFA IS", "BFA TA", "BS HRIM", "BS MGT"
+    ];
+
+    const allCurriculum = [];
+    
+    console.log('   🧪 Testing with first degree program...');
+    const testProgram = degreePrograms[0];
+    
+    try {
+      const testCurriculum = await this._scrapeDegreeProgram(testProgram);
+      if (testCurriculum && testCurriculum.length > 0) {
+        console.log(`   ✅ Test successful: ${testCurriculum.length} courses found in ${testProgram}`);
+        allCurriculum.push(...testCurriculum);
+        
+        // Continue with remaining degree programs using batched concurrent scraping
+        const remainingPrograms = degreePrograms.slice(1);
+        const totalBatches = Math.ceil(remainingPrograms.length / SCRAPE_CONFIG.CONCURRENCY);
+        
+        for (let i = 0; i < remainingPrograms.length; i += SCRAPE_CONFIG.CONCURRENCY) {
+          const batch = remainingPrograms.slice(i, i + SCRAPE_CONFIG.CONCURRENCY);
+          const batchNum = Math.floor(i / SCRAPE_CONFIG.CONCURRENCY) + 1;
+          
+          console.log(`   📦 Processing batch ${batchNum}/${totalBatches} (${batch.join(', ')})...`);
+          
+          const batchPromises = batch.map(async (program) => {
+            console.log(`   📚 Scraping ${program}...`);
+            
+            try {
+              const curriculum = await this._scrapeDegreeProgram(program);
+              if (curriculum && curriculum.length > 0) {
+                console.log(`   ✅ ${program}: ${curriculum.length} courses`);
+                return curriculum;
+              } else {
+                console.log(`   ⚠️  ${program}: No courses found`);
+                return [];
+              }
+            } catch (error) {
+              console.error(`   ❌ ${program}: ${error.message}`);
+              return [];
+            }
+          });
+          
+          const batchResults = await Promise.all(batchPromises);
+          
+          for (const curriculum of batchResults) {
+            allCurriculum.push(...curriculum);
+          }
+          
+          if (i + SCRAPE_CONFIG.CONCURRENCY < remainingPrograms.length) {
+            await this._delay(SCRAPE_CONFIG.BATCH_DELAY_MS);
+          }
+        }
+      } else {
+        console.log('   ❌ Test failed - no courses found in first degree program');
+      }
+    } catch (error) {
+      console.error(`   💥 Test failed for ${testProgram}:`, error.message);
+    }
+
+    console.log(`\n📚 Total curriculum courses: ${allCurriculum.length}`);
+    return allCurriculum;
+  }
+
+  async _scrapeDegreeProgram(degreeCode, retryCount = 0) {
+    const formData = new URLSearchParams();
+    formData.append('command', 'displayProgram');
+    formData.append('degreeCode', degreeCode);
+
+    try {
+      const response = await this._request(`${this.baseUrl}/j_aisis/J_VOPC.do`, {
+        method: 'POST',
+        body: formData.toString(),
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Origin': this.baseUrl,
+          'Referer': `${this.baseUrl}/j_aisis/J_VOPC.do`
+        }
+      });
+
+      if (!response.ok) {
+        const errorMsg = `HTTP ${response.status} for degree ${degreeCode}`;
+        
+        if (response.status >= 500 && response.status < 600 && retryCount < RETRY_CONFIG.MAX_RETRIES) {
+          console.log(`   ⚠️  ${errorMsg} - retrying in ${RETRY_CONFIG.RETRY_DELAY_MS / 1000} seconds...`);
+          await this._delay(RETRY_CONFIG.RETRY_DELAY_MS);
+          return this._scrapeDegreeProgram(degreeCode, retryCount + 1);
+        }
+        
+        throw new Error(errorMsg);
+      }
+
+      const html = await response.text();
+      
+      if (LOGIN_FAILURE_MARKERS.some(marker => html.includes(marker))) {
+        throw new Error('Session expired');
+      }
+
+      const curriculum = this._parseCurriculum(html, degreeCode);
+      
+      if (curriculum.length === 0) {
+        console.log(`   ⚠️  ${degreeCode}: No curriculum found`);
+      }
+      
+      return curriculum;
+    } catch (error) {
+      if (!error.message.includes(degreeCode)) {
+        throw new Error(`${degreeCode}: ${error.message}`);
+      }
+      throw error;
+    }
+  }
+
+  _parseCurriculum(html, degreeCode) {
+    const $ = cheerio.load(html);
+    const curriculum = [];
+    
+    // Look for curriculum tables - typically have class 'text02' or similar
+    // This is a generic parser that looks for table rows with curriculum data
+    let currentYearLevel = null;
+    let currentSemester = null;
+    
+    // Find all tables that contain curriculum data
+    $('table').each((_, table) => {
+      $(table).find('tr').each((_, row) => {
+        const cells = $(row).find('td');
+        
+        if (cells.length === 0) return;
+        
+        // Check if this is a header row (year level or semester)
+        const firstCellText = $(cells[0]).text().trim().toUpperCase();
+        
+        if (firstCellText.includes('YEAR') && firstCellText.includes('LEVEL')) {
+          currentYearLevel = $(cells[0]).text().trim();
+          return;
+        }
+        
+        if (firstCellText.includes('SEMESTER') || firstCellText.includes('TERM')) {
+          currentSemester = $(cells[0]).text().trim();
+          return;
+        }
+        
+        // Parse curriculum row (course code, description, units, category)
+        // Typical format: Course Code | Description | Units | Category
+        if (cells.length >= 3) {
+          const courseCode = $(cells[0]).text().trim();
+          const description = cells.length >= 2 ? $(cells[1]).text().trim() : '';
+          const units = cells.length >= 3 ? $(cells[2]).text().trim() : '';
+          const category = cells.length >= 4 ? $(cells[3]).text().trim() : '';
+          
+          // Validate that this looks like a course code (contains letters and numbers)
+          if (courseCode && /[A-Z]+\s*\d+/.test(courseCode) && description) {
+            curriculum.push({
+              degree: degreeCode,
+              yearLevel: currentYearLevel || 'Unknown',
+              semester: currentSemester || 'Unknown',
+              courseCode: courseCode,
+              description: description,
+              units: units,
+              category: category || 'CORE'
+            });
+          }
+        }
+      });
+    });
+
+    return curriculum;
+  }
 }

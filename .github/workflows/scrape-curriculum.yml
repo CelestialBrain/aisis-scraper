@@ -1,9 +1,9 @@
-name: AISIS Schedule Scrape
+name: AISIS Curriculum Scrape
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 0 * * 0'  # Runs weekly on Sundays at midnight UTC
 
 jobs:
   scrape:
@@ -21,11 +21,11 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Run scraper
+      - name: Run curriculum scraper
         env:
           AISIS_USERNAME: ${{ secrets.AISIS_USERNAME }}
           AISIS_PASSWORD: ${{ secrets.AISIS_PASSWORD }}
           DATA_INGEST_TOKEN: ${{ secrets.DATA_INGEST_TOKEN }}
           GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
-        run: npm start
+        run: npm run curriculum

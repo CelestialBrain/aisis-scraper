@@ -13,8 +13,10 @@ This project contains a Node.js-based web scraper that automatically logs into A
 
 ## Data Categories Scraped
 
-1. **Schedule of Classes**: All available class schedules for all departments.
-2. **Official Curriculum**: All official curriculum for all degree programs.
+1. **Schedule of Classes**: All available class schedules for all departments (runs every 6 hours).
+2. **Official Curriculum**: All official curriculum for all degree programs (runs weekly).
+
+Each data category has its own dedicated scraper and workflow for efficient, independent operation.
 
 ## Getting Started
 
@@ -54,10 +56,14 @@ If no override is provided, the scraper will auto-detect and use the currently s
 
 ## How It Works
 
-- **GitHub Actions**: The `.github/workflows/scrape.yml` file defines the workflow. It runs on a schedule, checks out the code, installs dependencies, and runs the scraper.
+- **GitHub Actions**: The project has two workflows:
+  - `.github/workflows/scrape-institutional-data.yml`: Runs every 6 hours to scrape class schedules
+  - `.github/workflows/scrape-curriculum.yml`: Runs weekly to scrape official curriculum data
 - **Scraper (`src/scraper.js`)**: This script uses `node-fetch` to perform direct HTTP requests and `cheerio` to parse the HTML, eliminating the need for a headless browser (Puppeteer). This makes the scraper significantly faster and more stable.
 - **Supabase Sync (`src/supabase.js`)**: This script transforms the scraped data and syncs it to Supabase via the `github-data-ingest` Edge Function endpoint.
-- **Main Script (`src/index.js`)**: This is the entry point that orchestrates the scraper and the Supabase sync manager.
+- **Main Scripts**:
+  - `src/index.js`: Entry point for scraping class schedules
+  - `src/index-curriculum.js`: Entry point for scraping curriculum data
 
 ## Running Locally (for Testing)
 
@@ -89,8 +95,15 @@ If no override is provided, the scraper will auto-detect and use the currently s
    ```
 
 4. **Run the scraper**:
+   
+   For class schedules:
    ```bash
    npm start
+   ```
+   
+   For curriculum data:
+   ```bash
+   npm run curriculum
    ```
 
 ## Architecture
