@@ -9,6 +9,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const ONCONFLICT_SCHEDULES = 'term_code,subject_code,section,department';
 const BATCH_SIZE = 100;
 const DELAY_BETWEEN_BATCHES_MS = 100;
+const SAMPLE_INVALID_RECORDS_COUNT = 3;
 
 interface ScheduleRecord {
   term_code: string;
@@ -67,17 +68,28 @@ async function upsertSchedulesInBatches(
 
   // Pre-validate schedules - filter out invalid records
   const validSchedules = schedules.filter(validateScheduleRecord);
-  const invalidCount = schedules.length - validSchedules.length;
+  const invalidSchedules = schedules.filter(s => !validateScheduleRecord(s));
+  const invalidCount = invalidSchedules.length;
   
   if (invalidCount > 0) {
     const warningMsg = `Filtered out ${invalidCount} invalid records (missing required fields)`;
     console.warn(warningMsg);
     result.errors.push(warningMsg);
     
+    // Log sample invalid records for debugging
+    const sampleInvalid = invalidSchedules.slice(0, SAMPLE_INVALID_RECORDS_COUNT).map(s => ({
+      term_code: s.term_code || 'MISSING',
+      subject_code: s.subject_code || 'MISSING',
+      section: s.section || 'MISSING',
+      department: s.department || 'MISSING'
+    }));
+    console.warn(`Sample invalid records:`, JSON.stringify(sampleInvalid, null, 2));
+    
     // Optional: Log to a job log table if jobId is available
     if (jobId) {
       await recordLog(client, jobId, 'warning', warningMsg, { 
-        invalid_count: invalidCount 
+        invalid_count: invalidCount,
+        sample_invalid: sampleInvalid
       });
     }
   }
@@ -107,13 +119,23 @@ async function upsertSchedulesInBatches(
         console.error(errorMsg);
         result.errors.push(errorMsg);
         
+        // Log sample records from failed batch for debugging
+        const sampleBatch = batch.slice(0, 2).map(s => ({
+          term_code: s.term_code,
+          subject_code: s.subject_code,
+          section: s.section,
+          department: s.department
+        }));
+        console.error(`Sample records from failed batch:`, JSON.stringify(sampleBatch, null, 2));
+        
         // Log error to job log if available
         if (jobId) {
           await recordLog(client, jobId, 'error', errorMsg, {
             batch_index: batchIndex,
             batch_size: batch.length,
             error_code: error.code,
-            error_details: error.details
+            error_details: error.details,
+            sample_records: sampleBatch
           });
         }
       } else {

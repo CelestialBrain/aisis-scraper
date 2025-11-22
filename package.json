@@ -8,7 +8,8 @@
     "start": "node src/index.js",
     "dev": "node src/index.js",
     "curriculum": "node src/index-curriculum.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "verify": "node src/verify-schedules.js",
+    "test": "node tests/test-parser.js"
   },
   "repository": {
     "type": "git",
@@ -28,12 +29,13 @@
   },
   "homepage": "https://github.com/CelestialBrain/aisis-scraper#readme",
   "dependencies": {
+    "@supabase/supabase-js": "^2.84.0",
     "cheerio": "^1.1.2",
     "dotenv": "^16.4.5",
     "fetch-cookie": "^3.0.4",
     "googleapis": "^126.0.1",
-    "tough-cookie": "^5.0.0",
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^3.3.2",
+    "tough-cookie": "^5.0.0"
   },
   "engines": {
     "node": ">=18.0.0"
