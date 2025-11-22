@@ -1,10 +1,6 @@
 import fetch from 'node-fetch';
 import * as cheerio from 'cheerio';
 
-/**
- * AISIS Scraper - Direct Request Edition (Fast Mode)
- * Mimics browser behavior using HAR-derived headers and session management.
- */
 export class AISISScraper {
   constructor(username, password) {
     this.username = username;
@@ -12,23 +8,13 @@ export class AISISScraper {
     this.baseUrl = 'https://aisis.ateneo.edu';
     this.cookie = null;
     
-    // Headers from your HAR file to mimic Chrome 142
     this.headers = {
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Cache-Control': 'max-age=0',
-      'Connection': 'keep-alive',
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'Content-Type': 'application/x-www-form-urlencoded',
       'Origin': this.baseUrl,
       'Referer': `${this.baseUrl}/j_aisis/login.do`,
-      'Upgrade-Insecure-Requests': '1',
-      'sec-ch-ua': '"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"',
-      'sec-ch-ua-mobile': '?0',
-      'sec-ch-ua-platform': '"macOS"',
-      'Sec-Fetch-Dest': 'document',
-      'Sec-Fetch-Mode': 'navigate',
-      'Sec-Fetch-Site': 'same-origin',
-      'Sec-Fetch-User': '?1'
+      'Connection': 'keep-alive'
     };
   }
 
@@ -36,9 +22,6 @@ export class AISISScraper {
     console.log('🚀 Initializing Direct Request Engine (No Browser)...');
   }
 
-  /**
-   * Helper to handle requests and cookie persistence
-   */
   async _request(url, options = {}) {
     const opts = {
       ...options,
@@ -47,76 +30,64 @@ export class AISISScraper {
         ...options.headers,
         'Cookie': this.cookie || ''
       },
-      redirect: 'manual' // We handle redirects manually to capture cookies
+      redirect: 'manual'
     };
 
     const response = await fetch(url, opts);
-    
-    // Update cookie if server sends a new one
     const newCookie = response.headers.get('set-cookie');
     if (newCookie) {
-      // Extract JSESSIONID
       const sessionPart = newCookie.split(';')[0];
       if (sessionPart) this.cookie = sessionPart;
     }
-
     return response;
   }
 
   async login() {
     console.log('🔐 Authenticating via Direct Request...');
-
     try {
-      // 1. WARM-UP: Get initial session cookie (Crucial Step!)
-      // This mimics the browser visiting the login page before submitting
+      // 1. Warm-up
       await this._request(`${this.baseUrl}/j_aisis/displayLogin.do`, { method: 'GET' });
       
-      if (!this.cookie) console.warn('⚠️ Warning: No initial cookie received during warm-up.');
-
-      // 2. LOGIN: Send credentials
+      // 2. Login
       const params = new URLSearchParams();
       params.append('userName', this.username);
       params.append('password', this.password);
       params.append('submit', 'Sign in');
       params.append('command', 'login');
-      // Random string logic from your HAR/Alexi's script
       params.append('rnd', 'r' + Math.random().toString(36).substring(7)); 
 
       const response = await this._request(`${this.baseUrl}/j_aisis/login.do`, {
         method: 'POST',
-        body: params,
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        body: params
       });
 
-      // Check success (Status 200 usually means "Welcome" page loaded directly, 302 means redirect)
+      // 3. Validation
       const text = await response.text();
       if (text.includes('Invalid password') || text.includes('Sign in')) {
         throw new Error('Authentication Failed: Invalid credentials.');
       }
-
       console.log('✅ Authentication Successful (Session Established)');
-      
-      // Human-like delay
       await new Promise(r => setTimeout(r, 1000));
-
     } catch (error) {
       console.error('⛔ Critical Login Error:', error.message);
       throw error;
     }
   }
 
-  async scrapeSchedule(fallbackTerm) {
+  async scrapeSchedule(fallbackTerm = '2025-1') {
     console.log('\n📅 Starting Schedule Extraction...');
     const results = [];
 
     try {
-      // 1. Fetch form to get Term and Dept Codes
-      // Referer must be login page or previous page
       this.headers['Referer'] = `${this.baseUrl}/j_aisis/login.do`;
-      
       const initialResponse = await this._request(`${this.baseUrl}/j_aisis/J_VCSC.do`, { method: 'GET' });
       const initialHtml = await initialResponse.text();
       const $ = cheerio.load(initialHtml);
+
+      // 🛑 ANTI-GARBAGE CHECK: Ensure we are actually on the schedule page
+      if ($('select[name="deptCode"]').length === 0) {
+        throw new Error('❌ Session Expired or Page Load Failed: Could not find Department dropdown.');
+      }
 
       // Auto-detect term
       let term = $('select[name="applicablePeriod"] option[selected]').val();
@@ -129,21 +100,27 @@ export class AISISScraper {
           console.log(`   ℹ️ Detected Term: ${term}`);
       }
 
-      // Extract Departments
+      // Extract Departments (Dynamic)
       let deptCodes = $('select[name="deptCode"] option')
         .map((i, el) => $(el).val())
         .get()
         .filter(val => val && val !== 'ALL');
 
+      // ✅ FULL FALLBACK LIST (If dynamic extraction fails)
       if (deptCodes.length === 0) {
-        console.warn("   ⚠️ No departments found on page. Using fallback list.");
-        deptCodes = ["ITMGT", "CS", "MIS", "DISCS", "MATH"]; // Add more as needed
+        console.warn("   ⚠️ No departments found via scraping. Using full fallback list.");
+        deptCodes = [
+            "BIO", "CH", "CHN", "COM", "CEPP", "CPA", "ELM", "DS", "EC", "ECE", 
+            "EN", "ES", "EU", "FIL", "FAA", "FA", "HSP", "HI", "SOHUM", "DISCS", 
+            "SALT", "INTAC", "IS", "JSP", "KSP", "LAS", "MAL", "MA", "ML", 
+            "NSTP (ADAST)", "NSTP (OSCI)", "PH", "PE", "PS", "POS", "PSY", 
+            "QMIT", "SB", "SOCSCI", "SA", "TH", "TMP", "ITMGT", "MATH", "MIS", "CS",
+            "HUM", "LIT", "MGT", "MKT", "NF", "NS", "PE", "PH", "POS", "PS", "PSY" 
+        ];
       }
 
       console.log(`   Found ${deptCodes.length} departments to process.`);
-
-      // 2. Loop through departments
-      this.headers['Referer'] = `${this.baseUrl}/j_aisis/J_VCSC.do`; // Update Referer
+      this.headers['Referer'] = `${this.baseUrl}/j_aisis/J_VCSC.do`;
 
       for (const dept of deptCodes) {
         const params = new URLSearchParams();
@@ -155,8 +132,7 @@ export class AISISScraper {
         try {
           const response = await this._request(`${this.baseUrl}/j_aisis/J_VCSC.do`, {
             method: 'POST',
-            body: params,
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+            body: params
           });
 
           const html = await response.text();
@@ -165,10 +141,15 @@ export class AISISScraper {
 
           $table('table tr').each((i, row) => {
             const cells = $table(row).find('td');
+            // Only scrape rows that look like actual classes (10+ columns)
+            // AND filter out garbage headers like "Ateneo Integrated..."
             if (cells.length > 10) {
+              const subject = $table(cells[0]).text().trim();
+              if (subject.includes('Ateneo Integrated') || subject === '') return; 
+
               results.push({
                 department:  dept,
-                subjectCode: $table(cells[0]).text().trim(),
+                subjectCode: subject,
                 section:     $table(cells[1]).text().trim(),
                 title:       $table(cells[2]).text().trim(),
                 units:       $table(cells[3]).text().trim(),
@@ -186,7 +167,7 @@ export class AISISScraper {
           });
 
           if (deptCount > 0) console.log(`   ✓ ${dept}: ${deptCount} classes`);
-          await new Promise(r => setTimeout(r, 100)); 
+          await new Promise(r => setTimeout(r, 50)); 
 
         } catch (err) {
           console.error(`   ❌ Error fetching ${dept}:`, err.message);
@@ -210,35 +191,36 @@ export class AISISScraper {
       const html = await r1.text();
       const $ = cheerio.load(html);
 
-      const degrees = $('select[name="degCode"] option')
+      let degrees = $('select[name="degCode"] option')
         .map((i, el) => $(el).val())
         .get()
         .filter(v => v);
 
+      if (degrees.length === 0) {
+         console.warn("   ⚠️ No degree programs found. Using fallback list.");
+         degrees = ["BS CS", "BS MIS", "BS ITE", "BS AMF", "BS MGT"]; 
+      }
+
       console.log(`   Found ${degrees.length} degree programs.`);
       this.headers['Referer'] = `${this.baseUrl}/j_aisis/J_VOFC.do`;
 
-      // Limit to first 5 for testing, remove slice to scrape all
       for (const degree of degrees) { 
         const params = new URLSearchParams();
-        params.append('degCode', degree); // Param from HAR
+        params.append('degCode', degree);
 
         const r2 = await this._request(`${this.baseUrl}/j_aisis/J_VOFC.do`, {
             method: 'POST',
-            body: params,
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+            body: params
         });
 
         const pageHtml = await r2.text();
         const $p = cheerio.load(pageHtml);
         
-        // Basic parser logic (adjust selectors if needed based on actual page structure)
         let year = '', sem = '';
         $p('table tr').each((i, row) => {
             const text = $p(row).text().toLowerCase();
             const cells = $p(row).find('td');
 
-            // Context-aware parsing: Detects headers vs content rows
             if (text.includes('year')) year = $p(row).text().trim();
             else if (text.includes('semester')) sem = $p(row).text().trim();
             else if (cells.length >= 3) {
@@ -248,24 +230,22 @@ export class AISISScraper {
                     semester: sem,
                     courseCode: $p(cells[0]).text().trim(),
                     description: $p(cells[1]).text().trim(),
-                    units: $p(cells[2]).text().trim(),
-                    category: $p(cells[3]).text().trim() || ''
+                    units: $p(cells[2]).text().trim()
                 });
             }
         });
-
-        if (results.length > 0) console.log(`   ✓ ${degree}: Processed ${results.length} items`);
-        await new Promise(r => setTimeout(r, 100));
+        await new Promise(r => setTimeout(r, 50));
       }
+
     } catch (error) {
       console.error('   ❌ Curriculum Scrape Error:', error.message);
     }
-    
-    console.log(`✅ Official Curriculum complete: ${results.length} total items`);
+
+    console.log(`✅ Curriculum extraction complete: ${results.length} items`);
     return results;
   }
 
   async close() {
-    console.log('🔒 Direct Request Session Closed');
+    console.log('🔒 Session Closed');
   }
 }
