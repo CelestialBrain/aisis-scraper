@@ -169,8 +169,8 @@ export class AISISScraper {
         "EN", "ES", "EU", "FIL", "FAA", "FA", "HSP", "HI", "SOHUM", "DISCS", 
         "SALT", "INTAC", "IS", "JSP", "KSP", "LAS", "MAL", "MA", "ML", 
         "NSTP (ADAST)", "NSTP (OSCI)", "PH", "PE", "PS", "POS", "PSY", 
-        "QMIT", "SB", "SOCSCI", "SA", "TH", "TMP", "ITMGT", "MATH", "MIS", "CS",
-        "HUM", "LIT", "MGT", "MKT", "NF", "NS", "PE", "PH", "POS", "PS", "PSY" 
+        "QMIT", "SB", "SOCSCI", "SA", "TH", "TMP", 
+        "ITMGT", "MATH", "MIS", "CS", "HUM", "LIT", "MGT", "MKT", "NF", "NS"
     ];
 
     console.log(`   Using manual list of ${deptCodes.length} departments.`);
