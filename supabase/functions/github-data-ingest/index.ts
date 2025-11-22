@@ -6,7 +6,42 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 // Constants
-const BATCH_SIZE = 100; // Process 100 records at a time to avoid timeouts
+// DB batch size - configurable via environment variable for performance tuning
+// Default: 100 records per DB transaction
+// Range: 50-500 (enforced for safety)
+// Larger batches = faster but more risk of timeout, smaller = slower but more reliable
+const DEFAULT_BATCH_SIZE = 100;
+const MIN_BATCH_SIZE = 50;
+const MAX_BATCH_SIZE = 500;
+
+// Parse batch size from environment with bounds checking
+function getBatchSize(): number {
+  const envValue = Deno.env.get('GITHUB_INGEST_DB_BATCH_SIZE');
+  if (!envValue) {
+    return DEFAULT_BATCH_SIZE;
+  }
+  
+  const parsed = parseInt(envValue, 10);
+  if (isNaN(parsed)) {
+    console.warn(`Invalid GITHUB_INGEST_DB_BATCH_SIZE: "${envValue}", using default ${DEFAULT_BATCH_SIZE}`);
+    return DEFAULT_BATCH_SIZE;
+  }
+  
+  if (parsed < MIN_BATCH_SIZE) {
+    console.warn(`GITHUB_INGEST_DB_BATCH_SIZE ${parsed} below minimum ${MIN_BATCH_SIZE}, using minimum`);
+    return MIN_BATCH_SIZE;
+  }
+  
+  if (parsed > MAX_BATCH_SIZE) {
+    console.warn(`GITHUB_INGEST_DB_BATCH_SIZE ${parsed} above maximum ${MAX_BATCH_SIZE}, using maximum`);
+    return MAX_BATCH_SIZE;
+  }
+  
+  console.log(`Using custom DB batch size: ${parsed}`);
+  return parsed;
+}
+
+const BATCH_SIZE = getBatchSize();
 const ONCONFLICT_SCHEDULES = 'term_code,subject_code,section,department'; // Matches DB unique constraint
 
 // Interfaces

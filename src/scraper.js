@@ -330,8 +330,13 @@ export class AISISScraper {
     }
 
     // Auto-detect term if not provided
+    const termDetectStart = Date.now();
     if (!term) {
       term = await this._detectCurrentTerm();
+      const termDetectTime = Date.now() - termDetectStart;
+      console.log(`   ⏱  Term detection: ${(termDetectTime / 1000).toFixed(1)}s`);
+    } else {
+      console.log(`   ⏱  Term detection: 0.0s (skipped - using override)`);
     }
 
     // Store the term being used for reference
@@ -350,12 +355,16 @@ export class AISISScraper {
 
     const allCourses = [];
     
-    // Test with just 1 department first
+    // Test with just 1 department first to verify session and term
     console.log('   🧪 Testing with first department...');
+    const testDeptStart = Date.now();
     const testDept = departments[0];
     
     try {
       const testCourses = await this._scrapeDepartment(term, testDept);
+      const testDeptTime = Date.now() - testDeptStart;
+      console.log(`   ⏱  Test department: ${(testDeptTime / 1000).toFixed(1)}s`);
+      
       if (testCourses && testCourses.length > 0) {
         console.log(`   ✅ Test successful: ${testCourses.length} courses found in ${testDept}`);
         allCourses.push(...testCourses);

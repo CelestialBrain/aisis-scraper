@@ -15,7 +15,8 @@ async function main() {
     DATA_INGEST_TOKEN, 
     GOOGLE_SERVICE_ACCOUNT, 
     SPREADSHEET_ID,
-    APPLICABLE_PERIOD  // Optional override for term
+    APPLICABLE_PERIOD,  // Optional override for term (legacy)
+    AISIS_TERM          // Optional override for term (preferred)
   } = process.env;
   
   if (!AISIS_USERNAME || !AISIS_PASSWORD) {
@@ -25,7 +26,8 @@ async function main() {
   }
 
   // Optional term override from environment variable
-  const termOverride = APPLICABLE_PERIOD || null;
+  // AISIS_TERM takes precedence over APPLICABLE_PERIOD for clarity
+  const termOverride = AISIS_TERM || APPLICABLE_PERIOD || null;
   if (termOverride) {
     console.log(`   📌 Term override from environment: ${termOverride}`);
   } else {
@@ -46,18 +48,29 @@ async function main() {
   }
 
   try {
+    const startTime = Date.now();
+    const phaseTimings = {};
+    
     console.log('🚀 Initializing scraper...');
+    const initStart = Date.now();
     await scraper.init();
+    phaseTimings.init = Date.now() - initStart;
 
     console.log('🔐 Logging in...');
+    const loginStart = Date.now();
     const loginSuccess = await scraper.login();
     
     if (!loginSuccess) {
       throw new Error('Login failed - check credentials');
     }
+    phaseTimings.login = Date.now() - loginStart;
+    console.log(`   ⏱  Login & validation: ${(phaseTimings.login / 1000).toFixed(1)}s`);
 
     console.log('📥 Scraping schedule data...');
+    const scrapeStart = Date.now();
     const scheduleData = await scraper.scrapeSchedule(termOverride);
+    phaseTimings.scraping = Date.now() - scrapeStart;
+    console.log(`   ⏱  AISIS scraping: ${(phaseTimings.scraping / 1000).toFixed(1)}s`);
     
     // Get the actual term that was used (either override or auto-detected)
     const usedTerm = scraper.lastUsedTerm;
@@ -82,32 +95,58 @@ async function main() {
       // 2. Supabase Sync
       if (supabase) {
         console.log('   🚀 Starting Supabase Sync...');
+        const supabaseStart = Date.now();
         
         // Sync all data at once instead of by department
         try {
           const success = await supabase.syncToSupabase('schedules', cleanSchedule, usedTerm, 'ALL');
+          phaseTimings.supabase = Date.now() - supabaseStart;
+          console.log(`   ⏱  Supabase sync: ${(phaseTimings.supabase / 1000).toFixed(1)}s`);
+          
           if (success) {
             console.log('   ✅ Supabase sync completed successfully');
           } else {
             console.log('   ⚠️ Supabase sync had some failures');
           }
         } catch (error) {
+          phaseTimings.supabase = Date.now() - supabaseStart;
           console.error('   ❌ Supabase sync failed:', error.message);
         }
       } else {
         console.log('   ⚠️ Supabase sync skipped (no DATA_INGEST_TOKEN)');
+        phaseTimings.supabase = 0;
       }
 
       // 3. Google Sheets Sync
       if (sheets) {
         console.log('   📊 Syncing to Google Sheets...');
+        const sheetsStart = Date.now();
         try {
           await sheets.syncData(SPREADSHEET_ID, 'Schedules', cleanSchedule);
+          phaseTimings.sheets = Date.now() - sheetsStart;
+          console.log(`   ⏱  Sheets sync: ${(phaseTimings.sheets / 1000).toFixed(1)}s`);
           console.log('   ✅ Google Sheets sync completed');
         } catch (error) {
+          phaseTimings.sheets = Date.now() - sheetsStart;
           console.error('   ❌ Google Sheets sync failed:', error.message);
         }
+      } else {
+        phaseTimings.sheets = 0;
       }
+      
+      // Print summary timing
+      const totalTime = Date.now() - startTime;
+      console.log('\n⏱  Performance Summary:');
+      console.log(`   Initialization: ${(phaseTimings.init / 1000).toFixed(1)}s`);
+      console.log(`   Login & validation: ${(phaseTimings.login / 1000).toFixed(1)}s`);
+      console.log(`   AISIS scraping: ${(phaseTimings.scraping / 1000).toFixed(1)}s`);
+      if (phaseTimings.supabase > 0) {
+        console.log(`   Supabase sync: ${(phaseTimings.supabase / 1000).toFixed(1)}s`);
+      }
+      if (phaseTimings.sheets > 0) {
+        console.log(`   Sheets sync: ${(phaseTimings.sheets / 1000).toFixed(1)}s`);
+      }
+      console.log(`   Total time: ${(totalTime / 1000).toFixed(1)}s`);
 
     } else {
       console.warn(`\n⚠️ No schedule data found for term ${usedTerm}.`);

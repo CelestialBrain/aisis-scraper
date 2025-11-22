@@ -24,12 +24,14 @@ export class SupabaseManager {
       return enriched;
     });
 
-    // Client-side batching: split into 500-record chunks to avoid 504 timeouts
-    // 500 is chosen as a balance between:
-    // - Small enough to stay under edge function timeout limits (~30s max)
-    // - Large enough to minimize HTTP request overhead
-    // - Edge function further splits into 100-record DB batches (5 per client batch)
-    const CLIENT_BATCH_SIZE = 500;
+    // Client-side batching: configurable batch size to optimize performance
+    // Larger batches reduce HTTP overhead and total sync time
+    // Edge function further splits into DB batches internally
+    // Default: 2000 records per batch (reduced from 500 for better performance)
+    // Can be configured via SUPABASE_CLIENT_BATCH_SIZE environment variable
+    const defaultBatchSize = 2000;
+    const envBatchSize = parseInt(process.env.SUPABASE_CLIENT_BATCH_SIZE || '', 10);
+    const CLIENT_BATCH_SIZE = !isNaN(envBatchSize) && envBatchSize > 0 ? envBatchSize : defaultBatchSize;
     const totalRecords = normalizedData.length;
     const batches = [];
     
@@ -38,6 +40,10 @@ export class SupabaseManager {
     }
 
     console.log(`   📦 Split into ${batches.length} client-side batch(es) of up to ${CLIENT_BATCH_SIZE} records each`);
+    
+    if (envBatchSize && !isNaN(envBatchSize) && envBatchSize > 0) {
+      console.log(`   ℹ️  Using custom batch size from SUPABASE_CLIENT_BATCH_SIZE: ${CLIENT_BATCH_SIZE}`);
+    }
 
     let successCount = 0;
     let failureCount = 0;
