@@ -77,10 +77,24 @@ export class AISISScraper {
     try {
       let response = await fetch(url, opts);
       
-      // Store cookies from response
-      const setCookie = response.headers.get('set-cookie');
-      if (setCookie) {
-        await this.cookieJar.setCookie(setCookie, url);
+      // Store cookies from response - handle multiple Set-Cookie headers
+      // node-fetch's headers.raw() returns an array for Set-Cookie
+      let setCookies = [];
+      if (response.headers.raw && response.headers.raw()['set-cookie']) {
+        setCookies = response.headers.raw()['set-cookie'];
+      } else {
+        // Fallback for compatibility
+        const setCookie = response.headers.get('set-cookie');
+        if (setCookie) {
+          setCookies = [setCookie];
+        }
+      }
+      
+      // Process all cookies
+      if (setCookies.length > 0) {
+        for (const cookie of setCookies) {
+          await this.cookieJar.setCookie(cookie, url);
+        }
         // Save cookies immediately after receiving new ones
         await this._saveCookies();
       }
@@ -151,20 +165,49 @@ export class AISISScraper {
 
       const responseText = await loginResponse.text();
       
-      // Check for successful login
+      // Check for successful login markers in HTML
       if (responseText.includes('User Identified As') || 
           responseText.includes('MY INDIVIDUAL PROGRAM OF STUDY') ||
           responseText.includes('Welcome')) {
         
-        this.loggedIn = true;
-        console.log('✅ Login successful');
+        console.log('   ✅ Login response contains success markers');
         
         // Force save after successful login
         await this._saveCookies();
 
-        // Verify we have session cookies
+        // Validation 1: Verify we have session cookies
         const cookies = await this.cookieJar.getCookies(this.baseUrl);
-        console.log(`   🍪 Session cookies: ${cookies.length}`);
+        console.log(`   🍪 Session cookies after login: ${cookies.length}`);
+        
+        if (cookies.length === 0) {
+          console.error('❌ Login failed: no session cookies were set');
+          return false;
+        }
+        
+        // Validation 2: Test protected page to confirm session is valid
+        console.log('   🔍 Verifying session with protected page...');
+        try {
+          const testResponse = await this._request(`${this.baseUrl}/j_aisis/J_VMCS.do`);
+          const testText = await testResponse.text();
+          
+          if (testText.includes('sign in') || testText.includes('login.do')) {
+            console.error('❌ Post-login protected page still shows login screen');
+            return false;
+          }
+          
+          if (testText.includes('MY INDIVIDUAL PROGRAM OF STUDY') || testText.includes('User Identified As')) {
+            console.log('   ✅ Post-login protected page check passed');
+          } else {
+            console.warn('   ⚠️ Protected page validation inconclusive, proceeding anyway');
+          }
+        } catch (error) {
+          console.error(`   ⚠️ Protected page check failed: ${error.message}`);
+          console.error('   Proceeding with login anyway as cookies were set');
+        }
+        
+        // All validations passed
+        this.loggedIn = true;
+        console.log('✅ Login successful');
         
         return true;
       } else {
