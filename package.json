@@ -1,9 +1,9 @@
 {
   "name": "aisis-scraper",
   "version": "2.0.0",
+  "type": "module",
   "description": "Production-grade AISIS scraper using native DOM extraction with direct Supabase integration.",
   "main": "src/index.js",
-  "type": "module",
   "scripts": {
     "start": "node src/index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
