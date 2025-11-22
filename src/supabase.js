@@ -7,7 +7,7 @@ export class SupabaseManager {
   }
 
   async syncToSupabase(dataType, data, termCode = null, department = null) {
-    console.log(`   ☁️ Syncing ${data.length} ${dataType} records for ${department || 'all'}...`);
+    console.log(`   ☁️ Supabase: Syncing ${data.length} ${dataType} records...`);
 
     const payload = {
       data_type: dataType,
@@ -31,17 +31,30 @@ export class SupabaseManager {
       });
 
       if (response.ok) {
-        console.log(`   ✅ Successfully synced ${dataType}`);
+        console.log(`   ✅ Supabase: Success`);
         return true;
       } else {
         const text = await response.text();
-        console.error(`   ❌ Error syncing ${dataType}: ${response.status} - ${text}`);
+        console.error(`   ❌ Supabase Error: ${response.status} - ${text}`);
         return false;
       }
     } catch (error) {
-      console.error(`   ❌ Exception syncing ${dataType}:`, error.message);
+      console.error(`   ❌ Supabase Exception:`, error.message);
       return false;
     }
+  }
+
+  // Helpers for Type Safety
+  safeInt(val) {
+    if (!val || val === '') return 0;
+    const parsed = parseInt(val, 10);
+    return isNaN(parsed) ? 0 : parsed;
+  }
+
+  safeFloat(val) {
+    if (!val || val === '') return 0.0;
+    const parsed = parseFloat(val);
+    return isNaN(parsed) ? 0.0 : parsed;
   }
 
   parseTimePattern(timePattern) {
@@ -76,31 +89,29 @@ export class SupabaseManager {
     }
   }
 
-  // ✅ FIX: Correct mapping for Curriculum
+  // --- Transformers ---
+
   transformCurriculumData(curriculumItems) {
-    return curriculumItems.map(item => {
-      return {
-        degree_code: item.degree,
-        year_level: item.yearLevel,
-        semester: item.semester,
-        course_code: item.courseCode,
-        course_title: item.description, // <--- Correctly mapped for Lovable DB
-        units: parseFloat(item.units) || 0,
-        category: item.category || null
-      };
-    });
+    return curriculumItems.map(item => ({
+      degree_code: item.degreeCode,
+      year_level: item.yearLevel,
+      semester: item.semester,
+      course_code: item.courseCode,
+      course_title: item.courseTitle,
+      units: this.safeFloat(item.units),
+      category: item.category || null
+    }));
   }
 
-  // ✅ FIX: Correct mapping for Schedules
   transformScheduleData(scheduleItems) {
     return scheduleItems.map(item => {
       const parsedTime = this.parseTimePattern(item.time);
       
       return {
-        subject_code: item.subjectCode, // Maps from scraper
+        subject_code: item.subjectCode,
         section: item.section,
-        course_title: item.title, // Maps from scraper
-        units: parseFloat(item.units) || 0,
+        course_title: item.courseTitle,
+        units: this.safeFloat(item.units),
         time_pattern: item.time,
         room: item.room,
         instructor: item.instructor,
@@ -108,11 +119,11 @@ export class SupabaseManager {
         language: item.language,
         level: item.level,
         remarks: item.remarks,
-        max_capacity: item.maxSlots, // Maps from scraper
+        max_capacity: this.safeInt(item.maxSlots),
         
         start_time: parsedTime.start || '00:00:00', 
         end_time: parsedTime.end || '23:59:59',     
-        days_of_week: parsedTime.days,
+        days_of_week: parsedTime.days ? JSON.stringify(parsedTime.days) : '[]', 
         delivery_mode: null
       };
     });
