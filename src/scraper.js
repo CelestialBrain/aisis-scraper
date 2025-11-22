@@ -244,12 +244,81 @@ export class AISISScraper {
     return 'r' + bytes.toString('hex');
   }
 
-  async scrapeSchedule(term = '2024-2') {
+  async _detectCurrentTerm() {
+    console.log('🔍 Detecting current term from AISIS...');
+    
+    try {
+      const response = await this._request(`${this.baseUrl}/j_aisis/J_VCSC.do`, {
+        method: 'GET',
+        headers: {
+          'Referer': `${this.baseUrl}/j_aisis/J_VMCS.do`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch term selection page: HTTP ${response.status}`);
+      }
+
+      const html = await response.text();
+      
+      // Check for session expiry
+      if (LOGIN_FAILURE_MARKERS.some(marker => html.includes(marker))) {
+        throw new Error('Session expired while detecting term');
+      }
+
+      const $ = cheerio.load(html);
+      const select = $('select[name="applicablePeriod"]');
+      
+      if (select.length === 0) {
+        throw new Error('Cannot find applicablePeriod select element - page structure may have changed');
+      }
+
+      // Try to find selected option first
+      let selectedOption = select.find('option[selected]').first();
+      
+      // If no option is explicitly selected, use the first option
+      if (selectedOption.length === 0) {
+        selectedOption = select.find('option').first();
+        console.log('   ℹ️  No option explicitly selected, using first option as default');
+      }
+
+      if (selectedOption.length === 0) {
+        throw new Error('No options found in applicablePeriod select');
+      }
+
+      const termValue = selectedOption.attr('value');
+      const termText = selectedOption.text().trim();
+
+      if (!termValue) {
+        throw new Error('Selected option has no value attribute');
+      }
+
+      console.log(`   ✅ Detected term: ${termValue} (${termText})`);
+      return termValue;
+      
+    } catch (error) {
+      console.error('   ❌ Term detection failed:', error.message);
+      throw new Error(`Failed to auto-detect current term: ${error.message}`);
+    }
+  }
+
+  async scrapeSchedule(term = null) {
     if (!this.loggedIn) {
       throw new Error('Not logged in');
     }
 
-    console.log(`\n📅 Scraping schedule for term: ${term}`);
+    // Auto-detect term if not provided
+    if (!term) {
+      term = await this._detectCurrentTerm();
+      console.log(`\n📅 Using auto-detected term: ${term}`);
+    } else {
+      console.log(`\n📅 Using provided term: ${term}`);
+    }
+    
+    // Store the term being used for reference
+    this.currentTerm = term;
+    
+    console.log(`   Scraping schedule for term: ${term}`);
     
     const departments = [
       "BIO", "CH", "CHN", "COM", "CEPP", "CPA", "ELM", "DS", 
@@ -261,6 +330,9 @@ export class AISISScraper {
     ];
 
     const allCourses = [];
+    let successCount = 0;
+    let failureCount = 0;
+    let emptyCount = 0;
     
     // Test with just 1 department first
     console.log('   🧪 Testing with first department...');
@@ -271,6 +343,7 @@ export class AISISScraper {
       if (testCourses && testCourses.length > 0) {
         console.log(`   ✅ Test successful: ${testCourses.length} courses found in ${testDept}`);
         allCourses.push(...testCourses);
+        successCount++;
         
         // Continue with remaining departments
         for (let i = 1; i < departments.length; i++) {
@@ -282,55 +355,99 @@ export class AISISScraper {
             if (courses && courses.length > 0) {
               allCourses.push(...courses);
               console.log(`   ✅ ${dept}: ${courses.length} courses`);
+              successCount++;
             } else {
               console.log(`   ⚠️  ${dept}: No courses found`);
+              emptyCount++;
             }
           } catch (error) {
             console.error(`   ❌ ${dept}: ${error.message}`);
+            failureCount++;
           }
           
           await this._delay(1000);
         }
       } else {
         console.log('   ❌ Test failed - no courses found in first department');
+        emptyCount++;
       }
     } catch (error) {
       console.error(`   💥 Test failed for ${testDept}:`, error.message);
+      failureCount++;
     }
 
-    console.log(`\n📚 Total courses: ${allCourses.length}`);
+    console.log(`\n📊 Scraping Summary:`);
+    console.log(`   Term: ${term}`);
+    console.log(`   Total courses: ${allCourses.length}`);
+    console.log(`   Departments scraped successfully: ${successCount}/${departments.length}`);
+    console.log(`   Departments with no data: ${emptyCount}`);
+    console.log(`   Departments with errors: ${failureCount}`);
+    
+    if (allCourses.length === 0) {
+      console.warn('\n⚠️  WARNING: No schedule data found for any department.');
+      console.log('   This could indicate:');
+      console.log('   - AISIS has no published courses for term ' + term);
+      console.log('   - The term has not started yet');
+      console.log('   - There may be system issues with AISIS');
+    }
+    
     return allCourses;
   }
 
-  async _scrapeDepartment(term, deptCode) {
+  async _scrapeDepartment(term, deptCode, retryCount = 0) {
     const formData = new URLSearchParams();
     formData.append('command', 'displayResults');
     formData.append('applicablePeriod', term);
     formData.append('deptCode', deptCode);
     formData.append('subjCode', 'ALL');
 
-    const response = await this._request(`${this.baseUrl}/j_aisis/J_VCSC.do`, {
-      method: 'POST',
-      body: formData.toString(),
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Origin': this.baseUrl,
-        'Referer': `${this.baseUrl}/j_aisis/J_VCSC.do`
+    try {
+      const response = await this._request(`${this.baseUrl}/j_aisis/J_VCSC.do`, {
+        method: 'POST',
+        body: formData.toString(),
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Origin': this.baseUrl,
+          'Referer': `${this.baseUrl}/j_aisis/J_VCSC.do`
+        }
+      });
+
+      if (!response.ok) {
+        const errorMsg = `HTTP ${response.status} for dept ${deptCode}, term ${term}`;
+        
+        // Retry on 5xx errors (max 1 retry)
+        if (response.status >= 500 && response.status < 600 && retryCount === 0) {
+          console.log(`   ⚠️  ${errorMsg} - retrying in 2 seconds...`);
+          await this._delay(2000);
+          return this._scrapeDepartment(term, deptCode, 1);
+        }
+        
+        throw new Error(errorMsg);
       }
-    });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      const html = await response.text();
+      
+      // Check for session expiry
+      if (LOGIN_FAILURE_MARKERS.some(marker => html.includes(marker))) {
+        throw new Error('Session expired');
+      }
+
+      const courses = this._parseCourses(html, deptCode);
+      
+      // Log warning if no courses found
+      if (courses.length === 0) {
+        console.log(`   ⚠️  ${deptCode}: No courses found for term ${term}`);
+      }
+      
+      return courses;
+      
+    } catch (error) {
+      // Re-throw with enhanced context if not already enhanced
+      if (!error.message.includes('dept')) {
+        throw new Error(`${error.message} (dept: ${deptCode}, term: ${term})`);
+      }
+      throw error;
     }
-
-    const html = await response.text();
-    
-    // Check for session expiry
-    if (LOGIN_FAILURE_MARKERS.some(marker => html.includes(marker))) {
-      throw new Error('Session expired');
-    }
-
-    return this._parseCourses(html, deptCode);
   }
 
   _parseCourses(html, deptCode) {

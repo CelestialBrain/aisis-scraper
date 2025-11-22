@@ -34,13 +34,21 @@ In your GitHub repository, go to `Settings` > `Secrets and variables` > `Actions
 - `AISIS_PASSWORD`: Your AISIS password
 - `DATA_INGEST_TOKEN`: The authentication token for your Supabase data ingest endpoint
 
-### 3. Update Term Code
+### 3. Term Detection (Automatic)
 
-In `src/index.js`, update the `CURRENT_TERM` variable to match the current academic term:
+The scraper **automatically detects the current academic term** from the AISIS Schedule of Classes page. No manual configuration is needed!
 
-```javascript
-const CURRENT_TERM = '20253'; // Update this when the semester changes
-```
+#### Override the Term (Optional)
+
+If you need to scrape a specific term (e.g., for historical data or testing), you can override the auto-detection:
+
+- **Via Environment Variable**: Set `APPLICABLE_PERIOD` in your `.env` file or GitHub Secrets
+  ```bash
+  APPLICABLE_PERIOD=2025-1  # First Semester 2025
+  APPLICABLE_PERIOD=2025-2  # Second Semester 2025
+  ```
+
+- **Programmatically**: Pass the term as an argument to `scraper.scrapeSchedule('2025-1')`
 
 ## How It Works
 
@@ -87,6 +95,37 @@ This is a **fast and stable scraper (v3)** that:
 - Focuses on institutional data (schedules and curriculum)
 - Syncs directly to Supabase via Edge Functions
 - Includes robust error handling and data transformation
+- **Automatically detects the current academic term** from AISIS
+
+## Troubleshooting
+
+### No courses found
+
+If the scraper reports "No schedule data found", this could mean:
+
+1. **Term not published yet**: AISIS may not have published courses for the detected term
+2. **Between semesters**: The current term might be Intersession (term code ending in `-0`)
+3. **System issues**: AISIS might be experiencing technical difficulties
+
+To verify the detected term:
+- Check the logs for "Detected term: X (readable description)"
+- Try manually overriding with `APPLICABLE_PERIOD` to scrape a known valid term
+
+### HTTP 500 Errors
+
+The scraper includes automatic retry logic for HTTP 500 errors. If errors persist:
+
+1. Check if AISIS is accessible in your browser
+2. Verify your session is still valid (cookies may have expired)
+3. Some departments may temporarily return errors - the scraper will continue with other departments
+
+### Term Detection Issues
+
+If term auto-detection fails:
+
+1. The scraper will throw a clear error explaining what went wrong
+2. You can bypass auto-detection by setting `APPLICABLE_PERIOD` environment variable
+3. Check the AISIS website to verify the Schedule of Classes page structure hasn't changed
 
 ## Security Considerations
 

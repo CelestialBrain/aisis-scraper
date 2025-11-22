@@ -14,7 +14,8 @@ async function main() {
     AISIS_PASSWORD, 
     DATA_INGEST_TOKEN, 
     GOOGLE_SERVICE_ACCOUNT, 
-    SPREADSHEET_ID 
+    SPREADSHEET_ID,
+    APPLICABLE_PERIOD
   } = process.env;
   
   if (!AISIS_USERNAME || !AISIS_PASSWORD) {
@@ -23,7 +24,14 @@ async function main() {
     process.exit(1);
   }
 
-  const CURRENT_TERM = '2024-2'; // Use the same term as Python script
+  // Support manual term override via environment variable
+  let currentTerm = APPLICABLE_PERIOD || null;
+  
+  if (currentTerm) {
+    console.log(`   ℹ️  Using APPLICABLE_PERIOD from environment: ${currentTerm}`);
+  } else {
+    console.log('   ℹ️  No APPLICABLE_PERIOD set - will auto-detect from AISIS');
+  }
 
   const scraper = new AISISScraper(AISIS_USERNAME, AISIS_PASSWORD);
   const supabase = DATA_INGEST_TOKEN ? new SupabaseManager(DATA_INGEST_TOKEN) : null;
@@ -50,7 +58,10 @@ async function main() {
     }
 
     console.log('📥 Scraping schedule data...');
-    const scheduleData = await scraper.scrapeSchedule(CURRENT_TERM);
+    const scheduleData = await scraper.scrapeSchedule(currentTerm);
+    
+    // Get the actual term used (either provided or auto-detected)
+    const usedTerm = scraper.currentTerm;
 
     if (!fs.existsSync('data')) fs.mkdirSync('data');
 
@@ -69,7 +80,7 @@ async function main() {
         
         // Sync all data at once instead of by department
         try {
-          const success = await supabase.syncToSupabase('schedules', cleanSchedule, CURRENT_TERM, 'ALL');
+          const success = await supabase.syncToSupabase('schedules', cleanSchedule, usedTerm, 'ALL');
           if (success) {
             console.log('   ✅ Supabase sync completed successfully');
           } else {
