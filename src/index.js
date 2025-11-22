@@ -5,9 +5,16 @@ import fs from 'fs';
 import path from 'path';
 import 'dotenv/config';
 
+async function runInBatches(items, batchSize, fn) {
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    await Promise.all(batch.map(fn));
+  }
+}
+
 async function main() {
   console.log('═══════════════════════════════════════════════════════');
-  console.log('🎓 AISIS Data Pipeline (Supabase + Sheets)');
+  console.log('🎓 AISIS Schedule Scraper (Schedule Only)');
   console.log('═══════════════════════════════════════════════════════\n');
 
   const { 
@@ -39,26 +46,34 @@ async function main() {
     await scraper.init();
     await scraper.login();
 
+    // 1. SCRAPE SCHEDULE ONLY
     const scheduleData = await scraper.scrapeSchedule(CURRENT_TERM_FALLBACK);
-    const curriculumData = await scraper.scrapeCurriculum();
 
     if (!fs.existsSync('data')) fs.mkdirSync('data');
 
-    // --- SCHEDULES ---
+    // --- PROCESS SCHEDULES ---
     if (scheduleData.length > 0) {
       const cleanSchedule = supabase.transformScheduleData(scheduleData);
+      
+      // A. Save Local Backup
       fs.writeFileSync('data/courses.json', JSON.stringify(cleanSchedule, null, 2));
       console.log(`   💾 Saved ${scheduleData.length} classes to data/courses.json`);
 
+      // B. Sync to Supabase (Parallel Batches)
       if (DATA_INGEST_TOKEN) {
+        console.log('   🚀 Starting Parallel Supabase Sync...');
+        
         const byDept = scheduleData.reduce((acc, item) => {
           const d = item.department || 'UNKNOWN';
           if (!acc[d]) acc[d] = [];
           acc[d].push(item);
           return acc;
         }, {});
-
-        for (const dept of Object.keys(byDept)) {
+        
+        const departments = Object.keys(byDept);
+        
+        // Upload 5 departments at a time
+        await runInBatches(departments, 5, async (dept) => {
           const batchData = supabase.transformScheduleData(byDept[dept]);
           const supabaseBatch = batchData.map(d => ({
               ...d,
@@ -66,29 +81,15 @@ async function main() {
           }));
           const termCode = batchData[0]?.term_code || CURRENT_TERM_FALLBACK;
           await supabase.syncToSupabase('schedules', supabaseBatch, termCode, dept);
-        }
+        });
       }
 
+      // C. Sync to Google Sheets (Bulk)
       if (sheets) {
         await sheets.syncData(SPREADSHEET_ID, 'Schedules', cleanSchedule);
       }
     } else {
       console.warn("   ⚠️ No schedule data found.");
-    }
-
-    // --- CURRICULUM ---
-    if (curriculumData.length > 0) {
-      const cleanCurriculum = supabase.transformCurriculumData(curriculumData);
-      fs.writeFileSync('data/curriculum.json', JSON.stringify(cleanCurriculum, null, 2));
-      console.log(`   💾 Saved ${curriculumData.length} curriculum items`);
-
-      if (DATA_INGEST_TOKEN) {
-        await supabase.syncToSupabase('curriculum', cleanCurriculum);
-      }
-
-      if (sheets) {
-        await sheets.syncData(SPREADSHEET_ID, 'Curriculum', cleanCurriculum);
-      }
     }
 
     console.log('\n✅ Done!');
