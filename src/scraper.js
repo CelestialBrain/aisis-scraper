@@ -92,8 +92,11 @@ export class AISISScraper {
       // Store cookies from response - handle multiple Set-Cookie headers
       // node-fetch's headers.raw() returns an array for Set-Cookie
       let setCookies = [];
-      if (response.headers.raw && response.headers.raw()['set-cookie']) {
-        setCookies = response.headers.raw()['set-cookie'];
+      if (response.headers.raw && typeof response.headers.raw === 'function') {
+        const rawHeaders = response.headers.raw();
+        if (rawHeaders['set-cookie']) {
+          setCookies = rawHeaders['set-cookie'];
+        }
       } else {
         // Fallback for compatibility
         const setCookie = response.headers.get('set-cookie');
