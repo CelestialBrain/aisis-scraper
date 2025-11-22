@@ -564,14 +564,19 @@ export class AISISScraper {
 
       const programs = [];
       select.find('option').each((_, option) => {
-        const value = $(option).attr('value');
-        const text = $(option).text().trim();
+        const rawValue = $(option).attr('value');
+        const rawText = $(option).text();
         
-        if (value && value.trim() !== '') {
-          programs.push({
-            degCode: value.trim(),
-            label: text
-          });
+        if (rawValue) {
+          const value = rawValue.trim();
+          const text = rawText.trim();
+          
+          if (value !== '') {
+            programs.push({
+              degCode: value,
+              label: text
+            });
+          }
         }
       });
 
@@ -719,6 +724,9 @@ export class AISISScraper {
    * Extracts structured text from curriculum HTML page for external parsing.
    * Looks for headers (year/semester) and course rows in the table structure.
    * 
+   * Note: This method uses heuristic selectors that may need adjustment if
+   * AISIS changes the curriculum page HTML structure.
+   * 
    * @param {string} html - Raw HTML from curriculum page
    * @returns {string} Flattened text representation of curriculum
    */
@@ -727,8 +735,10 @@ export class AISISScraper {
     const lines = [];
 
     // Extract page/program header if present
-    const pageHeader = $('div.pageHeader, h1, h2').first().text().trim();
-    if (pageHeader) {
+    // Note: Looking for common header patterns - may need adjustment
+    const possibleHeaders = $('div.pageHeader, table:first tr:first td:first');
+    const pageHeader = possibleHeaders.first().text().trim();
+    if (pageHeader && pageHeader.length > 0 && pageHeader.length < 200) {
       lines.push(pageHeader);
       lines.push(''); // Blank line for separation
     }
@@ -753,7 +763,8 @@ export class AISISScraper {
       }
 
       // Check if this row contains course/data cells
-      const dataCells = $row.find('td.text02, td[background*="spacer_lightgrey"]');
+      // Note: Using multiple selectors for robustness, but may need updates if HTML changes
+      const dataCells = $row.find('td.text02');
       if (dataCells.length > 0) {
         const cellTexts = dataCells.map((_, cell) => $(cell).text().trim())
           .get()

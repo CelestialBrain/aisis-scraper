@@ -54,6 +54,12 @@ async function testCurriculumEndpoint() {
 
     // Test 2: Scrape a single curriculum
     console.log('\n📖 Test 2: Scraping a single curriculum...\n');
+    
+    if (degreePrograms.length === 0) {
+      console.error('❌ Cannot test scraping - no degree programs found');
+      process.exit(1);
+    }
+    
     const testDegCode = degreePrograms[0].degCode;
     console.log(`   Testing with: ${testDegCode}`);
 

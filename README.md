@@ -15,23 +15,42 @@ This project contains a Node.js-based web scraper that automatically logs into A
 ## Data Categories Scraped
 
 1. **Schedule of Classes**: All available class schedules for all departments (runs every 6 hours). ✅ **Working**
-2. **Official Curriculum**: ⚠️ **NOT SUPPORTED** - The AISIS system does not provide a public endpoint for scraping official curriculum data. See [Curriculum Scraping Limitation](#curriculum-scraping-limitation) below for details.
+2. **Official Curriculum**: ⚠️ **EXPERIMENTAL** - Curriculum scraping now supported via the `J_VOFC.do` endpoint. See [Curriculum Scraping Status](#curriculum-scraping-status) below for details.
 
-## Curriculum Scraping Limitation
+## Curriculum Scraping Status
 
-**Important**: Curriculum scraping is currently not supported due to AISIS system limitations.
+**Status**: ⚠️ **EXPERIMENTAL** - Curriculum scraping is now functional but UI-dependent
 
-### Why It Doesn't Work
-- The endpoint `/j_aisis/J_VOPC.do` (View Official Program Curriculum) does not exist (returns HTTP 404)
-- `J_VIPS.do` (View Individual Program of Study) is student-specific and requires individual student context
-- Official curricula are published as PDFs on the Ateneo website, not available through AISIS scraping API
+### How It Works
 
-### Alternative Solutions
-1. **Scrape public curriculum pages**: Extract curriculum from publicly available Ateneo curriculum pages
-2. **Manual curriculum data**: Maintain a manually curated JSON file with curriculum information
-3. **Request API access**: Contact AISIS administrators to request dedicated API access for curriculum data
+The curriculum scraper uses the `J_VOFC.do` endpoint discovered through HAR file analysis:
 
-The curriculum scraper workflow will complete successfully but return empty results with informative messages.
+1. **GET** `J_VOFC.do` - Retrieves a form with a dropdown containing all curriculum versions
+2. **Parse** `<select name="degCode">` - Extracts curriculum version identifiers (e.g., `BS CS_2024_1`)
+3. **POST** `J_VOFC.do` with `degCode=<value>` - Fetches curriculum HTML for each version
+4. **Flatten** HTML to structured text - Converts curriculum tables to tab-separated format
+5. **Sync** to Supabase and Google Sheets - Saves curriculum data alongside schedules
+
+### Important Warnings
+
+⚠️ **This is an EXPERIMENTAL feature** that depends on AISIS's HTML structure:
+- May break if AISIS changes the `J_VOFC.do` page layout
+- Not officially documented or supported by AISIS
+- Discovered through network traffic analysis (HAR file)
+- Should be treated as best-effort with monitoring
+
+### Previous Limitation (J_VOPC.do)
+
+Earlier versions attempted to use the non-existent `J_VOPC.do` endpoint, which returned HTTP 404. The working alternative `J_VOFC.do` was discovered later through HAR analysis.
+
+### Alternative Solutions (Still Valid)
+
+If `J_VOFC.do` becomes unreliable, consider:
+1. **Scrape public curriculum pages**: Extract from `ateneo.edu/college/academics/degrees-majors`
+2. **Manual curriculum data**: Maintain curated JSON from official PDFs
+3. **Request API access**: Contact AISIS administrators for official endpoint
+
+For technical details, see `docs/CURRICULUM_LIMITATION.md`.
 
 ## Getting Started
 
@@ -127,21 +146,26 @@ If no override is provided, the scraper will auto-detect and use the currently s
 
 4. **Run the scraper**:
    
-   For class schedules (working):
+   For class schedules (production-ready):
    ```bash
    npm start
    ```
    
-   For curriculum data (not supported - see limitation above):
+   For curriculum data (experimental - see status above):
    ```bash
-   npm run curriculum  # Will complete but return no data
+   npm run curriculum  # May return curriculum data or empty array
+   ```
+   
+   For testing the curriculum endpoint:
+   ```bash
+   node test-curriculum-endpoint.js
    ```
 
 ## Architecture
 
 This is a **fast and stable scraper (v3)** that:
 - Uses direct HTTP requests for reliability and speed
-- Focuses on institutional data (class schedules)
+- Scrapes institutional data (class schedules and experimental curriculum support)
 - Syncs directly to Supabase via Edge Functions
 - Includes robust error handling and data transformation
 
