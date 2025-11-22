@@ -1,53 +1,43 @@
-import dotenv from 'dotenv';
 import { AISISScraper } from './scraper.js';
 import { SupabaseManager } from './supabase.js';
+import fs from 'fs'; // ✅ ADDED
+import path from 'path'; // ✅ ADDED
+import 'dotenv/config';
 
-// Load environment variables
-dotenv.config();
-
-/**
- * Main Execution Pipeline
- * Combines production-grade scraper (v2) with Supabase sync (v1)
- */
 async function main() {
   console.log('═══════════════════════════════════════════════════════');
-  console.log('🎓 AISIS Data Scraper - Production Edition');
+  console.log('🎓 AISIS Data Scraper - Production Edition (Fast Mode)');
   console.log('═══════════════════════════════════════════════════════\n');
 
-  // 1. Validation
   const { AISIS_USERNAME, AISIS_PASSWORD, DATA_INGEST_TOKEN } = process.env;
   
-  if (!AISIS_USERNAME || !AISIS_PASSWORD) {
-    console.error('❌ FATAL: Missing AISIS credentials. Please set AISIS_USERNAME and AISIS_PASSWORD.');
+  if (!AISIS_USERNAME || !AISIS_PASSWORD || !DATA_INGEST_TOKEN) {
+    console.error('❌ FATAL: Missing credentials in .env file.');
     process.exit(1);
   }
 
-  if (!DATA_INGEST_TOKEN) {
-    console.error('❌ FATAL: Missing DATA_INGEST_TOKEN. Please set it in your environment variables.');
-    process.exit(1);
-  }
+  // ✅ FIX: Use correct term format from HAR (not '20253')
+  const CURRENT_TERM = '2025-1'; 
 
   const scraper = new AISISScraper(AISIS_USERNAME, AISIS_PASSWORD);
+  const supabase = new SupabaseManager(DATA_INGEST_TOKEN);
 
   try {
-    // 2. Initialization & Login
     await scraper.init();
     await scraper.login();
 
-    // 3. Execution (Targeted Scraping - Only institutional data)
-    const scheduleData = await scraper.scrapeSchedule();
+    // ✅ FIX: Pass the term to the scraper
+    const scheduleData = await scraper.scrapeSchedule(CURRENT_TERM);
     const curriculumData = await scraper.scrapeCurriculum();
 
-    // 4. Supabase Sync
-    console.log('\n☁️ Starting Supabase Sync...');
-    const supabase = new SupabaseManager(DATA_INGEST_TOKEN);
+    // ✅ FIX: Ensure directory exists
+    if (!fs.existsSync('data')) fs.mkdirSync('data');
     
-    // Set the current term (Update this manually when the semester changes)
-    const CURRENT_TERM = '20253'; 
-
-    // Sync Schedule Data
-    if (scheduleData && scheduleData.length > 0) {
-      // Group data by department because Lovable expects per-department sync
+    // Process Schedule
+    if (scheduleData.length > 0) {
+      fs.writeFileSync('data/courses.json', JSON.stringify(scheduleData, null, 2));
+      console.log(`   💾 Saved ${scheduleData.length} classes to data/courses.json`);
+      
       const schedulesByDept = scheduleData.reduce((acc, item) => {
         const dept = item.department || 'UNKNOWN';
         if (!acc[dept]) acc[dept] = [];
@@ -55,43 +45,30 @@ async function main() {
         return acc;
       }, {});
 
-      const departments = Object.keys(schedulesByDept);
-      console.log(`   Found ${departments.length} departments to sync.`);
-
-      for (const dept of departments) {
+      for (const dept of Object.keys(schedulesByDept)) {
         const formattedData = supabase.transformScheduleData(schedulesByDept[dept]);
         await supabase.syncToSupabase('schedules', formattedData, CURRENT_TERM, dept);
       }
     } else {
-      console.log("   ⚠️ No schedule data found to sync.");
+      console.warn("   ⚠️ No schedule data found to sync.");
     }
 
-    // Sync Curriculum Data
-    if (curriculumData && curriculumData.length > 0) {
-      const formattedCurriculum = supabase.transformCurriculumData(curriculumData);
-      await supabase.syncToSupabase('curriculum', formattedCurriculum);
-      console.log(`   ✅ Successfully synced ${formattedCurriculum.length} curriculum items`);
-    } else {
-      console.log("   ⚠️ No curriculum data found to sync.");
+    // Process Curriculum
+    if (curriculumData.length > 0) {
+      fs.writeFileSync('data/curriculum.json', JSON.stringify(curriculumData, null, 2));
+      console.log(`   💾 Saved ${curriculumData.length} curriculum items to data/curriculum.json`);
+      
+      // Optional: Sync Curriculum (Uncomment when table is ready)
+      const formattedCurr = supabase.transformCurriculumData(curriculumData);
+      await supabase.syncToSupabase('curriculum', formattedCurr);
     }
 
-    console.log('\n═══════════════════════════════════════════════════════');
-    console.log('✅ AISIS Data Scraper - Completed Successfully!');
-    console.log('═══════════════════════════════════════════════════════\n');
-
+    console.log('\n✅ Done!');
     process.exit(0);
 
   } catch (error) {
-    console.error('\n═══════════════════════════════════════════════════════');
-    console.error('❌ AISIS Data Scraper - Failed!');
-    console.error('═══════════════════════════════════════════════════════');
-    console.error('\nError:', error.message);
-    console.error('\nStack trace:', error.stack);
-    console.error('');
-    
+    console.error('\n❌ Failed:', error);
     process.exit(1);
-  } finally {
-    await scraper.close();
   }
 }
 
