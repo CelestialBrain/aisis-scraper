@@ -24,8 +24,7 @@ export class AISISScraper {
 
   async _request(url, options = {}) {
     const controller = new AbortController();
-    // ✅ INCREASED TIMEOUT TO 60s
-    const timeout = setTimeout(() => controller.abort(), 60000); 
+    const timeout = setTimeout(() => controller.abort(), 15000); // 15s Timeout
 
     const opts = {
       ...options,
@@ -47,7 +46,7 @@ export class AISISScraper {
       }
       return response;
     } catch (error) {
-        if (error.name === 'AbortError') throw new Error('Request Timeout (Server too slow)');
+        if (error.name === 'AbortError') throw new Error('Request Timeout');
         throw error;
     } finally {
       clearTimeout(timeout);
@@ -120,12 +119,13 @@ export class AISISScraper {
         if (cells.length > 10) {
           const subject = $table(cells[0]).text().trim();
           
-          // 🛑 STRICT FILTER
+          // 🛑 STRICT FILTER: Ignore Headers ("Subject Code") & Garbage
           if (/subject|code/i.test(subject) || subject.includes('Ateneo Integrated') || subject === '') {
             return; 
           }
 
           deptResults.push({
+            term_code: term, // Add term to record
             department:  dept,
             subjectCode: subject,
             section:     $table(cells[1]).text().trim(),
@@ -162,6 +162,7 @@ export class AISISScraper {
     console.log(`\n📅 Starting Schedule Extraction for term: ${term}...`);
     const results = [];
 
+    // Cleaned manual list (53 depts)
     const deptCodes = [
         "BIO", "CH", "CHN", "COM", "CEPP", "CPA", "ELM", "DS", "EC", "ECE", 
         "EN", "ES", "EU", "FIL", "FAA", "FA", "HSP", "HI", "SOHUM", "DISCS", 
@@ -174,6 +175,7 @@ export class AISISScraper {
     console.log(`   Using manual list of ${deptCodes.length} departments.`);
     this.headers['Referer'] = `${this.baseUrl}/j_aisis/J_VCSC.do`;
 
+    // Batch Size: 5
     const BATCH_SIZE = 5; 
     for (let i = 0; i < deptCodes.length; i += BATCH_SIZE) {
         const batch = deptCodes.slice(i, i + BATCH_SIZE);
@@ -184,6 +186,68 @@ export class AISISScraper {
     }
 
     console.log(`✅ Schedule extraction complete: ${results.length} total classes`);
+    return results;
+  }
+
+  async scrapeCurriculum() {
+    console.log('\n📚 Starting Curriculum Extraction...');
+    const results = [];
+
+    const degrees = [
+        "BS CS", "BS MIS", "BS ITE", "BS AMF", "BS MGT", "BS BIO", "BS CH",
+        "BS ES", "BS HSc", "BS LM", "BS MAC", "BS ME", "BS PS", "BS PSY",
+        "AB COM", "AB DS", "AB EC", "AB EU", "AB HI", "AB IS", "AB LIT",
+        "AB ME", "AB PH", "AB POS", "AB PSY", "AB SOC", "BFA CW", "BFA ID", "BFA TA"
+    ];
+
+    console.log(`   Using manual list of ${degrees.length} degree programs.`);
+    this.headers['Referer'] = `${this.baseUrl}/j_aisis/J_VOFC.do`;
+
+    const BATCH_SIZE = 5;
+    for (let i = 0; i < degrees.length; i += BATCH_SIZE) {
+        const batch = degrees.slice(i, i + BATCH_SIZE);
+        
+        await Promise.all(batch.map(async (degree) => {
+            try {
+                const params = new URLSearchParams();
+                params.append('degCode', degree);
+
+                const r2 = await this._request(`${this.baseUrl}/j_aisis/J_VOFC.do`, {
+                    method: 'POST',
+                    body: params
+                });
+
+                const pageHtml = await r2.text();
+                const $p = cheerio.load(pageHtml);
+                
+                let year = '', sem = '';
+                $p('table tr').each((j, row) => {
+                    const text = $p(row).text().toLowerCase();
+                    const cells = $p(row).find('td');
+                    
+                    if (text.includes('year')) year = $p(row).text().trim();
+                    else if (text.includes('semester')) sem = $p(row).text().trim();
+                    else if (cells.length >= 3) {
+                        const code = $p(cells[0]).text().trim();
+                        if (code.includes('Ateneo Integrated') || code === 'Course Code') return;
+
+                        results.push({
+                            degreeCode: degree,
+                            yearLevel: year,
+                            semester: sem,
+                            courseCode: code,
+                            courseTitle: $p(cells[1]).text().trim(),
+                            units: $p(cells[2]).text().trim()
+                        });
+                    }
+                });
+            } catch (e) { }
+        }));
+        
+        await new Promise(r => setTimeout(r, 100));
+    }
+
+    console.log(`✅ Curriculum extraction complete: ${results.length} items`);
     return results;
   }
 
