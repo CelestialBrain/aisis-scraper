@@ -1,8 +1,8 @@
 {
   "name": "aisis-scraper",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "type": "module",
-  "description": "Production-grade AISIS scraper using native DOM extraction with direct Supabase integration.",
+  "description": "Production-grade AISIS scraper using native DOM extraction with direct Supabase and Google Sheets integration.",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
@@ -16,7 +16,8 @@
     "aisis",
     "scraper",
     "supabase",
-    "ateneo"
+    "ateneo",
+    "google-sheets"
   ],
   "author": "",
   "license": "ISC",
@@ -27,8 +28,8 @@
   "dependencies": {
     "cheerio": "^1.1.2",
     "dotenv": "^16.4.5",
-    "node-fetch": "^3.3.2"
-
+    "node-fetch": "^3.3.2",
+    "googleapis": "^126.0.1"
   },
   "engines": {
     "node": ">=18.0.0"
