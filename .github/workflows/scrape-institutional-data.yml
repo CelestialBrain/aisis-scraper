@@ -25,5 +25,5 @@ jobs:
         env:
           AISIS_USERNAME: ${{ secrets.AISIS_USERNAME }}
           AISIS_PASSWORD: ${{ secrets.AISIS_PASSWORD }}
-          SUPABASE_SYNC_KEY: ${{ secrets.SUPABASE_SYNC_KEY }}
+          DATA_INGEST_TOKEN: ${{ secrets.DATA_INGEST_TOKEN }}
         run: npm start
