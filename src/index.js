@@ -72,7 +72,6 @@ async function main() {
         
         const departments = Object.keys(byDept);
         
-        // Upload 5 departments at a time
         await runInBatches(departments, 5, async (dept) => {
           const batchData = supabase.transformScheduleData(byDept[dept]);
           const supabaseBatch = batchData.map(d => ({
@@ -84,7 +83,7 @@ async function main() {
         });
       }
 
-      // C. Sync to Google Sheets (Bulk)
+      // C. Sync to Google Sheets
       if (sheets) {
         await sheets.syncData(SPREADSHEET_ID, 'Schedules', cleanSchedule);
       }
