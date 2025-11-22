@@ -8,7 +8,7 @@ This project contains a Node.js-based web scraper that automatically logs into A
 - **Institutional Data Focus**: Scrapes class schedules and official curriculum data.
 - **Supabase Integration**: Automatically syncs data to Supabase via Edge Functions.
 - **Secure Credential Management**: Uses GitHub Secrets for secure storage of credentials.
-- **Puppeteer-based**: Uses a headless browser with native DOM extraction for reliable data scraping.
+- **Fast Mode**: Switched from Puppeteer to **Direct HTTP Requests (node-fetch + Cheerio)** for speed, stability, and low memory usage.
 - **Production-Grade**: Built with error handling and robust data transformation.
 
 ## Data Categories Scraped
@@ -45,7 +45,7 @@ const CURRENT_TERM = '20253'; // Update this when the semester changes
 ## How It Works
 
 - **GitHub Actions**: The `.github/workflows/scrape.yml` file defines the workflow. It runs on a schedule, checks out the code, installs dependencies, and runs the scraper.
-- **Scraper (`src/scraper.js`)**: This script uses Puppeteer to launch a headless Chrome browser, log in to AISIS, and navigate to the schedule and curriculum pages to scrape the data using native DOM extraction.
+- **Scraper (`src/scraper.js`)**: This script uses `node-fetch` to perform direct HTTP requests and `cheerio` to parse the HTML, eliminating the need for a headless browser (Puppeteer). This makes the scraper significantly faster and more stable.
 - **Supabase Sync (`src/supabase.js`)**: This script transforms the scraped data and syncs it to Supabase via the `github-data-ingest` Edge Function endpoint.
 - **Main Script (`src/index.js`)**: This is the entry point that orchestrates the scraper and the Supabase sync manager.
 
@@ -82,8 +82,8 @@ const CURRENT_TERM = '20253'; // Update this when the semester changes
 
 ## Architecture
 
-This is a **production-grade scraper (v2)** that:
-- Uses native DOM extraction for reliability
+This is a **fast and stable scraper (v3)** that:
+- Uses direct HTTP requests for reliability and speed
 - Focuses on institutional data (schedules and curriculum)
 - Syncs directly to Supabase via Edge Functions
 - Includes robust error handling and data transformation

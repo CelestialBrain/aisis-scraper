@@ -12,7 +12,12 @@
     "type": "git",
     "url": "git+https://github.com/CelestialBrain/aisis-scraper.git"
   },
-  "keywords": ["aisis", "scraper", "supabase", "ateneo"],
+  "keywords": [
+    "aisis",
+    "scraper",
+    "supabase",
+    "ateneo"
+  ],
   "author": "",
   "license": "ISC",
   "bugs": {
@@ -20,9 +25,10 @@
   },
   "homepage": "https://github.com/CelestialBrain/aisis-scraper#readme",
   "dependencies": {
+    "cheerio": "^1.1.2",
     "dotenv": "^16.4.5",
     "node-fetch": "^3.3.2",
-    "puppeteer": "^22.10.0"
+
   },
   "engines": {
     "node": ">=18.0.0"
