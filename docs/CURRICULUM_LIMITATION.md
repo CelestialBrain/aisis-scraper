@@ -1,8 +1,8 @@
 # Curriculum Scraping - Technical Details
 
-## Current Status: EXPERIMENTAL SUPPORT VIA J_VOFC.do
+## Current Status: EXPERIMENTAL SUPPORT VIA J_VOFC.do WITH STRUCTURED PARSING
 
-The AISIS curriculum scraper now has **experimental support** using the `J_VOFC.do` endpoint discovered through HAR file analysis.
+The AISIS curriculum scraper now has **experimental support** using the `J_VOFC.do` endpoint discovered through HAR file analysis, **with structured parsing that produces row-based data like schedules**.
 
 ## Background
 
@@ -14,7 +14,7 @@ POST /j_aisis/J_VOPC.do
 
 However, this endpoint **does not exist** in AISIS and returns **HTTP 404**.
 
-### New Discovery (J_VOFC.do)
+### Current Implementation (J_VOFC.do + Structured Parser)
 Through analysis of HAR file captures (`official curriculums.har`), a working curriculum endpoint was discovered:
 
 ```
@@ -26,7 +26,9 @@ Parameter: degCode (curriculum version identifier)
 **How it works:**
 1. GET `J_VOFC.do` returns a form with `<select name="degCode">` dropdown
 2. Each option value represents a curriculum version (e.g., `BS CS_2024_1`)
-3. POST `J_VOFC.do` with `degCode=<value>` returns curriculum HTML for that version
+3. POST `J_VOFC.do` with `degCode=<value>` returns curriculum HTML for each version
+4. **NEW**: Parse HTML with cheerio to extract structured course rows
+5. **NEW**: Sync structured data to Google Sheets/Supabase (like schedules)
 
 ## Implementation Details
 
@@ -40,8 +42,10 @@ graph TD
     D -->|No| E[Return empty array]
     D -->|Yes| F[For each degCode]
     F --> G[POST J_VOFC.do with degCode]
-    G --> H[Flatten HTML to text]
-    H --> I[Return curriculum data]
+    G --> H[Parse HTML to structured rows]
+    H --> I[Extract year/semester/courses]
+    I --> J[Return structured curriculum data]
+    J --> K[Sync to Sheets/Supabase]
 ```
 
 ### Methods Implemented
@@ -84,8 +88,8 @@ graph TD
   - Throws on 4xx errors with clear message
   - Detects session expiry
 
-#### 4. `_flattenCurriculumHtmlToText(html)`
-- **Purpose**: Convert curriculum HTML to structured text
+#### 4. `_flattenCurriculumHtmlToText(html)` (Legacy)
+- **Purpose**: Convert curriculum HTML to structured text (kept for backward compatibility)
 - **Process**:
   1. Extract page/program header
   2. Traverse table rows
@@ -93,6 +97,35 @@ graph TD
   4. Identify course rows via `td.text02` or `td[background*="spacer_lightgrey"]`
   5. Join cells with tabs, lines with newlines
 - **Returns**: Multi-line text with headers and tab-separated course data
+- **Status**: Still included in scraped data as `raw_text` field for backward compatibility
+
+#### 5. `parseCurriculumHtml(html, degCode, label)` (**NEW**)
+- **Module**: `src/curriculum-parser.js`
+- **Purpose**: Parse curriculum HTML into structured course row objects
+- **Process**:
+  1. Load HTML with cheerio
+  2. Extract program title from header
+  3. Track current year/semester from headers (`td.text06` for year, `td.text04` for semester)
+  4. Extract course rows from `td.text02` cells
+  5. Build structured objects with all fields
+- **Returns**: Array of course row objects with:
+  - `deg_code`: Degree program code (e.g., 'BS CS_2024_1')
+  - `program_label`: Human-readable program name
+  - `program_title`: Extracted from HTML header
+  - `year_level`: 1-4
+  - `semester`: 1-2
+  - `course_code`: Course identifier (e.g., 'MA 18a')
+  - `course_title`: Course name
+  - `units`: Numeric units (e.g., 5.0)
+  - `prerequisites`: Prerequisites text or null
+  - `category`: Course category (M, C, etc.) or null
+
+#### 6. `parseAllCurricula(curriculumPrograms)` (**NEW**)
+- **Module**: `src/curriculum-parser.js`
+- **Purpose**: Parse multiple curriculum programs into structured data
+- **Returns**: Object with:
+  - `programs`: Array of program objects with their course rows
+  - `allRows`: Flattened array of all course rows across all programs
 
 ### HTML Structure
 
@@ -101,7 +134,7 @@ Typical curriculum page structure:
 <div class="pageHeader">BS Computer Science (2024-1)</div>
 <table>
   <tr>
-    <td class="text04">First Year</td>
+    <td class="text06">First Year</td>
   </tr>
   <tr>
     <td class="text04">First Semester - 21.0 Units</td>
@@ -110,11 +143,15 @@ Typical curriculum page structure:
     <td class="text02">MA 18a</td>
     <td class="text02">Analytic Geometry and Calculus I</td>
     <td class="text02">5.0</td>
+    <td class="text02">None</td>
+    <td class="text02">M</td>
   </tr>
-  <tr background="images/spacer_lightgrey.jpg">
+  <tr>
     <td class="text02">EN 11</td>
     <td class="text02">Communication in English I</td>
     <td class="text02">3.0</td>
+    <td class="text02">None</td>
+    <td class="text02">C</td>
   </tr>
   ...
 </table>
@@ -122,7 +159,7 @@ Typical curriculum page structure:
 
 ### Data Output
 
-**Example Output:**
+**Old Format (raw_text):**
 ```
 BS Computer Science (2024-1)
 
@@ -133,6 +170,54 @@ EN 11	Communication in English I	3.0
 FIL 11	Sining ng Pakikipagtalastasan sa Filipino	3.0
 ...
 ```
+
+**New Format (Structured JSON - saved to data/curriculum.json):**
+```json
+{
+  "programs": [
+    {
+      "degCode": "BS CS_2024_1",
+      "label": "BS Computer Science (2024-1)",
+      "program_title": "BS Computer Science (2024-1)",
+      "rows": [
+        {
+          "deg_code": "BS CS_2024_1",
+          "program_label": "BS Computer Science (2024-1)",
+          "program_title": "BS Computer Science (2024-1)",
+          "year_level": 1,
+          "semester": 1,
+          "course_code": "MA 18a",
+          "course_title": "Analytic Geometry and Calculus I",
+          "units": 5.0,
+          "prerequisites": "None",
+          "category": "M"
+        }
+      ]
+    }
+  ],
+  "allRows": [ /* flattened array of all course rows */ ],
+  "metadata": {
+    "totalPrograms": 50,
+    "totalCourses": 2000,
+    "scrapedAt": "2025-11-22T18:00:00.000Z"
+  }
+}
+```
+
+**Google Sheets Format:**
+The `allRows` array is synced to Google Sheets with columns:
+- deg_code
+- program_label
+- program_title
+- year_level
+- semester
+- course_code
+- course_title
+- units
+- prerequisites
+- category
+
+This matches the schedule scraping behavior where each row represents a single course with all its attributes.
 
 ## Important Warnings
 
@@ -169,10 +254,60 @@ The implementation handles errors gracefully:
 ### Supabase Sync
 - Data type: `'curriculum'`
 - Uses existing `syncToSupabase()` with batching
-- Requires `transformCurriculumData()` if structured data needed
+- **NEW**: Structured data is transformed in `index-curriculum.js` to match Supabase schema
+- Each course row synced as a separate record
 
 ### Google Sheets Sync
 - Sheet name: `'Curriculum'`
+- Uses existing `syncData()` method
+- **NEW**: Syncs flattened `allRows` array (like schedules)
+- Tab created automatically if doesn't exist
+- Each row in sheet = one course with all attributes
+
+### Data Format
+
+**Scraped Data (from scrapeCurriculum()):**
+```javascript
+[
+  {
+    degCode: 'BS CS_2024_1',
+    label: 'BS Computer Science (2024-1)',
+    html: '<html>...</html>',      // NEW: Raw HTML for parsing
+    raw_text: 'First Year\n...'    // Legacy: Flattened text
+  }
+]
+```
+
+**Parsed Data (from parseAllCurricula()):**
+```javascript
+{
+  programs: [
+    {
+      degCode: 'BS CS_2024_1',
+      label: 'BS Computer Science (2024-1)',
+      program_title: 'BS Computer Science (2024-1)',
+      rows: [ /* array of course row objects */ ]
+    }
+  ],
+  allRows: [ /* flattened array for Sheets/DB sync */ ]
+}
+```
+
+**Course Row Structure:**
+```javascript
+{
+  deg_code: 'BS CS_2024_1',
+  program_label: 'BS Computer Science (2024-1)',
+  program_title: 'BS Computer Science (2024-1)',
+  year_level: 1,           // 1-4
+  semester: 1,             // 1-2
+  course_code: 'MA 18a',
+  course_title: 'Analytic Geometry and Calculus I',
+  units: 5.0,
+  prerequisites: 'None',   // or null
+  category: 'M'            // or null
+}
+```
 - Uses existing `syncData()` method
 - Tab created automatically if doesn't exist
 
