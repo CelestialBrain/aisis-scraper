@@ -9,6 +9,17 @@ export class SupabaseManager {
     this.url = `${baseUrl}/functions/v1/github-data-ingest`;
   }
 
+  /**
+   * Parse and validate batch size from environment variable
+   * @param {string} envVarName - Name of the environment variable
+   * @param {number} defaultValue - Default value if not set or invalid
+   * @returns {number} Validated batch size
+   */
+  _parseBatchSize(envVarName, defaultValue) {
+    const envValue = parseInt(process.env[envVarName] || '', 10);
+    return !isNaN(envValue) && envValue > 0 ? envValue : defaultValue;
+  }
+
   async syncToSupabase(dataType, data, termCode = null, department = null, programCode = null) {
     console.log(`   ☁️ Supabase: Syncing ${data.length} ${dataType} records...`);
 
@@ -24,12 +35,13 @@ export class SupabaseManager {
       return enriched;
     });
 
-    // Client-side batching: split into 500-record chunks to avoid 504 timeouts
-    // 500 is chosen as a balance between:
-    // - Small enough to stay under edge function timeout limits (~30s max)
-    // - Large enough to minimize HTTP request overhead
-    // - Edge function further splits into 100-record DB batches (5 per client batch)
-    const CLIENT_BATCH_SIZE = 500;
+    // Client-side batching: configurable batch size to optimize performance
+    // Larger batches reduce HTTP overhead and total sync time
+    // Edge function further splits into DB batches internally
+    // Default: 2000 records per batch (reduced from 500 for better performance)
+    // Can be configured via SUPABASE_CLIENT_BATCH_SIZE environment variable
+    const defaultBatchSize = 2000;
+    const CLIENT_BATCH_SIZE = this._parseBatchSize('SUPABASE_CLIENT_BATCH_SIZE', defaultBatchSize);
     const totalRecords = normalizedData.length;
     const batches = [];
     
@@ -38,6 +50,11 @@ export class SupabaseManager {
     }
 
     console.log(`   📦 Split into ${batches.length} client-side batch(es) of up to ${CLIENT_BATCH_SIZE} records each`);
+    
+    const customBatchSize = process.env.SUPABASE_CLIENT_BATCH_SIZE;
+    if (customBatchSize && !isNaN(parseInt(customBatchSize, 10)) && parseInt(customBatchSize, 10) > 0) {
+      console.log(`   ℹ️  Using custom batch size from SUPABASE_CLIENT_BATCH_SIZE: ${CLIENT_BATCH_SIZE}`);
+    }
 
     let successCount = 0;
     let failureCount = 0;

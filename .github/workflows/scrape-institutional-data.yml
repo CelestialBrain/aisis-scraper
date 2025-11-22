@@ -31,4 +31,8 @@ jobs:
           DATA_INGEST_TOKEN: ${{ secrets.DATA_INGEST_TOKEN }}
           GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          # Optional: Override term to skip auto-detection (speeds up startup)
+          # AISIS_TERM: '2025-1'
+          # Optional: Performance tuning (default: 2000)
+          # SUPABASE_CLIENT_BATCH_SIZE: '2000'
         run: npm start

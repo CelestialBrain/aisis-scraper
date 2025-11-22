@@ -144,6 +144,12 @@ Before running on GitHub Actions, test the scraper locally:
    AISIS_PASSWORD=your_password
    SUPABASE_URL=https://your-project-id.supabase.co
    DATA_INGEST_TOKEN=your_ingest_token
+   
+   # Optional: Override term to skip auto-detection (faster startup)
+   # AISIS_TERM=2025-1
+   
+   # Optional: Performance tuning (default: 2000 records per batch)
+   # SUPABASE_CLIENT_BATCH_SIZE=2000
    ```
 
 2. Run the scraper:
@@ -152,6 +158,43 @@ Before running on GitHub Actions, test the scraper locally:
    ```
 
 3. Check your Supabase dashboard to verify data was synced correctly
+
+## Performance Optimization
+
+The scraper includes several performance optimizations to reduce runtime:
+
+### 1. Client-Side Batch Size (`SUPABASE_CLIENT_BATCH_SIZE`)
+
+Controls how many records are sent to the Edge Function in each HTTP request:
+- **Default**: 2000 records
+- **Range**: 100-10000 (recommended: 1000-5000)
+- **Impact**: Larger batches = fewer HTTP requests = faster sync
+
+Example for larger datasets:
+```bash
+SUPABASE_CLIENT_BATCH_SIZE=3000 npm start
+```
+
+### 2. Term Override (`AISIS_TERM`)
+
+Skip term auto-detection by explicitly setting the term:
+- **Default**: Auto-detected from AISIS
+- **Impact**: Saves 1-2 seconds per run by skipping an HTTP request
+
+Example:
+```bash
+AISIS_TERM=2025-1 npm start
+```
+
+### 3. Edge Function DB Batch Size
+
+The Edge Function can be configured in Supabase dashboard:
+- **Environment Variable**: `GITHUB_INGEST_DB_BATCH_SIZE`
+- **Default**: 100 records per database transaction
+- **Range**: 50-500
+- **Impact**: Higher = faster but more risk of timeout
+
+This is set in the Supabase dashboard under Edge Functions > Settings.
 
 ## Troubleshooting
 

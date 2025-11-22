@@ -89,19 +89,39 @@ In your GitHub repository, go to `Settings` > `Secrets and variables` > `Actions
 
 The scraper now **automatically detects** the current academic term from AISIS without requiring manual code changes. It reads the term from the Schedule of Classes page dropdown.
 
-**To override the term** (e.g., for scraping historical data), you can set the `APPLICABLE_PERIOD` environment variable:
+**To override the term** (e.g., for scraping historical data or for CI/scheduled runs), you can set the `AISIS_TERM` environment variable:
 
 ```bash
-APPLICABLE_PERIOD=2024-2 npm start
+AISIS_TERM=2025-1 npm start
 ```
 
 Or add it to your `.env` file:
 
 ```
-APPLICABLE_PERIOD=2024-2
+AISIS_TERM=2025-1
 ```
 
-If no override is provided, the scraper will auto-detect and use the currently selected term in AISIS.
+**Legacy support**: The `APPLICABLE_PERIOD` environment variable is still supported for backward compatibility, but `AISIS_TERM` takes precedence if both are set.
+
+If no override is provided, the scraper will auto-detect and use the currently selected term in AISIS. Using an override skips the term auto-detection request, which can speed up startup time in CI environments.
+
+### 4. Performance Tuning
+
+The scraper includes several performance optimization options:
+
+#### Supabase Sync Batch Size
+
+Control how many records are sent to the Edge Function in each HTTP request:
+
+```bash
+SUPABASE_CLIENT_BATCH_SIZE=2000 npm start  # Default: 2000
+```
+
+- **Larger values (e.g., 3000-5000)**: Fewer HTTP requests, faster total sync time, but higher memory usage
+- **Smaller values (e.g., 500-1000)**: More granular progress reporting, safer for timeout prevention
+- **Default (2000)**: Optimized for typical 3000-4000 course datasets, resulting in 1-3 Edge Function calls
+
+The Edge Function further splits large batches into smaller database transactions (100 records by default) to prevent individual transaction timeouts.
 
 ## How It Works
 
@@ -140,8 +160,11 @@ If no override is provided, the scraper will auto-detect and use the currently s
    SUPABASE_URL=https://your-project-id.supabase.co
    DATA_INGEST_TOKEN=your_ingest_token
    
-   # Optional: Override the term for manual scraping
-   # APPLICABLE_PERIOD=2024-2
+   # Optional: Override the term for manual scraping (skips auto-detection)
+   # AISIS_TERM=2025-1
+   
+   # Optional: Performance tuning for Supabase sync
+   # SUPABASE_CLIENT_BATCH_SIZE=2000
    ```
 
 4. **Run the scraper**:
@@ -171,29 +194,42 @@ This is a **fast and stable scraper (v3)** that:
 
 ### Batching Architecture (v3.1)
 
-To handle large datasets (3000+ schedule records) without timeouts, the system uses **two-layer batching**:
+To handle large datasets (3000+ schedule records) without timeouts, the system uses **two-layer batching** with configurable batch sizes for optimal performance.
 
 #### Layer 1: Client-Side Batching (`src/supabase.js`)
-- Splits large datasets into **500-record chunks**
+- Splits large datasets into configurable chunks (default: **2000 records**)
 - Sends multiple HTTP requests to the Edge Function
 - Prevents overwhelming the Edge Function with giant payloads
 - Tracks partial failures across batches
+- **Configurable via `SUPABASE_CLIENT_BATCH_SIZE` environment variable**
 
 #### Layer 2: Server-Side Batching (Edge Functions)
-- Further splits each request into **100-record database transactions**
+- Further splits each request into **100-record database transactions** (default)
 - Uses `upsert` with correct `onConflict` key: `term_code,subject_code,section,department`
 - Partial failure handling - one failed batch doesn't block others
 - Detailed logging for debugging
+- **Configurable via `GITHUB_INGEST_DB_BATCH_SIZE` environment variable** (range: 50-500)
 
-**Example: Syncing 3927 schedules**
+**Example: Syncing 3783 schedules (optimized)**
 ```
-Client sends: 8 requests × ~500 records each
+Client sends: 2 requests × ~2000 records each
+  ↓
+Each request: ~20 database batches × 100 records each
+  ↓
+Total: ~40 database transactions of 100 records
+  ↓
+Result: No timeouts, faster sync (~5-8 minutes vs 14-15 minutes)
+```
+
+**Previous architecture (v3.0): 8 requests × 500 records**
+```
+Client sends: 8 requests × ~500 records each  
   ↓
 Each request: 5 database batches × 100 records each
   ↓
 Total: 40 database transactions of 100 records
   ↓
-Result: No timeouts, complete sync in ~30-50 seconds
+Result: Slower due to HTTP overhead (14-15 minutes)
 ```
 
 This architecture ensures:
