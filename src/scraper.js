@@ -24,6 +24,12 @@ const RETRY_CONFIG = {
   RETRY_DELAY_MS: 2000
 };
 
+// Scrape behavior configuration for batched concurrent department scraping
+const SCRAPE_CONFIG = {
+  CONCURRENCY: 5,        // Number of departments to scrape in parallel per batch
+  BATCH_DELAY_MS: 750    // Delay in milliseconds between batches of concurrent scrapes
+};
+
 export class AISISScraper {
   constructor(username, password) {
     this.username = username;
@@ -354,24 +360,48 @@ export class AISISScraper {
         console.log(`   ✅ Test successful: ${testCourses.length} courses found in ${testDept}`);
         allCourses.push(...testCourses);
         
-        // Continue with remaining departments
-        for (let i = 1; i < departments.length; i++) {
-          const dept = departments[i];
-          console.log(`   📚 Scraping ${dept}...`);
+        // Continue with remaining departments using batched concurrent scraping
+        const remainingDepts = departments.slice(1);
+        const totalBatches = Math.ceil(remainingDepts.length / SCRAPE_CONFIG.CONCURRENCY);
+        
+        // Split remaining departments into batches for concurrent processing
+        for (let i = 0; i < remainingDepts.length; i += SCRAPE_CONFIG.CONCURRENCY) {
+          const batch = remainingDepts.slice(i, i + SCRAPE_CONFIG.CONCURRENCY);
+          const batchNum = Math.floor(i / SCRAPE_CONFIG.CONCURRENCY) + 1;
           
-          try {
-            const courses = await this._scrapeDepartment(term, dept);
-            if (courses && courses.length > 0) {
-              allCourses.push(...courses);
-              console.log(`   ✅ ${dept}: ${courses.length} courses`);
-            } else {
-              console.log(`   ⚠️  ${dept}: No courses found`);
+          console.log(`   📦 Processing batch ${batchNum}/${totalBatches} (${batch.join(', ')})...`);
+          
+          // Scrape all departments in this batch concurrently
+          const batchPromises = batch.map(async (dept) => {
+            console.log(`   📚 Scraping ${dept}...`);
+            
+            try {
+              const courses = await this._scrapeDepartment(term, dept);
+              if (courses && courses.length > 0) {
+                console.log(`   ✅ ${dept}: ${courses.length} courses`);
+                return courses;
+              } else {
+                console.log(`   ⚠️  ${dept}: No courses found`);
+                return [];
+              }
+            } catch (error) {
+              console.error(`   ❌ ${dept}: ${error.message}`);
+              return [];
             }
-          } catch (error) {
-            console.error(`   ❌ ${dept}: ${error.message}`);
+          });
+          
+          // Wait for all departments in this batch to complete
+          const batchResults = await Promise.all(batchPromises);
+          
+          // Flatten and add all courses from this batch
+          for (const courses of batchResults) {
+            allCourses.push(...courses);
           }
           
-          await this._delay(1000);
+          // Add delay between batches (but not after the last batch)
+          if (i + SCRAPE_CONFIG.CONCURRENCY < remainingDepts.length) {
+            await this._delay(SCRAPE_CONFIG.BATCH_DELAY_MS);
+          }
         }
       } else {
         console.log('   ❌ Test failed - no courses found in first department');
