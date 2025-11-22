@@ -25,6 +25,10 @@ export class SupabaseManager {
     });
 
     // Client-side batching: split into 500-record chunks to avoid 504 timeouts
+    // 500 is chosen as a balance between:
+    // - Small enough to stay under edge function timeout limits (~30s max)
+    // - Large enough to minimize HTTP request overhead
+    // - Edge function further splits into 100-record DB batches (5 per client batch)
     const CLIENT_BATCH_SIZE = 500;
     const totalRecords = normalizedData.length;
     const batches = [];
@@ -76,24 +80,14 @@ export class SupabaseManager {
   }
 
   /**
-   * Send a request to Supabase Edge Function with retry logic.
-   * Retries on network errors and 5xx status codes with exponential backoff.
+   * Build metadata object with GitHub Actions context and custom fields.
    * 
-   * Retry behavior:
-   * - Retries on: network errors (exceptions), 500, 502, 503, 504, 522, 524
-   * - Backoff: exponential with cap (1s, 2s, 4s, 8s, 16s, 32s)
-   * - Max retries: 5 (total time: ~63 seconds max)
-   * - Logs each retry attempt with status and message
-   * 
-   * @param {string} dataType - Type of data ('schedules', 'curriculum', or 'courses')
-   * @param {Array} records - Array of records to send
    * @param {string|null} termCode - Term code for schedules
    * @param {string|null} department - Department code
    * @param {string|null} programCode - Program code for curriculum
-   * @returns {Promise<boolean>} True if successful, false if all retries failed
+   * @returns {Object} Metadata object with all available context
    */
-  async sendRequest(dataType, records, termCode = null, department = null, programCode = null) {
-    // Build metadata with GitHub Actions context
+  buildMetadata(termCode = null, department = null, programCode = null) {
     const metadata = {};
     
     // Add context-specific metadata
@@ -128,6 +122,30 @@ export class SupabaseManager {
     } else {
       metadata.trigger = 'manual';
     }
+    
+    return metadata;
+  }
+
+  /**
+   * Send a request to Supabase Edge Function with retry logic.
+   * Retries on network errors and 5xx status codes with exponential backoff.
+   * 
+   * Retry behavior:
+   * - Retries on: network errors (exceptions), 500, 502, 503, 504, 522, 524
+   * - Backoff: exponential with cap (1s, 2s, 4s, 8s, 16s, 32s)
+   * - Max retries: 5 (total time: ~63 seconds max)
+   * - Logs each retry attempt with status and message
+   * 
+   * @param {string} dataType - Type of data ('schedules', 'curriculum', or 'courses')
+   * @param {Array} records - Array of records to send
+   * @param {string|null} termCode - Term code for schedules
+   * @param {string|null} department - Department code
+   * @param {string|null} programCode - Program code for curriculum
+   * @returns {Promise<boolean>} True if successful, false if all retries failed
+   */
+  async sendRequest(dataType, records, termCode = null, department = null, programCode = null) {
+    // Build metadata with GitHub Actions context
+    const metadata = this.buildMetadata(termCode, department, programCode);
 
     const payload = {
       data_type: dataType,

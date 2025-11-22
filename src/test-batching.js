@@ -24,38 +24,8 @@ let capturedRequests = [];
 // Create a custom SupabaseManager for testing
 class TestSupabaseManager extends SupabaseManager {
   async sendRequest(dataType, records, termCode = null, department = null, programCode = null) {
-    // Build metadata just like the parent class
-    const metadata = {};
-    
-    if (termCode) metadata.term_code = termCode;
-    if (department) metadata.department = department;
-    if (programCode) metadata.program_code = programCode;
-    
-    if (process.env.GITHUB_WORKFLOW) {
-      metadata.workflow_name = process.env.GITHUB_WORKFLOW;
-    }
-    if (process.env.GITHUB_RUN_ID) {
-      metadata.run_id = process.env.GITHUB_RUN_ID;
-    }
-    if (process.env.GITHUB_SERVER_URL && process.env.GITHUB_REPOSITORY && process.env.GITHUB_RUN_ID) {
-      metadata.run_url = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
-    }
-    if (process.env.GITHUB_REPOSITORY) {
-      metadata.repository = process.env.GITHUB_REPOSITORY;
-    }
-    if (process.env.GITHUB_SHA) {
-      metadata.commit_sha = process.env.GITHUB_SHA;
-    }
-    
-    if (process.env.GITHUB_EVENT_NAME === 'schedule') {
-      metadata.trigger = 'schedule';
-    } else if (process.env.GITHUB_EVENT_NAME === 'workflow_dispatch') {
-      metadata.trigger = 'manual';
-    } else if (process.env.GITHUB_ACTIONS) {
-      metadata.trigger = 'github-actions';
-    } else {
-      metadata.trigger = 'manual';
-    }
+    // Use the parent class's buildMetadata method
+    const metadata = this.buildMetadata(termCode, department, programCode);
 
     const payload = {
       data_type: dataType,
