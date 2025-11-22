@@ -117,25 +117,32 @@ export class AISISScraper {
       $table('table tr').each((i, row) => {
         const cells = $table(row).find('td');
         if (cells.length > 10) {
-          const subject = $table(cells[0]).text().trim();
-          
-          // 🛑 STRICT FILTER: Ignore Headers (Fixes "1 class found")
-          if (/subject|code/i.test(subject) || subject.includes('Ateneo Integrated') || subject === '') {
+          const col1 = $table(cells[0]).text().trim(); // Subject Code
+          const col2 = $table(cells[1]).text().trim(); // Section
+
+          // 🛑 FINAL HEADER FILTER
+          if (
+              /Subject Code|Cat\. No\.|Subject|Section/i.test(col1) || 
+              col2 === 'Section' ||
+              col1.includes('Ateneo Integrated') || 
+              col1 === ''
+          ) {
             return; 
           }
 
           deptResults.push({
             department:  dept,
-            subjectCode: subject,
-            section:     $table(cells[1]).text().trim(),
+            subjectCode: col1,
+            section:     col2,
             title:       $table(cells[2]).text().trim(),
             units:       $table(cells[3]).text().trim(),
-            time_pattern: $table(cells[4]).text().trim(),
+            time:        $table(cells[4]).text().trim(),
             room:        $table(cells[5]).text().trim(),
             instructor:  $table(cells[6]).text().trim(),
-            max_capacity: $table(cells[7]).text().trim(),
+            maxSlots:    $table(cells[7]).text().trim(),
             language:    $table(cells[8]).text().trim(),
             level:       $table(cells[9]).text().trim(),
+            freeSlots:   $table(cells[10]).text().trim(),
             remarks:     $table(cells[11]).text().trim()
           });
         }
@@ -176,6 +183,7 @@ export class AISISScraper {
     for (let i = 0; i < deptCodes.length; i += BATCH_SIZE) {
         const batch = deptCodes.slice(i, i + BATCH_SIZE);
         const batchResults = await Promise.all(batch.map(dept => this._scrapeDept(dept, term)));
+        
         batchResults.forEach(res => results.push(...res));
         await new Promise(r => setTimeout(r, 200));
     }
@@ -184,66 +192,8 @@ export class AISISScraper {
     return results;
   }
 
-  async scrapeCurriculum() {
-    console.log('\n📚 Starting Curriculum Extraction...');
-    const results = [];
-
-    const degrees = [
-        "BS CS", "BS MIS", "BS ITE", "BS AMF", "BS MGT", "BS BIO", "BS CH",
-        "BS ES", "BS HSc", "BS LM", "BS MAC", "BS ME", "BS PS", "BS PSY",
-        "AB COM", "AB DS", "AB EC", "AB EU", "AB HI", "AB IS", "AB LIT",
-        "AB ME", "AB PH", "AB POS", "AB PSY", "AB SOC", "BFA CW", "BFA ID", "BFA TA"
-    ];
-
-    console.log(`   Using manual list of ${degrees.length} degree programs.`);
-    this.headers['Referer'] = `${this.baseUrl}/j_aisis/J_VOFC.do`;
-
-    const BATCH_SIZE = 5;
-    for (let i = 0; i < degrees.length; i += BATCH_SIZE) {
-        const batch = degrees.slice(i, i + BATCH_SIZE);
-        
-        await Promise.all(batch.map(async (degree) => {
-            try {
-                const params = new URLSearchParams();
-                params.append('degCode', degree);
-
-                const r2 = await this._request(`${this.baseUrl}/j_aisis/J_VOFC.do`, {
-                    method: 'POST',
-                    body: params
-                });
-
-                const pageHtml = await r2.text();
-                const $p = cheerio.load(pageHtml);
-                
-                let year = '', sem = '';
-                $p('table tr').each((j, row) => {
-                    const text = $p(row).text().toLowerCase();
-                    const cells = $p(row).find('td');
-                    
-                    if (text.includes('year')) year = $p(row).text().trim();
-                    else if (text.includes('semester')) sem = $p(row).text().trim();
-                    else if (cells.length >= 3) {
-                        const code = $p(cells[0]).text().trim();
-                        if (code.includes('Ateneo Integrated') || code === 'Course Code') return;
-
-                        results.push({
-                            degreeCode: degree,
-                            yearLevel: year,
-                            semester: sem,
-                            courseCode: code,
-                            courseTitle: $p(cells[1]).text().trim(),
-                            units: $p(cells[2]).text().trim()
-                        });
-                    }
-                });
-            } catch (e) { }
-        }));
-        await new Promise(r => setTimeout(r, 200));
-    }
-
-    console.log(`✅ Curriculum extraction complete: ${results.length} items`);
-    return results;
+  // Removed scrapeCurriculum()
+  async close() {
+    console.log('🔒 Session Closed');
   }
-
-  async close() { }
 }
