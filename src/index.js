@@ -55,11 +55,11 @@ async function main() {
     if (scheduleData.length > 0) {
       const cleanSchedule = supabase.transformScheduleData(scheduleData);
       
-      // A. Save Local Backup
+      // 1. Local Backup
       fs.writeFileSync('data/courses.json', JSON.stringify(cleanSchedule, null, 2));
       console.log(`   💾 Saved ${scheduleData.length} classes to data/courses.json`);
 
-      // B. Sync to Supabase (Parallel Batches)
+      // 2. Supabase Sync (Parallel Batches)
       if (DATA_INGEST_TOKEN) {
         console.log('   🚀 Starting Parallel Supabase Sync...');
         
@@ -83,7 +83,7 @@ async function main() {
         });
       }
 
-      // C. Sync to Google Sheets
+      // 3. Google Sheets Sync
       if (sheets) {
         await sheets.syncData(SPREADSHEET_ID, 'Schedules', cleanSchedule);
       }
