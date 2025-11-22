@@ -27,6 +27,7 @@ function getBatchSize(): number {
     return DEFAULT_BATCH_SIZE;
   }
   
+  // Clamp to valid range
   if (parsed < MIN_BATCH_SIZE) {
     console.warn(`GITHUB_INGEST_DB_BATCH_SIZE ${parsed} below minimum ${MIN_BATCH_SIZE}, using minimum`);
     return MIN_BATCH_SIZE;

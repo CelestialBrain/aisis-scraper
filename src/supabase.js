@@ -9,6 +9,17 @@ export class SupabaseManager {
     this.url = `${baseUrl}/functions/v1/github-data-ingest`;
   }
 
+  /**
+   * Parse and validate batch size from environment variable
+   * @param {string} envVarName - Name of the environment variable
+   * @param {number} defaultValue - Default value if not set or invalid
+   * @returns {number} Validated batch size
+   */
+  _parseBatchSize(envVarName, defaultValue) {
+    const envValue = parseInt(process.env[envVarName] || '', 10);
+    return !isNaN(envValue) && envValue > 0 ? envValue : defaultValue;
+  }
+
   async syncToSupabase(dataType, data, termCode = null, department = null, programCode = null) {
     console.log(`   ☁️ Supabase: Syncing ${data.length} ${dataType} records...`);
 
@@ -30,8 +41,7 @@ export class SupabaseManager {
     // Default: 2000 records per batch (reduced from 500 for better performance)
     // Can be configured via SUPABASE_CLIENT_BATCH_SIZE environment variable
     const defaultBatchSize = 2000;
-    const envBatchSize = parseInt(process.env.SUPABASE_CLIENT_BATCH_SIZE || '', 10);
-    const CLIENT_BATCH_SIZE = !isNaN(envBatchSize) && envBatchSize > 0 ? envBatchSize : defaultBatchSize;
+    const CLIENT_BATCH_SIZE = this._parseBatchSize('SUPABASE_CLIENT_BATCH_SIZE', defaultBatchSize);
     const totalRecords = normalizedData.length;
     const batches = [];
     
@@ -41,7 +51,8 @@ export class SupabaseManager {
 
     console.log(`   📦 Split into ${batches.length} client-side batch(es) of up to ${CLIENT_BATCH_SIZE} records each`);
     
-    if (envBatchSize && !isNaN(envBatchSize) && envBatchSize > 0) {
+    const customBatchSize = process.env.SUPABASE_CLIENT_BATCH_SIZE;
+    if (customBatchSize && !isNaN(parseInt(customBatchSize, 10)) && parseInt(customBatchSize, 10) > 0) {
       console.log(`   ℹ️  Using custom batch size from SUPABASE_CLIENT_BATCH_SIZE: ${CLIENT_BATCH_SIZE}`);
     }
 

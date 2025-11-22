@@ -4,6 +4,15 @@ import { GoogleSheetsManager } from './sheets.js';
 import fs from 'fs';
 import 'dotenv/config';
 
+/**
+ * Format milliseconds as seconds with one decimal place
+ * @param {number} ms - Time in milliseconds
+ * @returns {string} Formatted time string (e.g., "12.3s")
+ */
+function formatTime(ms) {
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
 async function main() {
   console.log('═══════════════════════════════════════════════════════');
   console.log('🎓 AISIS Schedule Scraper');
@@ -64,13 +73,13 @@ async function main() {
       throw new Error('Login failed - check credentials');
     }
     phaseTimings.login = Date.now() - loginStart;
-    console.log(`   ⏱  Login & validation: ${(phaseTimings.login / 1000).toFixed(1)}s`);
+    console.log(`   ⏱  Login & validation: ${formatTime(phaseTimings.login)}`);
 
     console.log('📥 Scraping schedule data...');
     const scrapeStart = Date.now();
     const scheduleData = await scraper.scrapeSchedule(termOverride);
     phaseTimings.scraping = Date.now() - scrapeStart;
-    console.log(`   ⏱  AISIS scraping: ${(phaseTimings.scraping / 1000).toFixed(1)}s`);
+    console.log(`   ⏱  AISIS scraping: ${formatTime(phaseTimings.scraping)}`);
     
     // Get the actual term that was used (either override or auto-detected)
     const usedTerm = scraper.lastUsedTerm;
@@ -101,7 +110,7 @@ async function main() {
         try {
           const success = await supabase.syncToSupabase('schedules', cleanSchedule, usedTerm, 'ALL');
           phaseTimings.supabase = Date.now() - supabaseStart;
-          console.log(`   ⏱  Supabase sync: ${(phaseTimings.supabase / 1000).toFixed(1)}s`);
+          console.log(`   ⏱  Supabase sync: ${formatTime(phaseTimings.supabase)}`);
           
           if (success) {
             console.log('   ✅ Supabase sync completed successfully');
@@ -124,7 +133,7 @@ async function main() {
         try {
           await sheets.syncData(SPREADSHEET_ID, 'Schedules', cleanSchedule);
           phaseTimings.sheets = Date.now() - sheetsStart;
-          console.log(`   ⏱  Sheets sync: ${(phaseTimings.sheets / 1000).toFixed(1)}s`);
+          console.log(`   ⏱  Sheets sync: ${formatTime(phaseTimings.sheets)}`);
           console.log('   ✅ Google Sheets sync completed');
         } catch (error) {
           phaseTimings.sheets = Date.now() - sheetsStart;
@@ -137,16 +146,16 @@ async function main() {
       // Print summary timing
       const totalTime = Date.now() - startTime;
       console.log('\n⏱  Performance Summary:');
-      console.log(`   Initialization: ${(phaseTimings.init / 1000).toFixed(1)}s`);
-      console.log(`   Login & validation: ${(phaseTimings.login / 1000).toFixed(1)}s`);
-      console.log(`   AISIS scraping: ${(phaseTimings.scraping / 1000).toFixed(1)}s`);
+      console.log(`   Initialization: ${formatTime(phaseTimings.init)}`);
+      console.log(`   Login & validation: ${formatTime(phaseTimings.login)}`);
+      console.log(`   AISIS scraping: ${formatTime(phaseTimings.scraping)}`);
       if (phaseTimings.supabase > 0) {
-        console.log(`   Supabase sync: ${(phaseTimings.supabase / 1000).toFixed(1)}s`);
+        console.log(`   Supabase sync: ${formatTime(phaseTimings.supabase)}`);
       }
       if (phaseTimings.sheets > 0) {
-        console.log(`   Sheets sync: ${(phaseTimings.sheets / 1000).toFixed(1)}s`);
+        console.log(`   Sheets sync: ${formatTime(phaseTimings.sheets)}`);
       }
-      console.log(`   Total time: ${(totalTime / 1000).toFixed(1)}s`);
+      console.log(`   Total time: ${formatTime(totalTime)}`);
 
     } else {
       console.warn(`\n⚠️ No schedule data found for term ${usedTerm}.`);
