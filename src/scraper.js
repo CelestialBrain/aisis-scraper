@@ -362,12 +362,12 @@ export class AISISScraper {
         
         // Continue with remaining departments using batched concurrent scraping
         const remainingDepts = departments.slice(1);
+        const totalBatches = Math.ceil(remainingDepts.length / SCRAPE_CONFIG.CONCURRENCY);
         
         // Split remaining departments into batches for concurrent processing
         for (let i = 0; i < remainingDepts.length; i += SCRAPE_CONFIG.CONCURRENCY) {
           const batch = remainingDepts.slice(i, i + SCRAPE_CONFIG.CONCURRENCY);
           const batchNum = Math.floor(i / SCRAPE_CONFIG.CONCURRENCY) + 1;
-          const totalBatches = Math.ceil(remainingDepts.length / SCRAPE_CONFIG.CONCURRENCY);
           
           console.log(`   📦 Processing batch ${batchNum}/${totalBatches} (${batch.join(', ')})...`);
           
@@ -395,9 +395,7 @@ export class AISISScraper {
           
           // Flatten and add all courses from this batch
           for (const courses of batchResults) {
-            if (courses && courses.length > 0) {
-              allCourses.push(...courses);
-            }
+            allCourses.push(...courses);
           }
           
           // Add delay between batches (but not after the last batch)
