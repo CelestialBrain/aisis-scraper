@@ -1,7 +1,11 @@
 // src/scraper.js
+import fs from 'fs';
+import path from 'path';
 import * as cheerio from 'cheerio';
 import { CookieJar } from 'tough-cookie';
 import fetchCookie from 'fetch-cookie';
+
+if (!fs.existsSync('debug')) fs.mkdirSync('debug');
 
 const jar = new CookieJar();
 // Wrap Node's global fetch with fetch-cookie so cookies are saved in jar
@@ -91,6 +95,17 @@ export class AISISScraper {
       const postHtml = await loginResp.text().catch(() => '');
       if (postHtml && /User Identified As|Welcome|Ateneo/i.test(postHtml)) {
         console.log('✅ Authentication Successful (detected in POST response body)');
+
+        // DEBUG: dump cookie jar after login
+        try {
+          const cookies = await new Promise((resolve, reject) => jar.getCookies(this.baseUrl, (err, c) => err ? reject(err) : resolve(c)));
+          const cookieData = cookies.map(c => ({ key: c.key, value: c.value, domain: c.domain, path: c.path, expires: c.expires, secure: c.secure, httpOnly: c.httpOnly }));
+          fs.writeFileSync(path.join('debug', 'cookies_after_login.json'), JSON.stringify(cookieData, null, 2), 'utf8');
+          console.log('DEBUG: dumped cookies_after_login.json');
+        } catch (e) {
+          console.log('DEBUG: failed to dump cookie jar after login:', e.message);
+        }
+
         await delay(800);
         return;
       }
@@ -103,10 +118,19 @@ export class AISISScraper {
         const followHtml = await followResp.text().catch(() => '');
         if (followHtml && /User Identified As|Welcome|Ateneo/i.test(followHtml)) {
           console.log('✅ Authentication Successful (followed Location header)');
+
+          try {
+            const cookies = await new Promise((resolve, reject) => jar.getCookies(this.baseUrl, (err, c) => err ? reject(err) : resolve(c)));
+            const cookieData = cookies.map(c => ({ key: c.key, value: c.value, domain: c.domain, path: c.path, expires: c.expires, secure: c.secure, httpOnly: c.httpOnly }));
+            fs.writeFileSync(path.join('debug', 'cookies_after_login.json'), JSON.stringify(cookieData, null, 2), 'utf8');
+            console.log('DEBUG: dumped cookies_after_login.json');
+          } catch (e) {
+            console.log('DEBUG: failed to dump cookie jar after login:', e.message);
+          }
+
           return;
         } else {
           console.log('DEBUG followResp.status:', followResp.status);
-          // continue to fallback attempts
         }
       }
 
@@ -120,18 +144,28 @@ export class AISISScraper {
         '/j_aisis/jsp/home.do'
       ];
 
-      for (const path of candidates) {
+      for (const P of candidates) {
         try {
-          const url = new URL(path, this.baseUrl).toString();
+          const url = new URL(P, this.baseUrl).toString();
           const r = await this._request(url, { method: 'GET' });
           const txt = await r.text().catch(() => '');
           console.log(`DEBUG try candidate ${url} -> status ${r.status}`);
           if (txt && /User Identified As|Welcome|Ateneo/i.test(txt)) {
             console.log('✅ Authentication Successful (candidate):', url);
+
+            try {
+              const cookies = await new Promise((resolve, reject) => jar.getCookies(this.baseUrl, (err, c) => err ? reject(err) : resolve(c)));
+              const cookieData = cookies.map(c => ({ key: c.key, value: c.value, domain: c.domain, path: c.path, expires: c.expires, secure: c.secure, httpOnly: c.httpOnly }));
+              fs.writeFileSync(path.join('debug', 'cookies_after_login.json'), JSON.stringify(cookieData, null, 2), 'utf8');
+              console.log('DEBUG: dumped cookies_after_login.json');
+            } catch (e) {
+              console.log('DEBUG: failed to dump cookie jar after login:', e.message);
+            }
+
             return;
           }
         } catch (e) {
-          console.log(`DEBUG candidate ${path} failed:`, e.message);
+          console.log(`DEBUG candidate ${P} failed:`, e.message);
         }
       }
 
@@ -166,6 +200,16 @@ export class AISISScraper {
     params.append('deptCode', dept);
     params.append('subjCode', 'ALL');
 
+    // DEBUG: dump cookies before dept request
+    try {
+      const cookiesBefore = await new Promise((resolve, reject) => jar.getCookies(this.baseUrl, (err, c) => err ? reject(err) : resolve(c)));
+      const cbData = cookiesBefore.map(c => ({ key: c.key, value: c.value, domain: c.domain, path: c.path, expires: c.expires, secure: c.secure, httpOnly: c.httpOnly }));
+      fs.writeFileSync(path.join('debug', `cookies_before_${dept.replace(/\s+/g,'_')}.json`), JSON.stringify(cbData, null, 2), 'utf8');
+      console.log(`DEBUG: dumped cookies_before_${dept}.json`);
+    } catch (e) {
+      console.log(`DEBUG: failed to dump cookies before ${dept}:`, e.message);
+    }
+
     try {
       const resp = await this._request(`${this.baseUrl}/j_aisis/J_VCSC.do`, {
         method: 'POST',
@@ -177,6 +221,30 @@ export class AISISScraper {
 
       // session loss detection: if login form returned -> abort
       if (/(sign\s*in|username|password)/i.test(html) && /<form|<input/i.test(html)) {
+        // before throwing, save debug snapshot and headers
+        try {
+          const hdrs = {};
+          if (resp && resp.headers) {
+            if (typeof resp.headers.raw === 'function') {
+              Object.assign(hdrs, resp.headers.raw());
+            } else {
+              for (const [k, v] of resp.headers.entries()) hdrs[k] = v;
+            }
+          }
+          const meta = {
+            status: resp.status,
+            url: resp.url || `${this.baseUrl}/j_aisis/J_VCSC.do`,
+            headers: hdrs
+          };
+          fs.writeFileSync(path.join('debug', `${dept.replace(/\s+/g,'_')}_meta.json`), JSON.stringify(meta, null, 2), 'utf8');
+
+          const snap = (html || '').slice(0, 40000);
+          fs.writeFileSync(path.join('debug', `${dept.replace(/\s+/g,'_')}_snapshot.html`), snap, 'utf8');
+          console.log(`DEBUG: saved ${dept} meta + snapshot`);
+        } catch (e) {
+          console.log('DEBUG: failed to write debug files for', dept, e.message);
+        }
+
         throw new Error(`Session Expired: login page returned when fetching ${dept}`);
       }
 
