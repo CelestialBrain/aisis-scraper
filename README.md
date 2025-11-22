@@ -63,6 +63,7 @@ In your GitHub repository, go to `Settings` > `Secrets and variables` > `Actions
 
 - `AISIS_USERNAME`: Your AISIS username
 - `AISIS_PASSWORD`: Your AISIS password
+- `SUPABASE_URL`: Your Supabase project URL (e.g., `https://your-project-id.supabase.co`)
 - `DATA_INGEST_TOKEN`: The authentication token for your Supabase data ingest endpoint
 
 ### 3. Term Auto-Detection
@@ -117,6 +118,7 @@ If no override is provided, the scraper will auto-detect and use the currently s
    ```
    AISIS_USERNAME=your_username
    AISIS_PASSWORD=your_password
+   SUPABASE_URL=https://your-project-id.supabase.co
    DATA_INGEST_TOKEN=your_ingest_token
    
    # Optional: Override the term for manual scraping

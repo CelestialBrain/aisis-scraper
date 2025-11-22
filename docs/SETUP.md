@@ -121,17 +121,18 @@ In your GitHub repository:
 2. Add the following secrets:
    - `AISIS_USERNAME`: Your AISIS username
    - `AISIS_PASSWORD`: Your AISIS password
+   - `SUPABASE_URL`: Your Supabase project URL (e.g., `https://your-project-id.supabase.co`)
    - `DATA_INGEST_TOKEN`: The authentication token from Step 4
 
-## Step 6: Update the Sync URL (if needed)
+## Step 6: Verify Configuration
 
-If your Supabase project URL is different, update it in `src/supabase.js`:
+The scraper will now automatically:
+- Read `SUPABASE_URL` from environment variables
+- Construct the edge function URL as `${SUPABASE_URL}/functions/v1/github-data-ingest`
+- Include GitHub Actions metadata in all requests (workflow name, run ID, commit SHA, etc.)
+- Batch large datasets into 500-record chunks to prevent timeouts
 
-```javascript
-this.url = 'https://YOUR_PROJECT_ID.supabase.co/functions/v1/github-data-ingest';
-```
-
-Replace `YOUR_PROJECT_ID` with your actual Supabase project ID.
+No code changes are needed - the scraper is now fully configured!
 
 ## Testing Locally
 
@@ -141,6 +142,7 @@ Before running on GitHub Actions, test the scraper locally:
    ```
    AISIS_USERNAME=your_username
    AISIS_PASSWORD=your_password
+   SUPABASE_URL=https://your-project-id.supabase.co
    DATA_INGEST_TOKEN=your_ingest_token
    ```
 
