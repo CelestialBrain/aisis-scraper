@@ -520,58 +520,263 @@ export class AISISScraper {
   }
 
   /**
+   * Get all available degree programs (curriculum versions) from AISIS
+   * 
+   * Retrieves the list of curriculum versions from the J_VOFC.do page dropdown.
+   * Each option represents a specific curriculum version (degree_year_semester).
+   * 
+   * @returns {Promise<Array>} Array of { degCode, label } objects
+   */
+  async getDegreePrograms() {
+    if (!this.loggedIn) {
+      throw new Error('Not logged in');
+    }
+
+    console.log('   🔍 Fetching available curriculum versions...');
+
+    try {
+      const response = await this._request(`${this.baseUrl}/j_aisis/J_VOFC.do`, {
+        method: 'GET',
+        headers: {
+          'Referer': `${this.baseUrl}/j_aisis/welcome.do`
+        }
+      });
+
+      if (!response.ok) {
+        console.warn(`   ⚠️ Failed to fetch degree programs: HTTP ${response.status}`);
+        return [];
+      }
+
+      const html = await response.text();
+
+      // Check for session expiry
+      if (LOGIN_FAILURE_MARKERS.some(marker => html.includes(marker))) {
+        throw new Error('Session expired while fetching degree programs');
+      }
+
+      const $ = cheerio.load(html);
+      const select = $('select[name="degCode"]');
+
+      if (select.length === 0) {
+        console.warn('   ⚠️ Could not find degCode select element on J_VOFC.do page');
+        return [];
+      }
+
+      const programs = [];
+      select.find('option').each((_, option) => {
+        const value = $(option).attr('value');
+        const text = $(option).text().trim();
+        
+        if (value && value.trim() !== '') {
+          programs.push({
+            degCode: value.trim(),
+            label: text
+          });
+        }
+      });
+
+      console.log(`   ✅ Found ${programs.length} curriculum versions`);
+      return programs;
+
+    } catch (error) {
+      console.error(`   ❌ Error fetching degree programs: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
    * Scrape curriculum data for all degree programs
    * 
-   * NOTE: This feature is currently NOT SUPPORTED because the AISIS system
-   * does not provide a public endpoint for scraping official curriculum data.
+   * Uses the J_VOFC.do endpoint discovered through HAR file analysis.
+   * This is an EXPERIMENTAL feature that depends on AISIS UI structure.
    * 
-   * Background:
-   * - The endpoint J_VOPC.do (View Official Program Curriculum) does not exist (returns 404)
-   * - J_VIPS.do (View Individual Program of Study) is student-specific, not for all programs
-   * - Official curricula are published as PDFs on ateneo.edu, not through AISIS API
+   * Workflow:
+   * 1. GET J_VOFC.do to retrieve list of curriculum versions (degCode dropdown)
+   * 2. For each degCode, POST to J_VOFC.do to fetch curriculum HTML
+   * 3. Flatten curriculum HTML to text format for external parsing
+   * 4. Return array of curriculum records with raw_text field
    * 
-   * Alternative solutions:
-   * - Scrape curriculum from public Ateneo website curriculum pages
-   * - Use manually curated curriculum data
-   * - Access individual curriculum through J_VIPS.do (requires student context)
-   * 
-   * @returns {Promise<Array>} Array of curriculum records
-   * @throws {Error} Always throws - curriculum scraping not supported
+   * @returns {Promise<Array>} Array of curriculum records with { degCode, label, raw_text }
    */
   async scrapeCurriculum() {
     if (!this.loggedIn) {
       throw new Error('Not logged in');
     }
 
-    console.log('\n📚 Scraping Official Curriculum...');
-    console.log('\n⚠️  CURRICULUM SCRAPING IS NOT SUPPORTED');
-    console.log('═══════════════════════════════════════════════════════');
-    console.log('The AISIS system does not provide a public endpoint for');
-    console.log('scraping official curriculum data for all degree programs.');
-    console.log('');
-    console.log('Why this doesn\'t work:');
-    console.log('  • The J_VOPC.do endpoint returns HTTP 404 (does not exist)');
-    console.log('  • J_VIPS.do is for individual student programs only');
-    console.log('  • Official curricula are published as PDFs on ateneo.edu');
-    console.log('');
-    console.log('Alternative approaches:');
-    console.log('  • Scrape from public Ateneo curriculum pages');
-    console.log('  • Use manually curated curriculum JSON');
-    console.log('  • Request API access from AISIS administrators');
-    console.log('═══════════════════════════════════════════════════════\n');
+    console.log('\n📚 Scraping Official Curriculum via J_VOFC.do...');
+    console.log('   ⚠️ NOTE: Curriculum scraping is EXPERIMENTAL and UI-dependent');
+    console.log('   This feature may break if AISIS changes the J_VOFC.do page structure.\n');
 
-    // Return empty array instead of throwing to allow workflow to complete
-    return [];
+    // Get list of all degree programs
+    const degreePrograms = await this.getDegreePrograms();
+
+    if (degreePrograms.length === 0) {
+      console.warn('   ⚠️ No curriculum versions found - returning empty array');
+      return [];
+    }
+
+    const allCurricula = [];
+    let successCount = 0;
+    let failureCount = 0;
+
+    console.log(`   📖 Processing ${degreePrograms.length} curriculum versions...\n`);
+
+    // Scrape each degree program
+    for (let i = 0; i < degreePrograms.length; i++) {
+      const { degCode, label } = degreePrograms[i];
+      console.log(`   [${i + 1}/${degreePrograms.length}] Scraping ${degCode} (${label})...`);
+
+      try {
+        const html = await this._scrapeDegree(degCode);
+        const rawText = this._flattenCurriculumHtmlToText(html);
+
+        allCurricula.push({
+          degCode,
+          label,
+          raw_text: rawText
+        });
+
+        successCount++;
+        console.log(`   ✅ ${degCode}: ${rawText.length} characters`);
+
+        // Polite delay between requests
+        if (i < degreePrograms.length - 1) {
+          await this._delay(500);
+        }
+
+      } catch (error) {
+        failureCount++;
+        console.error(`   ❌ ${degCode}: ${error.message}`);
+        // Continue with next curriculum instead of failing entirely
+      }
+    }
+
+    console.log(`\n   📊 Curriculum Scraping Summary:`);
+    console.log(`      Total versions: ${degreePrograms.length}`);
+    console.log(`      Successful: ${successCount}`);
+    console.log(`      Failed: ${failureCount}`);
+    console.log(`   📚 Total curriculum versions scraped: ${allCurricula.length}\n`);
+
+    return allCurricula;
   }
 
+  /**
+   * Scrape a single degree program curriculum by degCode
+   * 
+   * @param {string} degCode - Curriculum version identifier (e.g., 'BS CS_2024_1')
+   * @param {number} retryCount - Current retry attempt (for internal use)
+   * @returns {Promise<string>} Raw HTML of the curriculum page
+   */
+  async _scrapeDegree(degCode, retryCount = 0) {
+    const formData = new URLSearchParams();
+    formData.append('degCode', degCode);
+
+    try {
+      const response = await this._request(`${this.baseUrl}/j_aisis/J_VOFC.do`, {
+        method: 'POST',
+        body: formData.toString(),
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Origin': this.baseUrl,
+          'Referer': `${this.baseUrl}/j_aisis/J_VOFC.do`
+        }
+      });
+
+      if (!response.ok) {
+        const errorMsg = `HTTP ${response.status} for degCode ${degCode}`;
+        
+        // Retry on 5xx errors (server errors)
+        if (response.status >= 500 && response.status < 600 && retryCount < RETRY_CONFIG.MAX_RETRIES) {
+          console.log(`   ⚠️ ${errorMsg} - retrying in ${RETRY_CONFIG.RETRY_DELAY_MS / 1000} seconds...`);
+          await this._delay(RETRY_CONFIG.RETRY_DELAY_MS);
+          return this._scrapeDegree(degCode, retryCount + 1);
+        }
+        
+        throw new Error(errorMsg);
+      }
+
+      const html = await response.text();
+
+      // Check for session expiry
+      if (LOGIN_FAILURE_MARKERS.some(marker => html.includes(marker))) {
+        throw new Error('Session expired while scraping curriculum');
+      }
+
+      return html;
+
+    } catch (error) {
+      // Re-throw with more context if not already detailed
+      if (!error.message.includes(degCode)) {
+        throw new Error(`${degCode}: ${error.message}`);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Flatten curriculum HTML to text format
+   * 
+   * Extracts structured text from curriculum HTML page for external parsing.
+   * Looks for headers (year/semester) and course rows in the table structure.
+   * 
+   * @param {string} html - Raw HTML from curriculum page
+   * @returns {string} Flattened text representation of curriculum
+   */
+  _flattenCurriculumHtmlToText(html) {
+    const $ = cheerio.load(html);
+    const lines = [];
+
+    // Extract page/program header if present
+    const pageHeader = $('div.pageHeader, h1, h2').first().text().trim();
+    if (pageHeader) {
+      lines.push(pageHeader);
+      lines.push(''); // Blank line for separation
+    }
+
+    // Traverse all table rows
+    $('tr').each((_, row) => {
+      const $row = $(row);
+      
+      // Check if this row contains header cells (year/semester headers)
+      const headerCells = $row.find('td.text04, th.text04');
+      if (headerCells.length > 0) {
+        const headerText = headerCells.map((_, cell) => $(cell).text().trim())
+          .get()
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        
+        if (headerText) {
+          lines.push(headerText);
+        }
+        return; // Continue to next row
+      }
+
+      // Check if this row contains course/data cells
+      const dataCells = $row.find('td.text02, td[background*="spacer_lightgrey"]');
+      if (dataCells.length > 0) {
+        const cellTexts = dataCells.map((_, cell) => $(cell).text().trim())
+          .get()
+          .filter(text => text !== ''); // Filter out empty cells
+        
+        if (cellTexts.length > 0) {
+          // Join with tabs for structured parsing
+          lines.push(cellTexts.join('\t'));
+        }
+      }
+    });
+
+    return lines.join('\n').trim();
+  }
+
+  /**
+   * @deprecated Use _scrapeDegree() instead
+   * 
+   * This method was designed for the non-existent J_VOPC.do endpoint.
+   * The new curriculum scraper uses J_VOFC.do via _scrapeDegree().
+   */
   async _scrapeDegreeProgram(degreeCode, retryCount = 0) {
-    // This method is deprecated and no longer used.
-    // Curriculum scraping is not supported because the J_VOPC.do endpoint
-    // does not exist in AISIS (returns HTTP 404).
-    // 
-    // See docs/CURRICULUM_LIMITATION.md for details and alternative solutions.
-    
-    console.warn(`⚠️  _scrapeDegreeProgram() called for ${degreeCode} - curriculum scraping not supported`);
+    console.warn(`⚠️ _scrapeDegreeProgram() is deprecated - use _scrapeDegree() instead`);
     return [];
   }
 }
