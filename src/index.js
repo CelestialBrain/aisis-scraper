@@ -67,7 +67,13 @@ async function main() {
     if (scheduleData.length > 0) {
       console.log(`\n💾 Processing ${scheduleData.length} courses from term ${usedTerm}...`);
       
-      const cleanSchedule = supabase ? supabase.transformScheduleData(scheduleData) : scheduleData;
+      // Add term_code to each course record before transformation
+      const enrichedSchedule = scheduleData.map(course => ({
+        ...course,
+        term_code: usedTerm
+      }));
+      
+      const cleanSchedule = supabase ? supabase.transformScheduleData(enrichedSchedule) : enrichedSchedule;
       
       // 1. Local backup
       fs.writeFileSync('data/courses.json', JSON.stringify(cleanSchedule, null, 2));

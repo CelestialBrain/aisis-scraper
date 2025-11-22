@@ -10,9 +10,17 @@ export class SupabaseManager {
   async syncToSupabase(dataType, data, termCode = null, department = null) {
     console.log(`   ☁️ Supabase: Syncing ${data.length} ${dataType} records...`);
 
+    // Defensive: ensure each record has term_code if missing
+    const normalizedData = data.map(record => {
+      if (dataType === 'schedules' && termCode && !record.term_code) {
+        return { ...record, term_code: termCode };
+      }
+      return record;
+    });
+
     const payload = {
       data_type: dataType,
-      records: data,
+      records: normalizedData,
       metadata: {
         term_code: termCode,
         department: department
@@ -94,7 +102,7 @@ export class SupabaseManager {
 
   transformScheduleData(scheduleItems) {
     return scheduleItems.map(item => {
-      const parsedTime = this.parseTimePattern(item.time_pattern);
+      const parsedTime = this.parseTimePattern(item.time);  // Fix: use item.time not item.time_pattern
       
       return {
         subject_code: item.subjectCode,
@@ -113,7 +121,8 @@ export class SupabaseManager {
         start_time: parsedTime.start || '00:00:00', 
         end_time: parsedTime.end || '23:59:59',     
         days_of_week: parsedTime.days ? JSON.stringify(parsedTime.days) : '[]', 
-        delivery_mode: null
+        delivery_mode: null,
+        term_code: item.term_code  // Preserve term_code from enriched record
       };
     });
   }
