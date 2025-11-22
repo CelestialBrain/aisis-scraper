@@ -455,3 +455,161 @@ After successful deployment:
 - Architecture details: `README.md` (Batching Architecture section)
 - Supabase docs: https://supabase.com/docs/guides/functions
 - GitHub Issues: https://github.com/CelestialBrain/aisis-scraper/issues
+
+## Step 10: Verify Data Completeness
+
+After deployment, verify that all schedules are being captured correctly.
+
+### Verification Workflow
+
+1. **Run a full scrape** (either manually or wait for scheduled run)
+2. **Check the summary log**:
+   ```bash
+   cat logs/schedule_summary-2025-1.json
+   ```
+   Look for:
+   - All departments with `"status": "success"` or `"status": "success_empty"`
+   - No `"status": "failed"` entries
+   - Reasonable course counts per department
+
+3. **Run verification for critical departments**:
+   ```bash
+   # Verify ENLL (where ENLL 399.7 was missing)
+   npm run verify 2025-1 ENLL
+   
+   # Verify ENGG
+   npm run verify 2025-1 ENGG
+   
+   # Verify all departments (slow, scrapes all again)
+   npm run verify 2025-1
+   ```
+
+4. **Review verification reports**:
+   ```bash
+   # JSON report
+   cat logs/verification-2025-1-<timestamp>.json
+   
+   # Human-readable markdown
+   cat logs/verification-2025-1-<timestamp>.md
+   ```
+
+5. **Check Supabase counts**:
+   ```sql
+   -- Count by department
+   SELECT department, COUNT(*) as count
+   FROM aisis_schedules
+   WHERE term_code = '2025-1'
+   GROUP BY department
+   ORDER BY department;
+   
+   -- Check for zero-unit courses (edge cases)
+   SELECT subject_code, section, course_title
+   FROM aisis_schedules
+   WHERE term_code = '2025-1' AND units = 0
+   ORDER BY subject_code;
+   ```
+
+6. **Verify specific edge cases**:
+   ```sql
+   -- Find the specific course from the problem statement
+   SELECT *
+   FROM aisis_schedules
+   WHERE term_code = '2025-1'
+     AND subject_code = 'ENLL 399.7'
+     AND section = 'SUB-B';
+   -- Should return: FINAL PAPER SUBMISSION (DOCTORAL)
+   ```
+
+### Expected Results
+
+✅ **Success indicators:**
+- Summary log shows 40+ successful departments
+- Verification reports show "MATCH" for all or most departments
+- Database row count matches summary `total_courses`
+- Edge cases (ENLL 399.7, 0-unit courses) are present in DB
+- No validation errors in Edge Function logs
+
+⚠️ **Warning indicators (investigate):**
+- Some departments show `success_empty` (could be valid)
+- Verification shows minor discrepancies (recently added/dropped courses)
+- Small count differences between summary and DB (check Edge Function logs)
+
+❌ **Failure indicators (action required):**
+- Multiple departments with `failed` status
+- Verification shows many missing courses
+- Large count discrepancy between summary and DB
+- Sample invalid records in Edge Function logs
+
+### Troubleshooting Verification Issues
+
+**If courses are missing from DB:**
+
+1. Check summary log for department status:
+   ```bash
+   jq '.departments.ENLL' logs/schedule_summary-2025-1.json
+   ```
+
+2. Check Edge Function logs for validation errors:
+   - Go to Supabase Dashboard → Edge Functions → aisis-scraper → Logs
+   - Look for "Filtered out X invalid records"
+   - Check "Sample invalid records" for patterns
+
+3. Check for data transformation issues:
+   ```bash
+   # Inspect raw scraped data
+   cat data/courses.json | jq '.[] | select(.subjectCode == "ENLL 399.7")'
+   ```
+
+4. Re-run scraper for specific department:
+   - The scraper doesn't support per-department runs yet
+   - Workaround: Run full scrape again (idempotent upsert)
+
+**If verification shows extra in DB:**
+- Courses may have been dropped since last scrape
+- Normal if AISIS updated schedules between scrapes
+- Run verification again to confirm current state
+
+### Continuous Monitoring
+
+Set up periodic verification:
+
+```bash
+# Add to cron or GitHub Actions (weekly)
+0 0 * * 0 npm run verify >> logs/weekly-verification.log 2>&1
+```
+
+Review verification reports monthly to catch:
+- Gradual data drift
+- HTML structure changes
+- Systematic scraping issues
+
+## Step 11: Test Parser Edge Cases
+
+Verify the parser handles edge cases correctly:
+
+```bash
+# Run parser tests
+npm test
+```
+
+Expected output:
+```
+✅ Test 1: ENGG 101 A - ENGINEERING MECHANICS
+✅ Test 2: ENLL 399.6 SUB-A - COMPREHENSIVE EXAM (DOCTORAL)
+✅ Test 3: ENLL 399.7 SUB-B - FINAL PAPER SUBMISSION (DOCTORAL)
+✅ Test 4: ENLL 399.5 SUB-C - RESIDENCY (DOCTORAL)
+✅ Test 5: ENGG 202 B - DATA STRUCTURES
+✅ Test 6: ENGG 303 C - SOFTWARE ENGINEERING
+
+📊 Test Results:
+   Total: 6
+   ✅ Passed: 6
+   ❌ Failed: 0
+```
+
+If tests fail:
+- AISIS HTML structure may have changed
+- Update parser in `src/scraper.js` (`_parseCourses` method)
+- Update test fixtures in `tests/fixtures/`
+- Re-run tests to verify
+

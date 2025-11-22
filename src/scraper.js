@@ -358,6 +358,9 @@ export class AISISScraper {
 
     const allCourses = [];
     
+    // Track per-department status for summary report
+    const departmentStatus = {};
+    
     // Test with just 1 department first to verify session and term
     console.log('   🧪 Testing with first department...');
     const testDeptStart = Date.now();
@@ -371,6 +374,11 @@ export class AISISScraper {
       if (testCourses && testCourses.length > 0) {
         console.log(`   ✅ Test successful: ${testCourses.length} courses found in ${testDept}`);
         allCourses.push(...testCourses);
+        departmentStatus[testDept] = {
+          status: 'success',
+          row_count: testCourses.length,
+          error: null
+        };
         
         // Continue with remaining departments using batched concurrent scraping
         const remainingDepts = departments.slice(1);
@@ -383,23 +391,57 @@ export class AISISScraper {
           
           console.log(`   📦 Processing batch ${batchNum}/${totalBatches} (${batch.join(', ')})...`);
           
-          // Scrape all departments in this batch concurrently
+          // Scrape all departments in this batch concurrently with retry tracking
           const batchPromises = batch.map(async (dept) => {
             console.log(`   📚 Scraping ${dept}...`);
             
-            try {
-              const courses = await this._scrapeDepartment(term, dept);
-              if (courses && courses.length > 0) {
-                console.log(`   ✅ ${dept}: ${courses.length} courses`);
-                return courses;
-              } else {
-                console.log(`   ⚠️  ${dept}: No courses found`);
-                return [];
+            // Retry failed departments up to MAX_DEPT_RETRIES times
+            const MAX_DEPT_RETRIES = 2;
+            let lastError = null;
+            
+            for (let attempt = 0; attempt <= MAX_DEPT_RETRIES; attempt++) {
+              try {
+                const courses = await this._scrapeDepartment(term, dept);
+                
+                if (courses && courses.length > 0) {
+                  console.log(`   ✅ ${dept}: ${courses.length} courses`);
+                  departmentStatus[dept] = {
+                    status: 'success',
+                    row_count: courses.length,
+                    error: null,
+                    attempts: attempt + 1
+                  };
+                  return courses;
+                } else {
+                  // 0 courses - could be valid (no offerings) or error
+                  console.log(`   ⚠️  ${dept}: No courses found`);
+                  departmentStatus[dept] = {
+                    status: 'success_empty',
+                    row_count: 0,
+                    error: null,
+                    attempts: attempt + 1
+                  };
+                  return [];
+                }
+              } catch (error) {
+                lastError = error;
+                if (attempt < MAX_DEPT_RETRIES) {
+                  const backoffMs = 1000 * Math.pow(2, attempt);
+                  console.log(`   ⚠️  ${dept}: Retry ${attempt + 1}/${MAX_DEPT_RETRIES} after ${backoffMs}ms - ${error.message}`);
+                  await this._delay(backoffMs);
+                } else {
+                  console.error(`   ❌ ${dept}: Failed after ${MAX_DEPT_RETRIES + 1} attempts - ${error.message}`);
+                  departmentStatus[dept] = {
+                    status: 'failed',
+                    row_count: 0,
+                    error: error.message,
+                    attempts: attempt + 1
+                  };
+                }
               }
-            } catch (error) {
-              console.error(`   ❌ ${dept}: ${error.message}`);
-              return [];
             }
+            
+            return [];
           });
           
           // Wait for all departments in this batch to complete
@@ -417,10 +459,47 @@ export class AISISScraper {
         }
       } else {
         console.log('   ❌ Test failed - no courses found in first department');
+        departmentStatus[testDept] = {
+          status: 'success_empty',
+          row_count: 0,
+          error: null
+        };
       }
     } catch (error) {
       console.error(`   💥 Test failed for ${testDept}:`, error.message);
+      departmentStatus[testDept] = {
+        status: 'failed',
+        row_count: 0,
+        error: error.message
+      };
     }
+
+    // Generate summary and save to logs
+    const summary = {
+      term: term,
+      timestamp: new Date().toISOString(),
+      total_courses: allCourses.length,
+      departments: departmentStatus,
+      statistics: {
+        total_departments: departments.length,
+        successful: Object.values(departmentStatus).filter(d => d.status === 'success').length,
+        empty: Object.values(departmentStatus).filter(d => d.status === 'success_empty').length,
+        failed: Object.values(departmentStatus).filter(d => d.status === 'failed').length
+      }
+    };
+    
+    // Save summary to logs directory
+    if (!fs.existsSync('logs')) fs.mkdirSync('logs');
+    const summaryPath = `logs/schedule_summary-${term}.json`;
+    fs.writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
+    console.log(`\n📋 Scrape summary saved to ${summaryPath}`);
+    
+    // Print summary statistics
+    console.log(`\n📊 Department Summary:`);
+    console.log(`   Total departments: ${summary.statistics.total_departments}`);
+    console.log(`   ✅ Successful: ${summary.statistics.successful}`);
+    console.log(`   ℹ️  Empty (no courses): ${summary.statistics.empty}`);
+    console.log(`   ❌ Failed: ${summary.statistics.failed}`);
 
     console.log(`\n📚 Total courses: ${allCourses.length}`);
     return allCourses;
@@ -464,11 +543,24 @@ export class AISISScraper {
         throw new Error('Session expired');
       }
 
+      // Enhanced logging: count td.text02 cells before parsing
+      const $ = cheerio.load(html);
+      const cellCount = $('td.text02').length;
+      
       const courses = this._parseCourses(html, deptCode);
       
-      // Log warning if no courses found
+      // Enhanced logging for data validation
       if (courses.length === 0) {
-        console.log(`   ⚠️  ${deptCode}: No courses found for term ${term}`);
+        if (cellCount === 0) {
+          console.log(`   ℹ️  ${deptCode}: No courses found for term ${term} (0 data cells - likely no offerings)`);
+        } else {
+          console.log(`   ⚠️  ${deptCode}: Found ${cellCount} data cells but parsed 0 courses - possible HTML structure change or data issue`);
+        }
+      } else {
+        const expectedCells = courses.length * 14;
+        if (cellCount !== expectedCells) {
+          console.log(`   ℹ️  ${deptCode}: ${courses.length} courses parsed from ${cellCount} cells (expected ${expectedCells})`);
+        }
       }
       
       return courses;
@@ -492,12 +584,39 @@ export class AISISScraper {
       return courses;
     }
 
+    const totalCells = courseCells.length;
+    const expectedRows = Math.floor(totalCells / 14);
+    const remainder = totalCells % 14;
+    
+    // Defensive logging: warn if cells don't align to 14-cell chunks
+    if (remainder !== 0) {
+      console.log(`   ⚠️  ${deptCode}: ${totalCells} cells found (expected multiple of 14). Remainder: ${remainder} cells.`);
+      console.log(`   ℹ️  ${deptCode}: Processing ${expectedRows} complete rows, ${remainder} cells will be skipped.`);
+    }
+
     // Process in chunks of 14 cells per course
+    let skippedRows = 0;
     for (let i = 0; i < courseCells.length; i += 14) {
-      if (i + 13 >= courseCells.length) break;
+      if (i + 13 >= courseCells.length) {
+        // Not enough cells for a complete row - log and skip
+        const remainingCells = courseCells.length - i;
+        if (remainingCells > 0) {
+          console.log(`   ⚠️  ${deptCode}: Skipping incomplete row at index ${i} (only ${remainingCells} cells remaining)`);
+          skippedRows++;
+        }
+        break;
+      }
       
       const cells = courseCells.slice(i, i + 14);
       const cellTexts = cells.map((_, cell) => $(cell).text().trim()).get();
+      
+      // Enhanced time parsing to preserve TBA and special markers
+      let timeField = this._cleanText(cellTexts[4]);
+      // Remove modality markers but preserve TBA and (~) for special courses
+      const originalTime = timeField;
+      timeField = timeField.replace(/\(FULLY ONSITE\)|\(FULLY ONLINE\)/g, '').trim();
+      // Preserve (~) marker for special courses but remove empty ()
+      timeField = timeField.replace(/\(\)$/g, '').trim();
       
       const course = {
         department: deptCode,
@@ -505,7 +624,7 @@ export class AISISScraper {
         section: this._cleanText(cellTexts[1]),
         title: this._cleanText(cellTexts[2]),
         units: this._cleanText(cellTexts[3]),
-        time: this._cleanText(cellTexts[4]).replace(/\(FULLY ONSITE\)|\(FULLY ONLINE\)|~|\(\)$/g, '').trim(),
+        time: timeField,
         room: cellTexts[5].includes('TBA') ? 'TBA' : this._cleanText(cellTexts[5]),
         instructor: this._cleanText(cellTexts[6]),
         maxSlots: this._cleanText(cellTexts[7] || ''),
@@ -515,9 +634,19 @@ export class AISISScraper {
         remarks: this._cleanText(cellTexts[11] || '')
       };
 
-      if (course.subjectCode && course.subjectCode.trim()) {
-        courses.push(course);
+      // Validate required fields before adding
+      if (!course.subjectCode || !course.subjectCode.trim()) {
+        console.log(`   ⚠️  ${deptCode}: Skipped row at index ${i} - missing subject code`);
+        skippedRows++;
+        continue;
       }
+
+      courses.push(course);
+    }
+
+    // Summary logging
+    if (skippedRows > 0) {
+      console.log(`   ⚠️  ${deptCode}: ${skippedRows} row(s) skipped due to incomplete or invalid data`);
     }
 
     return courses;

@@ -79,10 +79,20 @@ serve(async (req) => {
 
     // Validate schedules
     const validSchedules = schedules.filter(validateScheduleRecord);
-    const invalidCount = schedules.length - validSchedules.length;
+    const invalidSchedules = schedules.filter(s => !validateScheduleRecord(s));
+    const invalidCount = invalidSchedules.length;
 
     if (invalidCount > 0) {
       console.warn(`Filtered out ${invalidCount} invalid schedule records`);
+      
+      // Log sample invalid records for debugging
+      const sampleInvalid = invalidSchedules.slice(0, 3).map(s => ({
+        term_code: s.term_code || 'MISSING',
+        subject_code: s.subject_code || 'MISSING',
+        section: s.section || 'MISSING',
+        department: s.department || 'MISSING'
+      }));
+      console.warn(`Sample invalid records:`, JSON.stringify(sampleInvalid, null, 2));
     }
 
     // Process in batches with upsert

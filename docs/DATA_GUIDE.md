@@ -150,3 +150,162 @@ The `github-data-ingest` Edge Function is the bridge between the scraper and Lov
   }
   ```
 
+
+---
+
+## 4. Data Verification & Validation Pipeline
+
+To ensure all AISIS schedules are correctly scraped, stored, and exported, the scraper includes comprehensive verification tools and logging.
+
+### 4.1 Scraper Summary Logs
+
+Every scrape operation generates a summary report at `logs/schedule_summary-<term>.json` containing:
+
+```json
+{
+  "term": "2025-1",
+  "timestamp": "2025-11-22T18:00:00.000Z",
+  "total_courses": 3927,
+  "departments": {
+    "ENGG": {
+      "status": "success",
+      "row_count": 127,
+      "error": null,
+      "attempts": 1
+    },
+    "ENLL": {
+      "status": "success",
+      "row_count": 45,
+      "error": null,
+      "attempts": 1
+    }
+  },
+  "statistics": {
+    "total_departments": 43,
+    "successful": 41,
+    "empty": 1,
+    "failed": 1
+  }
+}
+```
+
+**Status values:**
+- `success`: Department scraped successfully with courses found
+- `success_empty`: Department scraped successfully but no courses found (may be valid for that term)
+- `failed`: Department scraping failed after retries
+
+### 4.2 Verification Script
+
+Use `npm run verify` to compare AISIS data with Supabase:
+
+```bash
+# Verify all departments for current term
+npm run verify
+
+# Verify specific term
+npm run verify 2025-1
+
+# Verify specific department
+npm run verify 2025-1 ENGG
+```
+
+The verification script:
+1. Scrapes fresh data from AISIS for the specified department(s)
+2. Queries Supabase for the same term+department
+3. Compares `(subject_code, section)` keys
+4. Reports mismatches (missing in DB, extra in DB)
+5. Saves detailed reports to `logs/verification-<term>-<timestamp>.json` and `.md`
+
+**Example output:**
+```
+🔍 Verifying ENLL for term 2025-1...
+   📥 Scraping ENLL from AISIS...
+   ✅ Found 45 courses in AISIS
+   🗄️  Querying Supabase for ENLL, term 2025-1...
+   ✅ Found 44 courses in Supabase
+   ❌ MISMATCH: 1 course in AISIS but NOT in DB:
+      - ENLL 399.7 SUB-B: FINAL PAPER SUBMISSION (DOCTORAL)
+```
+
+### 4.3 Parser Edge Case Handling
+
+The scraper correctly handles special course types:
+
+- **Zero-unit courses** (e.g., comprehensive exams, residency, final papers)
+- **TBA time/room** courses
+- **Special markers** like `(~)` for terminal doctoral courses
+- **Modality markers** like `(FULLY ONLINE)` and `(FULLY ONSITE)` (removed from time field)
+
+Run parser tests with:
+```bash
+npm test
+```
+
+This tests the parser against fixtures in `tests/fixtures/` including the specific edge case: ENLL 399.7 (FINAL PAPER SUBMISSION).
+
+### 4.4 Enhanced Logging
+
+The scraper now provides detailed logging:
+
+**During parsing:**
+- Cell count validation (warns if not multiple of 14)
+- Skipped row warnings with reasons
+- Invalid data detection
+
+**During scraping:**
+- Per-department row counts
+- Retry attempts and backoff
+- Empty department distinction (no offerings vs. potential error)
+
+**Example:**
+```
+   ℹ️  ENLL: 630 cells found (expected multiple of 14). Remainder: 0 cells.
+   ℹ️  ENLL: Processing 45 complete rows, 0 cells will be skipped.
+   ✅ ENLL: 45 courses parsed from 630 cells (expected 630)
+```
+
+### 4.5 Database Sync Integrity
+
+Edge Functions (`aisis-scraper`, `import-schedules`) now:
+
+- **Log sample invalid records** when validation fails
+- **Log sample failed batch records** when upsert fails
+- **Track detailed error metadata** (error code, details, sample records)
+
+This helps diagnose data loss issues by providing concrete examples of problematic records.
+
+### 4.6 Validation Checklist
+
+For each term scrape, verify:
+
+1. ✅ Check `logs/schedule_summary-<term>.json`
+   - All departments show `success` or `success_empty`
+   - No `failed` departments (or investigate failures)
+
+2. ✅ Run verification for critical departments:
+   ```bash
+   npm run verify 2025-1 ENLL
+   npm run verify 2025-1 ENGG
+   ```
+
+3. ✅ Check Edge Function logs in Supabase for:
+   - Validation warnings (invalid records)
+   - Batch failures
+   - Sample error records
+
+4. ✅ Verify total counts match:
+   ```sql
+   SELECT COUNT(*) FROM aisis_schedules WHERE term_code = '2025-1';
+   ```
+   Compare with `total_courses` in summary log.
+
+### 4.7 Known Limitations
+
+- **HTML structure changes**: If AISIS changes the Schedule of Classes page HTML (e.g., adds/removes columns), the 14-cell chunk logic may need adjustment.
+- **Session expiry**: Long scrapes may encounter session expiry. The scraper retries failed departments but won't re-login automatically.
+- **Network issues**: Transient network errors trigger retries with backoff, but persistent issues require manual intervention.
+
+**Monitoring recommendations:**
+- Set up alerts for failed scrapes in GitHub Actions
+- Periodically run verification for recent terms
+- Review summary logs for unexpected empty departments
