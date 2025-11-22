@@ -76,7 +76,7 @@ export class SupabaseManager {
     }
   }
 
-  // ✅ FIX: Mapping 'description' to 'course_title' for Database Compatibility
+  // ✅ FIX: Correct mapping for Curriculum
   transformCurriculumData(curriculumItems) {
     return curriculumItems.map(item => {
       return {
@@ -84,21 +84,22 @@ export class SupabaseManager {
         year_level: item.yearLevel,
         semester: item.semester,
         course_code: item.courseCode,
-        course_title: item.description, // <-- Renamed for Lovable
+        course_title: item.description, // <--- Correctly mapped for Lovable DB
         units: parseFloat(item.units) || 0,
         category: item.category || null
       };
     });
   }
 
+  // ✅ FIX: Correct mapping for Schedules
   transformScheduleData(scheduleItems) {
     return scheduleItems.map(item => {
       const parsedTime = this.parseTimePattern(item.time);
       
       return {
-        subject_code: item.subjectCode,
+        subject_code: item.subjectCode, // Maps from scraper
         section: item.section,
-        course_title: item.title,
+        course_title: item.title, // Maps from scraper
         units: parseFloat(item.units) || 0,
         time_pattern: item.time,
         room: item.room,
@@ -107,7 +108,7 @@ export class SupabaseManager {
         language: item.language,
         level: item.level,
         remarks: item.remarks,
-        max_capacity: item.maxSlots,
+        max_capacity: item.maxSlots, // Maps from scraper
         
         start_time: parsedTime.start || '00:00:00', 
         end_time: parsedTime.end || '23:59:59',     
