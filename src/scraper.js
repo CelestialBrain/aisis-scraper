@@ -565,17 +565,13 @@ export class AISISScraper {
   }
 
   async _scrapeDegreeProgram(degreeCode, retryCount = 0) {
-    // IMPORTANT: The J_VOPC.do endpoint does not exist in AISIS.
-    // Curriculum data is not publicly accessible through AISIS scraping.
-    // See: https://github.com/CelestialBrain/aisis-scraper/issues/XXX
+    // This method is deprecated and no longer used.
+    // Curriculum scraping is not supported because the J_VOPC.do endpoint
+    // does not exist in AISIS (returns HTTP 404).
     // 
-    // Alternative approaches:
-    // 1. Use J_VIPS.do (Individual Program of Study) - but this is student-specific
-    // 2. Scrape curriculum from public Ateneo website (non-AISIS)
-    // 3. Use manually curated curriculum data
-    //
-    // For now, we return an informative error so users understand the limitation.
+    // See docs/CURRICULUM_LIMITATION.md for details and alternative solutions.
     
-     throw new Error(`Curriculum scraping is not supported. The AISIS system does not provide a public endpoint for scraping official curriculum data for all degree programs. The endpoint J_VOPC.do returns HTTP 404. See documentation for alternative data sources.`);
+    console.warn(`⚠️  _scrapeDegreeProgram() called for ${degreeCode} - curriculum scraping not supported`);
+    return [];
   }
 }
