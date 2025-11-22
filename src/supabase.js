@@ -102,7 +102,7 @@ export class SupabaseManager {
 
   transformScheduleData(scheduleItems) {
     return scheduleItems.map(item => {
-      const parsedTime = this.parseTimePattern(item.time_pattern);
+      const parsedTime = this.parseTimePattern(item.time);  // Fix: use item.time not item.time_pattern
       
       return {
         subject_code: item.subjectCode,
