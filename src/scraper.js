@@ -23,6 +23,10 @@ export class AISISScraper {
   }
 
   async _request(url, options = {}) {
+    // 15s Timeout to prevent hanging
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
     const opts = {
       ...options,
       headers: {
@@ -30,16 +34,24 @@ export class AISISScraper {
         ...options.headers,
         'Cookie': this.cookie || ''
       },
-      redirect: 'manual'
+      redirect: 'manual',
+      signal: controller.signal
     };
 
-    const response = await fetch(url, opts);
-    const newCookie = response.headers.get('set-cookie');
-    if (newCookie) {
-      const sessionPart = newCookie.split(';')[0];
-      if (sessionPart) this.cookie = sessionPart;
+    try {
+      const response = await fetch(url, opts);
+      const newCookie = response.headers.get('set-cookie');
+      if (newCookie) {
+        const sessionPart = newCookie.split(';')[0];
+        if (sessionPart) this.cookie = sessionPart;
+      }
+      return response;
+    } catch (error) {
+        if (error.name === 'AbortError') throw new Error('Request Timeout');
+        throw error;
+    } finally {
+      clearTimeout(timeout);
     }
-    return response;
   }
 
   async login() {
@@ -71,7 +83,84 @@ export class AISISScraper {
     }
   }
 
-  async scrapeSchedule(term) {
+  // Helper to get the active term
+  async _getPayloadTerm() {
+      try {
+        const response = await this._request(`${this.baseUrl}/j_aisis/J_VCSC.do`, { method: 'GET' });
+        const html = await response.text();
+        const $ = cheerio.load(html);
+        
+        let term = $('select[name="applicablePeriod"] option[selected]').val();
+        if (!term) term = $('select[name="applicablePeriod"] option').first().val();
+        
+        return term;
+      } catch (e) {
+          return null;
+      }
+  }
+
+  async _scrapeDept(dept, term) {
+    const params = new URLSearchParams();
+    params.append('command', 'displayResults');
+    params.append('applicablePeriod', term);
+    params.append('deptCode', dept);
+    params.append('subjCode', 'ALL');
+
+    try {
+      const response = await this._request(`${this.baseUrl}/j_aisis/J_VCSC.do`, {
+        method: 'POST',
+        body: params
+      });
+
+      const html = await response.text();
+      const $table = cheerio.load(html);
+      const deptResults = [];
+
+      $table('table tr').each((i, row) => {
+        const cells = $table(row).find('td');
+        if (cells.length > 10) {
+          const subject = $table(cells[0]).text().trim();
+          
+          // 🛑 STRICT FILTER: Ignore Headers & Garbage
+          if (/subject|code/i.test(subject) || subject.includes('Ateneo Integrated') || subject === '') {
+            return; 
+          }
+
+          deptResults.push({
+            department:  dept,
+            subjectCode: subject,
+            section:     $table(cells[1]).text().trim(),
+            title:       $table(cells[2]).text().trim(),
+            units:       $table(cells[3]).text().trim(),
+            time:        $table(cells[4]).text().trim(),
+            room:        $table(cells[5]).text().trim(),
+            instructor:  $table(cells[6]).text().trim(),
+            maxSlots:    $table(cells[7]).text().trim(),
+            language:    $table(cells[8]).text().trim(),
+            level:       $table(cells[9]).text().trim(),
+            freeSlots:   $table(cells[10]).text().trim(),
+            remarks:     $table(cells[11]).text().trim()
+          });
+        }
+      });
+
+      console.log(`   ✓ ${dept}: ${deptResults.length} classes`);
+      return deptResults;
+
+    } catch (err) {
+      console.error(`   ❌ Error fetching ${dept}:`, err.message);
+      return [];
+    }
+  }
+
+  async scrapeSchedule(fallbackTerm) {
+    // Auto-detect term first
+    let term = await this._getPayloadTerm();
+    if (!term || term === 'undefined') {
+        console.warn(`   ⚠️ Auto-detection failed. Using fallback: ${fallbackTerm}`);
+        term = fallbackTerm;
+    }
+    
     console.log(`\n📅 Starting Schedule Extraction for term: ${term}...`);
     const results = [];
 
@@ -87,114 +176,17 @@ export class AISISScraper {
     console.log(`   Using manual list of ${deptCodes.length} departments.`);
     this.headers['Referer'] = `${this.baseUrl}/j_aisis/J_VCSC.do`;
 
-    for (const dept of deptCodes) {
-      const params = new URLSearchParams();
-      params.append('command', 'displayResults');
-      params.append('applicablePeriod', term);
-      params.append('deptCode', dept);
-      params.append('subjCode', 'ALL');
-
-      try {
-        const response = await this._request(`${this.baseUrl}/j_aisis/J_VCSC.do`, {
-          method: 'POST',
-          body: params
-        });
-
-        const html = await response.text();
-        const $table = cheerio.load(html);
-        let deptCount = 0;
-
-        $table('table tr').each((i, row) => {
-          const cells = $table(row).find('td');
-          
-          if (cells.length > 10) {
-            const subject = $table(cells[0]).text().trim();
-            if (subject.includes('Ateneo Integrated') || subject === '') return; 
-
-            results.push({
-              department:  dept,
-              subjectCode: subject,
-              section:     $table(cells[1]).text().trim(),
-              courseTitle: $table(cells[2]).text().trim(),
-              units:       $table(cells[3]).text().trim(),
-              time:        $table(cells[4]).text().trim(),
-              room:        $table(cells[5]).text().trim(),
-              instructor:  $table(cells[6]).text().trim(),
-              maxSlots:    $table(cells[7]).text().trim(),
-              language:    $table(cells[8]).text().trim(),
-              level:       $table(cells[9]).text().trim(),
-              freeSlots:   $table(cells[10]).text().trim(),
-              remarks:     $table(cells[11]).text().trim()
-            });
-            deptCount++;
-          }
-        });
-
-        if (deptCount > 0) console.log(`   ✓ ${dept}: ${deptCount} classes`);
-        await new Promise(r => setTimeout(r, 50)); 
-
-      } catch (err) {
-        console.error(`   ❌ Error fetching ${dept}:`, err.message);
-      }
+    // Batch Size: 5 (Safe & Fast)
+    const BATCH_SIZE = 5; 
+    for (let i = 0; i < deptCodes.length; i += BATCH_SIZE) {
+        const batch = deptCodes.slice(i, i + BATCH_SIZE);
+        const batchResults = await Promise.all(batch.map(dept => this._scrapeDept(dept, term)));
+        
+        batchResults.forEach(res => results.push(...res));
+        await new Promise(r => setTimeout(r, 100));
     }
 
     console.log(`✅ Schedule extraction complete: ${results.length} total classes`);
-    return results;
-  }
-
-  async scrapeCurriculum() {
-    console.log('\n📚 Starting Curriculum Extraction...');
-    const results = [];
-
-    const degrees = [
-        "BS CS", "BS MIS", "BS ITE", "BS AMF", "BS MGT", "BS BIO", "BS CH",
-        "BS ES", "BS HSc", "BS LM", "BS MAC", "BS ME", "BS PS", "BS PSY",
-        "AB COM", "AB DS", "AB EC", "AB EU", "AB HI", "AB IS", "AB LIT",
-        "AB ME", "AB PH", "AB POS", "AB PSY", "AB SOC", "BFA CW", "BFA ID", "BFA TA"
-    ];
-
-    console.log(`   Using manual list of ${degrees.length} degree programs.`);
-    this.headers['Referer'] = `${this.baseUrl}/j_aisis/J_VOFC.do`;
-
-    for (const degree of degrees) { 
-      const params = new URLSearchParams();
-      params.append('degCode', degree);
-
-      try {
-        const r2 = await this._request(`${this.baseUrl}/j_aisis/J_VOFC.do`, {
-            method: 'POST',
-            body: params
-        });
-
-        const pageHtml = await r2.text();
-        const $p = cheerio.load(pageHtml);
-        
-        let year = '', sem = '';
-        $p('table tr').each((i, row) => {
-            const text = $p(row).text().toLowerCase();
-            const cells = $p(row).find('td');
-            
-            if (text.includes('year')) year = $p(row).text().trim();
-            else if (text.includes('semester')) sem = $p(row).text().trim();
-            else if (cells.length >= 3) {
-                const code = $p(cells[0]).text().trim();
-                if (code.includes('Ateneo Integrated')) return;
-
-                results.push({
-                    degreeCode: degree,
-                    yearLevel: year,
-                    semester: sem,
-                    courseCode: code,
-                    courseTitle: $p(cells[1]).text().trim(),
-                    units: $p(cells[2]).text().trim()
-                });
-            }
-        });
-        await new Promise(r => setTimeout(r, 50));
-      } catch (e) { }
-    }
-
-    console.log(`✅ Curriculum extraction complete: ${results.length} items`);
     return results;
   }
 
