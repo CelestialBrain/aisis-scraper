@@ -24,7 +24,7 @@ export class AISISScraper {
 
   async _request(url, options = {}) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000); // 30s Timeout
+    const timeout = setTimeout(() => controller.abort(), 30000); 
 
     const opts = {
       ...options,
@@ -71,9 +71,11 @@ export class AISISScraper {
       });
 
       const text = await response.text();
-      if (text.includes('Invalid password') || text.includes('Sign in')) {
-        throw new Error('Authentication Failed: Invalid credentials.');
+      // 🛑 ALEXI'S SUCCESS CHECK: Ensure the specific success text is present
+      if (!text.includes('User Identified As')) { 
+        throw new Error('❌ Authentication Failed: Server returned login page or generic error.');
       }
+      
       console.log('✅ Authentication Successful');
       await new Promise(r => setTimeout(r, 1000));
     } catch (error) {
@@ -111,6 +113,12 @@ export class AISISScraper {
       });
 
       const html = await response.text();
+      
+      // 🛑 SESSION LOSS CHECK: Throw error if we find the login page HTML
+      if (html.includes('Sign in') && html.includes('Username:')) {
+          throw new Error(`❌ Session Lost: Server returned login page when fetching ${dept}.`);
+      }
+
       const $table = cheerio.load(html);
       const deptResults = [];
 
@@ -118,12 +126,14 @@ export class AISISScraper {
         const cells = $table(row).find('td');
         if (cells.length > 10) {
           const col1 = $table(cells[0]).text().trim(); // Subject Code
-          const col2 = $table(cells[1]).text().trim(); // Section
+          const col3 = $table(cells[2]).text().trim(); // Title
+          const col4 = $table(cells[3]).text().trim(); // Units
 
-          // 🛑 FINAL HEADER FILTER
+          // 🛑 HEADER FILTER: Fixes the "1 class" bug
           if (
-              /Subject Code|Cat\. No\.|Subject|Section/i.test(col1) || 
-              col2 === 'Section' ||
+              /Subject Code|Cat\. No\.|Subject|Title|Units/i.test(col1) || 
+              /Title/i.test(col3) ||
+              /Units/i.test(col4) ||
               col1.includes('Ateneo Integrated') || 
               col1 === ''
           ) {
@@ -133,9 +143,9 @@ export class AISISScraper {
           deptResults.push({
             department:  dept,
             subjectCode: col1,
-            section:     col2,
-            title:       $table(cells[2]).text().trim(),
-            units:       $table(cells[3]).text().trim(),
+            section:     $table(cells[1]).text().trim(),
+            title:       col3,
+            units:       col4,
             time:        $table(cells[4]).text().trim(),
             room:        $table(cells[5]).text().trim(),
             instructor:  $table(cells[6]).text().trim(),
@@ -177,23 +187,4 @@ export class AISISScraper {
     ];
 
     console.log(`   Using manual list of ${deptCodes.length} departments.`);
-    this.headers['Referer'] = `${this.baseUrl}/j_aisis/J_VCSC.do`;
-
-    const BATCH_SIZE = 5; 
-    for (let i = 0; i < deptCodes.length; i += BATCH_SIZE) {
-        const batch = deptCodes.slice(i, i + BATCH_SIZE);
-        const batchResults = await Promise.all(batch.map(dept => this._scrapeDept(dept, term)));
-        
-        batchResults.forEach(res => results.push(...res));
-        await new Promise(r => setTimeout(r, 200));
-    }
-
-    console.log(`✅ Schedule extraction complete: ${results.length} total classes`);
-    return results;
-  }
-
-  // Removed scrapeCurriculum()
-  async close() {
-    console.log('🔒 Session Closed');
-  }
-}
+    this.headers['Referer'] = `${this.
