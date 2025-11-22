@@ -7,9 +7,10 @@ This project contains a Node.js-based web scraper that automatically logs into A
 - **Automated Scraping**: Runs on a scheduled basis via GitHub Actions.
 - **Institutional Data Focus**: Scrapes class schedules and official curriculum data.
 - **Supabase Integration**: Automatically syncs data to Supabase via Edge Functions.
+- **Batched Sync Architecture**: Two-layer batching prevents 504 timeouts when syncing thousands of records.
 - **Secure Credential Management**: Uses GitHub Secrets for secure storage of credentials.
 - **Fast Mode**: Switched from Puppeteer to **Direct HTTP Requests (node-fetch + Cheerio)** for speed, stability, and low memory usage.
-- **Production-Grade**: Built with error handling and robust data transformation.
+- **Production-Grade**: Built with error handling, robust data transformation, and partial failure recovery.
 
 ## Data Categories Scraped
 
@@ -20,11 +21,25 @@ This project contains a Node.js-based web scraper that automatically logs into A
 
 ### 1. Set Up Supabase
 
-You'll need a Supabase project with the appropriate Edge Function endpoint configured to receive scraped data.
+You'll need a Supabase project with the appropriate Edge Functions deployed to receive scraped data.
 
 1. Create a Supabase project at [https://supabase.com](https://supabase.com)
-2. Deploy the `github-data-ingest` Edge Function (see your Supabase project documentation)
-3. Generate an authentication token for the data ingest endpoint
+2. Deploy the Edge Functions from `supabase/functions/`:
+   ```bash
+   # Install Supabase CLI
+   npm install -g supabase
+   
+   # Link to your project
+   supabase link --project-ref YOUR_PROJECT_ID
+   
+   # Deploy the functions
+   supabase functions deploy github-data-ingest
+   supabase functions deploy aisis-scraper
+   supabase functions deploy scrape-department
+   supabase functions deploy import-schedules
+   ```
+3. Set up the database schema (see `supabase/functions/README.md`)
+4. Generate an authentication token for the data ingest endpoint
 
 ### 2. Configure GitHub Secrets
 
@@ -100,6 +115,41 @@ This is a **fast and stable scraper (v3)** that:
 - Focuses on institutional data (schedules and curriculum)
 - Syncs directly to Supabase via Edge Functions
 - Includes robust error handling and data transformation
+
+### Batching Architecture (v3.1)
+
+To handle large datasets (3000+ schedule records) without timeouts, the system uses **two-layer batching**:
+
+#### Layer 1: Client-Side Batching (`src/supabase.js`)
+- Splits large datasets into **500-record chunks**
+- Sends multiple HTTP requests to the Edge Function
+- Prevents overwhelming the Edge Function with giant payloads
+- Tracks partial failures across batches
+
+#### Layer 2: Server-Side Batching (Edge Functions)
+- Further splits each request into **100-record database transactions**
+- Uses `upsert` with correct `onConflict` key: `term_code,subject_code,section,department`
+- Partial failure handling - one failed batch doesn't block others
+- Detailed logging for debugging
+
+**Example: Syncing 3927 schedules**
+```
+Client sends: 8 requests × ~500 records each
+  ↓
+Each request: 5 database batches × 100 records each
+  ↓
+Total: 40 database transactions of 100 records
+  ↓
+Result: No timeouts, complete sync in ~30-50 seconds
+```
+
+This architecture ensures:
+- ✅ No 504 Gateway Timeout errors
+- ✅ Graceful handling of partial failures
+- ✅ Idempotent upserts (safe to re-run)
+- ✅ Detailed error logging
+
+For more details, see `supabase/functions/README.md`.
 
 ## Security Considerations
 
