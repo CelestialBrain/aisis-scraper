@@ -1,126 +1,140 @@
 /**
- * Test script to investigate AISIS curriculum endpoints
+ * Test script for AISIS curriculum scraper using J_VOFC.do endpoint
+ * 
+ * This script tests the new curriculum scraping functionality that uses
+ * the J_VOFC.do endpoint with degCode parameter.
  */
 
 import { AISISScraper } from './src/scraper.js';
 import 'dotenv/config';
 
-async function testEndpoints() {
+async function testCurriculumEndpoint() {
   const { AISIS_USERNAME, AISIS_PASSWORD } = process.env;
   
   if (!AISIS_USERNAME || !AISIS_PASSWORD) {
-    console.error('Missing credentials');
+    console.error('❌ Missing credentials in .env file');
+    console.error('   Please set AISIS_USERNAME and AISIS_PASSWORD');
     process.exit(1);
   }
 
   const scraper = new AISISScraper(AISIS_USERNAME, AISIS_PASSWORD);
   
   try {
+    console.log('═══════════════════════════════════════════════════════');
+    console.log('🧪 Testing J_VOFC.do Curriculum Endpoint');
+    console.log('═══════════════════════════════════════════════════════\n');
+
+    // Initialize and login
     await scraper.init();
     const loginSuccess = await scraper.login();
     
     if (!loginSuccess) {
-      console.error('Login failed');
+      console.error('❌ Login failed');
       process.exit(1);
     }
 
-    console.log('\n=== Testing Curriculum Endpoints ===\n');
-
-    // Test 1: Try GET request to J_VOPC.do (current approach with GET first)
-    console.log('Test 1: GET request to J_VOPC.do');
-    try {
-      const response1 = await scraper._request(`${scraper.baseUrl}/j_aisis/J_VOPC.do`, {
-        method: 'GET',
-        headers: {
-          'Referer': `${scraper.baseUrl}/j_aisis/J_VMCS.do`
-        }
-      });
-      console.log(`  Status: ${response1.status}`);
-      const text1 = await response1.text();
-      console.log(`  Response length: ${text1.length}`);
-      console.log(`  Contains form: ${text1.includes('<form')}`);
-      console.log(`  Contains curriculum: ${text1.toLowerCase().includes('curriculum')}`);
-      if (response1.status !== 404) {
-        console.log(`  First 500 chars: ${text1.substring(0, 500)}`);
-      }
-    } catch (e) {
-      console.log(`  Error: ${e.message}`);
+    // Test 1: Get degree programs (degCode dropdown)
+    console.log('\n📋 Test 1: Fetching degree programs from J_VOFC.do...\n');
+    const degreePrograms = await scraper.getDegreePrograms();
+    
+    if (degreePrograms.length === 0) {
+      console.warn('⚠️  No degree programs found!');
+      console.warn('   This could mean:');
+      console.warn('   - The J_VOFC.do endpoint has changed');
+      console.warn('   - The degCode select element is missing');
+      console.warn('   - Access permissions have changed');
+      process.exit(1);
     }
 
-    // Test 2: Try printCurriculum.do with GET
-    console.log('\nTest 2: GET request to printCurriculum.do');
-    try {
-      const response2 = await scraper._request(`${scraper.baseUrl}/j_aisis/printCurriculum.do`, {
-        method: 'GET'
-      });
-      console.log(`  Status: ${response2.status}`);
-      const text2 = await response2.text();
-      console.log(`  Response length: ${text2.length}`);
-      if (response2.status !== 404) {
-        console.log(`  First 500 chars: ${text2.substring(0, 500)}`);
-      }
-    } catch (e) {
-      console.log(`  Error: ${e.message}`);
-    }
+    console.log(`✅ Found ${degreePrograms.length} curriculum versions\n`);
+    console.log('   First 5 degree programs:');
+    degreePrograms.slice(0, 5).forEach((prog, i) => {
+      console.log(`   ${i + 1}. ${prog.degCode} - ${prog.label}`);
+    });
 
-    // Test 3: Try printCurriculum.do with command=print
-    console.log('\nTest 3: GET request to printCurriculum.do?command=print');
-    try {
-      const response3 = await scraper._request(`${scraper.baseUrl}/j_aisis/printCurriculum.do?command=print`, {
-        method: 'GET'
-      });
-      console.log(`  Status: ${response3.status}`);
-      const text3 = await response3.text();
-      console.log(`  Response length: ${text3.length}`);
-      if (response3.status !== 404) {
-        console.log(`  First 500 chars: ${text3.substring(0, 500)}`);
-      }
-    } catch (e) {
-      console.log(`  Error: ${e.message}`);
+    // Test 2: Scrape a single curriculum
+    console.log('\n📖 Test 2: Scraping a single curriculum...\n');
+    
+    if (degreePrograms.length === 0) {
+      console.error('❌ Cannot test scraping - no degree programs found');
+      process.exit(1);
     }
+    
+    const testDegCode = degreePrograms[0].degCode;
+    console.log(`   Testing with: ${testDegCode}`);
 
-    // Test 4: Try J_VIPS.do (Individual Program of Study)
-    console.log('\nTest 4: GET request to J_VIPS.do');
     try {
-      const response4 = await scraper._request(`${scraper.baseUrl}/j_aisis/J_VIPS.do`, {
-        method: 'GET'
-      });
-      console.log(`  Status: ${response4.status}`);
-      const text4 = await response4.text();
-      console.log(`  Response length: ${text4.length}`);
-      console.log(`  Contains curriculum: ${text4.toLowerCase().includes('curriculum')}`);
-      console.log(`  Contains program: ${text4.toLowerCase().includes('program')}`);
-      if (response4.status !== 404) {
-        console.log(`  First 500 chars: ${text4.substring(0, 500)}`);
-      }
-    } catch (e) {
-      console.log(`  Error: ${e.message}`);
-    }
-
-    // Test 5: List all available pages from main menu
-    console.log('\nTest 5: GET main menu page to see available links');
-    try {
-      const response5 = await scraper._request(`${scraper.baseUrl}/j_aisis/J_VMCS.do`, {
-        method: 'GET'
-      });
-      console.log(`  Status: ${response5.status}`);
-      const text5 = await response5.text();
+      const html = await scraper._scrapeDegree(testDegCode);
+      console.log(`   ✅ Received HTML: ${html.length} characters`);
       
-      // Extract all J_V*.do links
-      const linkPattern = /j_aisis\/(J_V[A-Z]+\.do)/gi;
-      const links = [...new Set(text5.match(linkPattern) || [])];
-      console.log(`  Found ${links.length} unique J_V*.do endpoints:`);
-      links.forEach(link => console.log(`    - ${link}`));
-    } catch (e) {
-      console.log(`  Error: ${e.message}`);
+      // Test 3: Flatten HTML to text
+      console.log('\n📝 Test 3: Flattening curriculum HTML to text...\n');
+      const flattenedText = scraper._flattenCurriculumHtmlToText(html);
+      console.log(`   ✅ Flattened text: ${flattenedText.length} characters`);
+      console.log('\n   First 500 characters of flattened text:');
+      console.log('   ' + '─'.repeat(60));
+      console.log(flattenedText.substring(0, 500).split('\n').map(line => `   ${line}`).join('\n'));
+      console.log('   ' + '─'.repeat(60));
+
+      // Check if flattened text looks reasonable
+      if (flattenedText.length < 100) {
+        console.warn('\n   ⚠️  Warning: Flattened text is very short!');
+        console.warn('   The HTML structure may have changed.');
+      } else {
+        console.log('\n   ✅ Flattened text looks reasonable');
+      }
+
+    } catch (error) {
+      console.error(`   ❌ Error scraping curriculum: ${error.message}`);
+      process.exit(1);
     }
 
-    console.log('\n=== Test Complete ===\n');
+    // Test 4: Test full workflow with limited number of curricula
+    console.log('\n🔄 Test 4: Testing full scraping workflow (first 3 curricula)...\n');
+    
+    // Temporarily limit getDegreePrograms to return only 3 for testing
+    const originalGetDegreePrograms = scraper.getDegreePrograms.bind(scraper);
+    scraper.getDegreePrograms = async () => {
+      const all = await originalGetDegreePrograms();
+      return all.slice(0, 3);
+    };
+
+    const curricula = await scraper.scrapeCurriculum();
+    
+    console.log(`\n📊 Test Results:`);
+    console.log(`   Total scraped: ${curricula.length}`);
+    
+    if (curricula.length > 0) {
+      console.log('\n   Sample curriculum record:');
+      const sample = curricula[0];
+      console.log(`   degCode: ${sample.degCode}`);
+      console.log(`   label: ${sample.label}`);
+      console.log(`   raw_text length: ${sample.raw_text.length} characters`);
+      console.log('\n   ✅ All tests passed!');
+    } else {
+      console.warn('\n   ⚠️  No curricula scraped - check logs above for errors');
+    }
+
+    console.log('\n═══════════════════════════════════════════════════════');
+    console.log('✅ Testing Complete!');
+    console.log('═══════════════════════════════════════════════════════\n');
     
   } catch (error) {
-    console.error('Test error:', error.message);
+    console.error('\n❌ Test failed:', error.message);
+    console.error('Stack trace:', error.stack);
     process.exit(1);
   }
 }
 
-testEndpoints();
+// Handle uncaught errors
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
+testCurriculumEndpoint();

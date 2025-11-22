@@ -5,20 +5,29 @@ import fs from 'fs';
 import 'dotenv/config';
 
 /**
- * IMPORTANT: Curriculum scraping is NOT SUPPORTED
+ * AISIS Curriculum Scraper
  * 
- * This script exists for compatibility but will not scrape curriculum data.
- * The AISIS system does not provide a public endpoint for scraping official
- * curriculum data for all degree programs.
+ * This script scrapes curriculum data from AISIS using the J_VOFC.do endpoint.
  * 
- * See README.md section "Curriculum Scraping Limitation" for details and
- * alternative solutions.
+ * IMPORTANT: This is an EXPERIMENTAL feature that depends on AISIS UI structure.
+ * The J_VOFC.do endpoint was discovered through HAR file analysis and may break
+ * if AISIS changes its curriculum page structure.
+ * 
+ * The scraper:
+ * 1. Logs into AISIS
+ * 2. GETs J_VOFC.do to retrieve available curriculum versions (degCode dropdown)
+ * 3. POSTs to J_VOFC.do with each degCode to fetch curriculum HTML
+ * 4. Flattens curriculum HTML to text format
+ * 5. Saves to data/curriculum.json and syncs to Supabase/Google Sheets
+ * 
+ * See README.md and docs/CURRICULUM_LIMITATION.md for details and alternative solutions.
  */
 
 async function main() {
   console.log('═══════════════════════════════════════════════════════');
   console.log('🎓 AISIS Curriculum Scraper');
-  console.log('   ⚠️  NOTE: Curriculum scraping is NOT supported');
+  console.log('   ⚠️  NOTE: Curriculum scraping uses experimental J_VOFC.do endpoint');
+  console.log('   This feature may break if AISIS changes its UI structure');
   console.log('═══════════════════════════════════════════════════════\n');
 
   const { 
@@ -107,9 +116,10 @@ async function main() {
 
     } else {
       console.warn('\n⚠️ No curriculum data scraped.');
-      console.log("   Reason:");
-      console.log("   - Curriculum scraping is not supported by AISIS");
-      console.log("   - The J_VOPC.do endpoint does not exist (HTTP 404)");
+      console.log("   Possible reasons:");
+      console.log("   - No curriculum versions found via J_VOFC.do degCode dropdown");
+      console.log("   - All curriculum scraping attempts failed (check logs above)");
+      console.log("   - AISIS may have changed the J_VOFC.do page structure");
       console.log("   - See README.md for alternative solutions");
     }
 
