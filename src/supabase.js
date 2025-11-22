@@ -44,7 +44,7 @@ export class SupabaseManager {
     }
   }
 
-  // Helpers for Type Safety
+  // Helpers
   safeInt(val) {
     if (!val || val === '') return 0;
     const parsed = parseInt(val, 10);
@@ -89,28 +89,14 @@ export class SupabaseManager {
     }
   }
 
-  // --- Transformers ---
-
-  transformCurriculumData(curriculumItems) {
-    return curriculumItems.map(item => ({
-      degree_code: item.degreeCode,
-      year_level: item.yearLevel,
-      semester: item.semester,
-      course_code: item.courseCode,
-      course_title: item.courseTitle,
-      units: this.safeFloat(item.units),
-      category: item.category || null
-    }));
-  }
-
   transformScheduleData(scheduleItems) {
     return scheduleItems.map(item => {
-      const parsedTime = this.parseTimePattern(item.time);
+      const parsedTime = this.parseTimePattern(item.time_pattern);
       
       return {
         subject_code: item.subjectCode,
         section: item.section,
-        course_title: item.courseTitle,
+        course_title: item.title, // Matches DB column
         units: this.safeFloat(item.units),
         time_pattern: item.time,
         room: item.room,
