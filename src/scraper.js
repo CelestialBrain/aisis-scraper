@@ -650,11 +650,12 @@ export class AISISScraper {
         allCurricula.push({
           degCode,
           label,
+          html,          // Include HTML for structured parsing
           raw_text: rawText
         });
 
         successCount++;
-        console.log(`   ✅ ${degCode}: ${rawText.length} characters`);
+        console.log(`   ✅ ${degCode}: ${html.length} characters HTML, ${rawText.length} characters text`);
 
         // Polite delay between requests
         if (i < degreePrograms.length - 1) {
