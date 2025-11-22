@@ -71,7 +71,7 @@ export class AISISScraper {
       });
 
       const text = await response.text();
-      // 🛑 ALEXI'S SUCCESS CHECK: Ensure the specific success text is present
+      // 🛑 CRITICAL ALEXI'S SUCCESS CHECK
       if (!text.includes('User Identified As')) { 
         throw new Error('❌ Authentication Failed: Server returned login page or generic error.');
       }
@@ -90,7 +90,7 @@ export class AISISScraper {
         const html = await response.text();
         const $ = cheerio.load(html);
         
-        let term = $('select[name="applicablePeriod"] option[selected]').val();
+        let term = $('select[name="applicablePeriod"] option:selected').val();
         if (!term) term = $('select[name="applicablePeriod"] option').first().val();
         
         return term;
@@ -114,7 +114,7 @@ export class AISISScraper {
 
       const html = await response.text();
       
-      // 🛑 SESSION LOSS CHECK: Throw error if we find the login page HTML
+      // 🛑 CRITICAL SESSION LOSS CHECK: Throw error if we find the login page HTML
       if (html.includes('Sign in') && html.includes('Username:')) {
           throw new Error(`❌ Session Lost: Server returned login page when fetching ${dept}.`);
       }
@@ -187,4 +187,22 @@ export class AISISScraper {
     ];
 
     console.log(`   Using manual list of ${deptCodes.length} departments.`);
-    this.headers['Referer'] = `${this.
+    this.headers['Referer'] = `${this.baseUrl}/j_aisis/J_VCSC.do`;
+
+    const BATCH_SIZE = 5; 
+    for (let i = 0; i < deptCodes.length; i += BATCH_SIZE) {
+        const batch = deptCodes.slice(i, i + BATCH_SIZE);
+        const batchResults = await Promise.all(batch.map(dept => this._scrapeDept(dept, term)));
+        
+        batchResults.forEach(res => results.push(...res));
+        await new Promise(r => setTimeout(r, 200));
+    }
+
+    console.log(`✅ Schedule extraction complete: ${results.length} total classes`);
+    return results;
+  }
+
+  async close() {
+    console.log('🔒 Session Closed');
+  }
+}
