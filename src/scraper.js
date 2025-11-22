@@ -24,7 +24,8 @@ export class AISISScraper {
 
   async _request(url, options = {}) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000); // 15s Timeout
+    // ✅ INCREASED TIMEOUT TO 60s
+    const timeout = setTimeout(() => controller.abort(), 60000); 
 
     const opts = {
       ...options,
@@ -46,7 +47,7 @@ export class AISISScraper {
       }
       return response;
     } catch (error) {
-        if (error.name === 'AbortError') throw new Error('Request Timeout');
+        if (error.name === 'AbortError') throw new Error('Request Timeout (Server too slow)');
         throw error;
     } finally {
       clearTimeout(timeout);
@@ -119,7 +120,7 @@ export class AISISScraper {
         if (cells.length > 10) {
           const subject = $table(cells[0]).text().trim();
           
-          // 🛑 STRICT FILTER: Ignore Headers & Garbage
+          // 🛑 STRICT FILTER
           if (/subject|code/i.test(subject) || subject.includes('Ateneo Integrated') || subject === '') {
             return; 
           }
@@ -161,7 +162,6 @@ export class AISISScraper {
     console.log(`\n📅 Starting Schedule Extraction for term: ${term}...`);
     const results = [];
 
-    // Cleaned manual list (53 depts)
     const deptCodes = [
         "BIO", "CH", "CHN", "COM", "CEPP", "CPA", "ELM", "DS", "EC", "ECE", 
         "EN", "ES", "EU", "FIL", "FAA", "FA", "HSP", "HI", "SOHUM", "DISCS", 
