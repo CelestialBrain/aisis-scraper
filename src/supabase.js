@@ -1,4 +1,4 @@
-import fetch from 'node-fetch'; // Falls back to native fetch in Node 18+ if not installed
+import fetch from 'node-fetch'; 
 
 export class SupabaseManager {
   constructor(ingestToken) {
@@ -6,9 +6,6 @@ export class SupabaseManager {
     this.url = 'https://npnringvuiystpxbntvj.supabase.co/functions/v1/github-data-ingest';
   }
 
-  /**
-   * Sync data to Supabase via github-data-ingest Edge Function
-   */
   async syncToSupabase(dataType, data, termCode = null, department = null) {
     console.log(`   ☁️ Syncing ${data.length} ${dataType} records for ${department || 'all'}...`);
 
@@ -18,7 +15,6 @@ export class SupabaseManager {
       metadata: {}
     };
 
-    // Add context fields for schedules
     if (dataType === 'schedules') {
       payload.metadata.term_code = termCode;
       payload.metadata.department = department;
@@ -35,8 +31,7 @@ export class SupabaseManager {
       });
 
       if (response.ok) {
-        const result = await response.json();
-        console.log(`   ✅ Successfully synced ${result.processed || 0} ${dataType}`);
+        console.log(`   ✅ Successfully synced ${dataType}`);
         return true;
       } else {
         const text = await response.text();
@@ -49,33 +44,22 @@ export class SupabaseManager {
     }
   }
 
-  /**
-   * Helper: Parse time pattern like "TH 7:00-10:00" to extract start/end times
-   */
   parseTimePattern(timePattern) {
     if (!timePattern) return { start: null, end: null, days: null };
-    
     try {
-      // Extract time range (e.g., "7:00-10:00" from "TH 7:00-10:00")
       const timeMatch = timePattern.match(/(\d{1,2}:\d{2})-(\d{1,2}:\d{2})/);
       if (!timeMatch) return { start: null, end: null, days: null };
       
       const [_, startTime, endTime] = timeMatch;
-      
-      // Convert to HH:MM:SS format
       const formatTime = (time) => {
         const [hours, minutes] = time.split(':');
         return `${hours.padStart(2, '0')}:${minutes}:00`;
       };
       
-      // Extract day codes
-      // Mapping: M=1, T=2, W=3, TH=4, F=5, S=6, SU=0
       const dayPattern = timePattern.split(' ')[0].toUpperCase();
       const days = [];
-      
       if (dayPattern.includes('TH')) days.push(4);
       else if (dayPattern.includes('T')) days.push(2);
-      
       if (dayPattern.includes('M')) days.push(1);
       if (dayPattern.includes('W')) days.push(3);
       if (dayPattern.includes('F')) days.push(5);
@@ -88,14 +72,11 @@ export class SupabaseManager {
         days: days.length > 0 ? days : null
       };
     } catch (error) {
-      console.warn(`Failed to parse time pattern: ${timePattern}`, error);
       return { start: null, end: null, days: null };
     }
   }
 
-  /**
-   * Transform AISIS Curriculum data to Lovable/Supabase format
-   */
+  // ✅ FIX: Mapping 'description' to 'course_title' for Database Compatibility
   transformCurriculumData(curriculumItems) {
     return curriculumItems.map(item => {
       return {
@@ -103,16 +84,13 @@ export class SupabaseManager {
         year_level: item.yearLevel,
         semester: item.semester,
         course_code: item.courseCode,
-        course_description: item.description,
+        course_title: item.description, // <-- Renamed for Lovable
         units: parseFloat(item.units) || 0,
         category: item.category || null
       };
     });
   }
 
-  /**
-   * Transform AISIS Schedule data to Lovable/Supabase format
-   */
   transformScheduleData(scheduleItems) {
     return scheduleItems.map(item => {
       const parsedTime = this.parseTimePattern(item.time);
@@ -131,7 +109,6 @@ export class SupabaseManager {
         remarks: item.remarks,
         max_capacity: item.maxSlots,
         
-        // Fixed fields using the parser (Critical Fix):
         start_time: parsedTime.start || '00:00:00', 
         end_time: parsedTime.end || '23:59:59',     
         days_of_week: parsedTime.days,
