@@ -57,6 +57,17 @@ export class AISISScraper {
     }
   }
 
+  // Add session verification method
+  async verifySession() {
+    try {
+      const resp = await this._request(`${this.baseUrl}/j_aisis/user/home.do`);
+      const html = await resp.text();
+      return !html.includes('Sign in') && !html.includes('User ID') && html.includes('Ateneo');
+    } catch (error) {
+      return false;
+    }
+  }
+
   // Hardened login: send credentials, follow redirects / candidates, and log debug info
   async login() {
     console.log('🔐 Authenticating...');
@@ -194,6 +205,11 @@ export class AISISScraper {
   }
 
   async _scrapeDept(dept, term) {
+    // Verify session before each request
+    if (!await this.verifySession()) {
+      throw new Error(`Session expired before fetching ${dept}`);
+    }
+
     const params = new URLSearchParams();
     params.append('command', 'displayResults');
     params.append('applicablePeriod', term);
@@ -214,7 +230,11 @@ export class AISISScraper {
       const resp = await this._request(`${this.baseUrl}/j_aisis/J_VCSC.do`, {
         method: 'POST',
         body: params.toString(),
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', Referer: `${this.baseUrl}/j_aisis/J_VCSC.do` }
+        headers: { 
+          'Content-Type': 'application/x-www-form-urlencoded', 
+          'Referer': `${this.baseUrl}/j_aisis/J_VCSC.do`,
+          'Origin': this.baseUrl  // Added Origin header
+        }
       });
 
       const html = await resp.text();
