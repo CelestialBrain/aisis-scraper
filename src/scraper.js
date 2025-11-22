@@ -610,10 +610,12 @@ export class AISISScraper {
    * Workflow:
    * 1. GET J_VOFC.do to retrieve list of curriculum versions (degCode dropdown)
    * 2. For each degCode, POST to J_VOFC.do to fetch curriculum HTML
-   * 3. Flatten curriculum HTML to text format for external parsing
-   * 4. Return array of curriculum records with raw_text field
+   * 3. Extract HTML and flatten to text format
+   * 4. Return array of curriculum records with HTML and raw_text
    * 
-   * @returns {Promise<Array>} Array of curriculum records with { degCode, label, raw_text }
+   * The HTML can be parsed using src/curriculum-parser.js to extract structured course rows.
+   * 
+   * @returns {Promise<Array>} Array of curriculum records with { degCode, label, html, raw_text }
    */
   async scrapeCurriculum() {
     if (!this.loggedIn) {
