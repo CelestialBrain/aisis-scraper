@@ -2,6 +2,7 @@ import fs from 'fs';
 import * as cheerio from 'cheerio';
 import { CookieJar } from 'tough-cookie';
 import crypto from 'crypto';
+import { DEPARTMENTS } from './constants.js';
 
 // Use node-fetch directly instead of fetch-cookie
 const { default: fetch } = await import('node-fetch');
@@ -347,14 +348,7 @@ export class AISISScraper {
 
     console.log(`\n📅 Using applicablePeriod term: ${term}`);
     
-    const departments = [
-      "BIO", "CH", "CHN", "COM", "CEPP", "CPA", "ELM", "DS", 
-      "EC", "ECE", "EN", "ES", "EU", "FIL", "FAA", "FA", "HSP", 
-      "HI", "SOHUM", "DISCS", "SALT", "INTAC", "IS", "JSP", "KSP", 
-      "LAS", "MAL", "MA", "ML", "NSTP (ADAST)", "NSTP (OSCI)", 
-      "PH", "PE", "PS", "POS", "PSY", "QMIT", "SB", "SOCSCI", 
-      "SA", "TH", "TMP"
-    ];
+    const departments = DEPARTMENTS;
 
     const allCourses = [];
     
@@ -613,7 +607,6 @@ export class AISISScraper {
       // Enhanced time parsing to preserve TBA and special markers
       let timeField = this._cleanText(cellTexts[4]);
       // Remove modality markers but preserve TBA and (~) for special courses
-      const originalTime = timeField;
       timeField = timeField.replace(/\(FULLY ONSITE\)|\(FULLY ONLINE\)/g, '').trim();
       // Preserve (~) marker for special courses but remove empty ()
       timeField = timeField.replace(/\(\)$/g, '').trim();

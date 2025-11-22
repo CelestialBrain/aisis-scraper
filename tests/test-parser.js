@@ -15,7 +15,8 @@ async function testParser() {
   console.log('═══════════════════════════════════════════════════════\n');
 
   // Create a scraper instance (no login needed for parsing tests)
-  const scraper = new AISISScraper('dummy', 'dummy');
+  // Using test placeholders since we're only testing the parser, not authentication
+  const scraper = new AISISScraper('test_user', 'test_pass');
 
   // Load fixture HTML
   const fixturePath = join(__dirname, 'fixtures', 'aisis-schedule-edge-cases.html');

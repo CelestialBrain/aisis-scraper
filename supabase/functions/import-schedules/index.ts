@@ -8,6 +8,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // Constants - matches database unique constraint
 const ONCONFLICT_SCHEDULES = 'term_code,subject_code,section,department';
 const BATCH_SIZE = 100;
+const SAMPLE_INVALID_RECORDS_COUNT = 3;
 
 interface ScheduleRecord {
   term_code: string;
@@ -86,7 +87,7 @@ serve(async (req) => {
       console.warn(`Filtered out ${invalidCount} invalid schedule records`);
       
       // Log sample invalid records for debugging
-      const sampleInvalid = invalidSchedules.slice(0, 3).map(s => ({
+      const sampleInvalid = invalidSchedules.slice(0, SAMPLE_INVALID_RECORDS_COUNT).map(s => ({
         term_code: s.term_code || 'MISSING',
         subject_code: s.subject_code || 'MISSING',
         section: s.section || 'MISSING',

@@ -1,5 +1,6 @@
 import { AISISScraper } from './scraper.js';
 import { createClient } from '@supabase/supabase-js';
+import { DEPARTMENTS } from './constants.js';
 import fs from 'fs';
 import 'dotenv/config';
 
@@ -142,14 +143,7 @@ class ScheduleVerifier {
    * Verify all departments for a term
    */
   async verifyTerm(term) {
-    const departments = [
-      "BIO", "CH", "CHN", "COM", "CEPP", "CPA", "ELM", "DS", 
-      "EC", "ECE", "EN", "ES", "EU", "FIL", "FAA", "FA", "HSP", 
-      "HI", "SOHUM", "DISCS", "SALT", "INTAC", "IS", "JSP", "KSP", 
-      "LAS", "MAL", "MA", "ML", "NSTP (ADAST)", "NSTP (OSCI)", 
-      "PH", "PE", "PS", "POS", "PSY", "QMIT", "SB", "SOCSCI", 
-      "SA", "TH", "TMP"
-    ];
+    const departments = DEPARTMENTS;
 
     console.log(`\n🔍 Verifying all ${departments.length} departments for term ${term}...`);
 
