@@ -18,52 +18,38 @@ export class SupabaseManager {
       return record;
     });
 
-    // For large datasets (especially schedules), batch the requests to avoid 504 timeouts
-    // The Edge Function also batches internally, but client-side batching provides an additional layer
-    const CLIENT_BATCH_SIZE = 500; // Send max 500 records per HTTP request
+    // Send all records in a single HTTP request
+    // The Edge Function handles internal batching (BATCH_SIZE=100) for database writes
+    console.log(`   📤 Sending ${normalizedData.length} records to Supabase Edge Function...`);
     
-    if (normalizedData.length > CLIENT_BATCH_SIZE) {
-      console.log(`   📦 Batching into ${Math.ceil(normalizedData.length / CLIENT_BATCH_SIZE)} requests...`);
-      
-      let totalSynced = 0;
-      let hasErrors = false;
-      
-      for (let i = 0; i < normalizedData.length; i += CLIENT_BATCH_SIZE) {
-        const batch = normalizedData.slice(i, i + CLIENT_BATCH_SIZE);
-        const batchNum = Math.floor(i / CLIENT_BATCH_SIZE) + 1;
-        const totalBatches = Math.ceil(normalizedData.length / CLIENT_BATCH_SIZE);
-        
-        console.log(`   📤 Sending batch ${batchNum}/${totalBatches} (${batch.length} records)...`);
-        
-        const success = await this.sendBatch(dataType, batch, termCode, department);
-        
-        if (success) {
-          totalSynced += batch.length;
-        } else {
-          hasErrors = true;
-          console.error(`   ⚠️ Batch ${batchNum} failed`);
-        }
-        
-        // Small delay between batches to avoid overwhelming the Edge Function
-        if (i + CLIENT_BATCH_SIZE < normalizedData.length) {
-          await new Promise(resolve => setTimeout(resolve, 200));
-        }
-      }
-      
-      if (!hasErrors) {
-        console.log(`   ✅ Supabase: All batches synced successfully (${totalSynced}/${normalizedData.length} records)`);
-        return true;
-      } else {
-        console.error(`   ⚠️ Supabase: Partial sync (${totalSynced}/${normalizedData.length} records synced)`);
-        return false;
-      }
+    const success = await this.sendRequest(dataType, normalizedData, termCode, department);
+    
+    if (success) {
+      console.log(`   ✅ Supabase: Successfully synced ${normalizedData.length} records`);
+      return true;
+    } else {
+      console.error(`   ⚠️ Supabase: Sync failed for ${normalizedData.length} records`);
+      return false;
     }
-    
-    // For smaller datasets, send in a single request
-    return await this.sendBatch(dataType, normalizedData, termCode, department);
   }
 
-  async sendBatch(dataType, records, termCode = null, department = null) {
+  /**
+   * Send a request to Supabase Edge Function with retry logic.
+   * Retries on network errors and 5xx status codes with exponential backoff.
+   * 
+   * Retry behavior:
+   * - Retries on: network errors (exceptions), 500, 502, 503, 504, 522, 524
+   * - Backoff: exponential with cap (1s, 2s, 4s, 8s, 16s, 32s)
+   * - Max retries: 5 (total time: ~63 seconds max)
+   * - Logs each retry attempt with status and message
+   * 
+   * @param {string} dataType - Type of data ('schedules' or 'curriculum')
+   * @param {Array} records - Array of records to send
+   * @param {string|null} termCode - Term code for schedules
+   * @param {string|null} department - Department code
+   * @returns {Promise<boolean>} True if successful, false if all retries failed
+   */
+  async sendRequest(dataType, records, termCode = null, department = null) {
     const payload = {
       data_type: dataType,
       records: records,
@@ -73,32 +59,61 @@ export class SupabaseManager {
       }
     };
 
-    if (dataType === 'schedules') {
-      payload.metadata.term_code = termCode;
-      payload.metadata.department = department;
-    }
+    // Retry configuration
+    const MAX_RETRIES = 5;
+    const INITIAL_DELAY_MS = 1000; // 1 second
+    const MAX_DELAY_MS = 32000; // 32 seconds cap
+    const RETRYABLE_STATUS_CODES = [500, 502, 503, 504, 522, 524];
+    
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const response = await fetch(this.url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.ingestToken}`
+          },
+          body: JSON.stringify(payload)
+        });
 
-    try {
-      const response = await fetch(this.url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.ingestToken}`
-        },
-        body: JSON.stringify(payload)
-      });
-
-      if (response.ok) {
-        return true;
-      } else {
-        const text = await response.text();
-        console.error(`   ❌ Supabase Error: ${response.status} - ${text}`);
-        return false;
+        if (response.ok) {
+          if (attempt > 0) {
+            console.log(`   ✅ Request succeeded on retry attempt ${attempt}`);
+          }
+          return true;
+        } else {
+          const text = await response.text();
+          const isRetryable = RETRYABLE_STATUS_CODES.includes(response.status);
+          
+          if (isRetryable && attempt < MAX_RETRIES) {
+            const delayMs = Math.min(INITIAL_DELAY_MS * Math.pow(2, attempt), MAX_DELAY_MS);
+            const message = text.substring(0, 100); // Truncate for logging
+            console.log(`   ⚠️ Retry ${attempt + 1}/${MAX_RETRIES}: HTTP ${response.status} - ${message}`);
+            console.log(`   ⏳ Waiting ${delayMs / 1000}s before retry...`);
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+            continue;
+          } else {
+            console.error(`   ❌ Supabase Error: ${response.status} - ${text}`);
+            return false;
+          }
+        }
+      } catch (error) {
+        if (attempt < MAX_RETRIES) {
+          const delayMs = Math.min(INITIAL_DELAY_MS * Math.pow(2, attempt), MAX_DELAY_MS);
+          console.log(`   ⚠️ Retry ${attempt + 1}/${MAX_RETRIES}: Network error - ${error.message}`);
+          console.log(`   ⏳ Waiting ${delayMs / 1000}s before retry...`);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+          continue;
+        } else {
+          console.error(`   ❌ Supabase Exception (all retries exhausted):`, error.message);
+          return false;
+        }
       }
-    } catch (error) {
-      console.error(`   ❌ Supabase Exception:`, error.message);
-      return false;
     }
+
+    // Should not reach here, but just in case
+    console.error(`   ❌ Supabase: All retry attempts failed`);
+    return false;
   }
 
   safeInt(val) {
