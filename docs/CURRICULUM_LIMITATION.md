@@ -308,26 +308,6 @@ The implementation handles errors gracefully:
   category: 'M'            // or null
 }
 ```
-- Uses existing `syncData()` method
-- Tab created automatically if doesn't exist
-
-### Data Format
-Current implementation outputs `raw_text` field for external parsing:
-```javascript
-{
-  degCode: 'BS CS_2024_1',
-  label: 'BS Computer Science (2024-1)',
-  raw_text: 'First Year\nFirst Semester...'
-}
-```
-
-For structured data, additional parsing would be needed to extract:
-- Year levels
-- Semesters
-- Course codes
-- Course titles
-- Units
-- Categories
 
 ## Alternative Solutions (Still Valid)
 

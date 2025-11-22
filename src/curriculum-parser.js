@@ -22,6 +22,15 @@ import * as cheerio from 'cheerio';
  */
 
 /**
+ * Helper to trim a string and return null if empty
+ * @param {string|null|undefined} str - String to trim
+ * @returns {string|null} Trimmed string or null
+ */
+function trimOrNull(str) {
+  return str?.trim() || null;
+}
+
+/**
  * Parse year level from text like "First Year", "Second Year", etc.
  * @param {string} text - Year header text
  * @returns {number|null} Year level (1-4) or null if not recognized
@@ -179,8 +188,8 @@ export function parseCurriculumHtml(html, degCode, label) {
           course_code: courseCode.trim(),
           course_title: courseTitle.trim(),
           units: parseUnits(unitsText),
-          prerequisites: prerequisites?.trim() || null,
-          category: category?.trim() || null
+          prerequisites: trimOrNull(prerequisites),
+          category: trimOrNull(category)
         });
       }
     }
