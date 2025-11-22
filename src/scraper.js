@@ -8,7 +8,6 @@ export class AISISScraper {
     this.baseUrl = 'https://aisis.ateneo.edu';
     this.cookie = null;
     
-    // Headers copied from your HAR file to look exactly like Chrome
     this.headers = {
       'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
@@ -20,10 +19,9 @@ export class AISISScraper {
   }
 
   async init() {
-    console.log('🚀 Initializing Direct Request Engine (No Browser)...');
+    console.log('🚀 Initializing Direct Request Engine...');
   }
 
-  // Helper: Handles requests and maintains the Session Cookie
   async _request(url, options = {}) {
     const opts = {
       ...options,
@@ -32,12 +30,10 @@ export class AISISScraper {
         ...options.headers,
         'Cookie': this.cookie || ''
       },
-      redirect: 'manual' // Manual redirect allows us to capture 302 cookies
+      redirect: 'manual'
     };
 
     const response = await fetch(url, opts);
-    
-    // If the server sets a cookie (e.g. JSESSIONID), save it
     const newCookie = response.headers.get('set-cookie');
     if (newCookie) {
       const sessionPart = newCookie.split(';')[0];
@@ -47,12 +43,10 @@ export class AISISScraper {
   }
 
   async login() {
-    console.log('🔐 Authenticating via Direct Request...');
+    console.log('🔐 Authenticating...');
     try {
-      // 1. WARM-UP: Visit login page first (Crucial for session creation)
       await this._request(`${this.baseUrl}/j_aisis/displayLogin.do`, { method: 'GET' });
       
-      // 2. LOGIN: Send credentials
       const params = new URLSearchParams();
       params.append('userName', this.username);
       params.append('password', this.password);
@@ -65,12 +59,11 @@ export class AISISScraper {
         body: params
       });
 
-      // 3. VALIDATE: Check if login worked
       const text = await response.text();
       if (text.includes('Invalid password') || text.includes('Sign in')) {
         throw new Error('Authentication Failed: Invalid credentials.');
       }
-      console.log('✅ Authentication Successful (Session Established)');
+      console.log('✅ Authentication Successful');
       await new Promise(r => setTimeout(r, 1000));
     } catch (error) {
       console.error('⛔ Critical Login Error:', error.message);
@@ -82,7 +75,6 @@ export class AISISScraper {
     console.log(`\n📅 Starting Schedule Extraction for term: ${term}...`);
     const results = [];
 
-    // ✅ MANUAL LIST: Bypasses "0 departments found" error
     const deptCodes = [
         "BIO", "CH", "CHN", "COM", "CEPP", "CPA", "ELM", "DS", "EC", "ECE", 
         "EN", "ES", "EU", "FIL", "FAA", "FA", "HSP", "HI", "SOHUM", "DISCS", 
@@ -112,21 +104,18 @@ export class AISISScraper {
         const $table = cheerio.load(html);
         let deptCount = 0;
 
-        // Parse the table rows
         $table('table tr').each((i, row) => {
           const cells = $table(row).find('td');
           
-          // Only scrape rows that look like classes (10+ columns)
           if (cells.length > 10) {
             const subject = $table(cells[0]).text().trim();
-            // Anti-Garbage: Ignore login page text if session died
             if (subject.includes('Ateneo Integrated') || subject === '') return; 
 
             results.push({
               department:  dept,
               subjectCode: subject,
               section:     $table(cells[1]).text().trim(),
-              title:       $table(cells[2]).text().trim(),
+              courseTitle: $table(cells[2]).text().trim(),
               units:       $table(cells[3]).text().trim(),
               time:        $table(cells[4]).text().trim(),
               room:        $table(cells[5]).text().trim(),
@@ -142,7 +131,6 @@ export class AISISScraper {
         });
 
         if (deptCount > 0) console.log(`   ✓ ${dept}: ${deptCount} classes`);
-        // Tiny delay to avoid rate limiting
         await new Promise(r => setTimeout(r, 50)); 
 
       } catch (err) {
@@ -158,7 +146,6 @@ export class AISISScraper {
     console.log('\n📚 Starting Curriculum Extraction...');
     const results = [];
 
-    // ✅ MANUAL LIST: Bypasses scraping errors
     const degrees = [
         "BS CS", "BS MIS", "BS ITE", "BS AMF", "BS MGT", "BS BIO", "BS CH",
         "BS ES", "BS HSc", "BS LM", "BS MAC", "BS ME", "BS PS", "BS PSY",
@@ -190,12 +177,15 @@ export class AISISScraper {
             if (text.includes('year')) year = $p(row).text().trim();
             else if (text.includes('semester')) sem = $p(row).text().trim();
             else if (cells.length >= 3) {
+                const code = $p(cells[0]).text().trim();
+                if (code.includes('Ateneo Integrated')) return;
+
                 results.push({
-                    degree: degree,
+                    degreeCode: degree,
                     yearLevel: year,
                     semester: sem,
-                    courseCode: $p(cells[0]).text().trim(),
-                    description: $p(cells[1]).text().trim(),
+                    courseCode: code,
+                    courseTitle: $p(cells[1]).text().trim(),
                     units: $p(cells[2]).text().trim()
                 });
             }
