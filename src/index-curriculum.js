@@ -65,6 +65,9 @@ async function main() {
       if (supabase) {
         console.log('   🚀 Starting Supabase Sync...');
         
+        // Sync curriculum data to Supabase
+        // The backend API supports 'curriculum' as a valid data type
+        // See docs/DATA_GUIDE.md for curriculum data model details
         try {
           const success = await supabase.syncToSupabase('curriculum', cleanCurriculum, null, null);
           if (success) {

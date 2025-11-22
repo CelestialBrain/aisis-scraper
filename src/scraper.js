@@ -669,12 +669,18 @@ export class AISISScraper {
         // Check if this is a header row (year level or semester)
         const firstCellText = $(cells[0]).text().trim().toUpperCase();
         
-        if (firstCellText.includes('YEAR') && firstCellText.includes('LEVEL')) {
+        // Improved year level detection with multiple patterns
+        if (firstCellText.includes('YEAR') || 
+            /\d+(ST|ND|RD|TH)\s*YEAR/i.test(firstCellText) ||
+            /YEAR\s+\d+/i.test(firstCellText)) {
           currentYearLevel = $(cells[0]).text().trim();
           return;
         }
         
-        if (firstCellText.includes('SEMESTER') || firstCellText.includes('TERM')) {
+        // Improved semester detection with multiple patterns
+        if (firstCellText.includes('SEMESTER') || 
+            firstCellText.includes('TERM') ||
+            /\d+(ST|ND|RD|TH)\s*(SEMESTER|TERM)/i.test(firstCellText)) {
           currentSemester = $(cells[0]).text().trim();
           return;
         }
@@ -688,11 +694,12 @@ export class AISISScraper {
           const category = cells.length >= 4 ? $(cells[3]).text().trim() : '';
           
           // Validate that this looks like a course code (contains letters and numbers)
-          if (courseCode && /[A-Z]+\s*\d+/.test(courseCode) && description) {
+          // Using case-insensitive pattern to match various course code formats
+          if (courseCode && /[A-Za-z]{2,}\s*\d+/i.test(courseCode) && description) {
             curriculum.push({
               degree: degreeCode,
-              yearLevel: currentYearLevel || 'Unknown',
-              semester: currentSemester || 'Unknown',
+              yearLevel: currentYearLevel || null,
+              semester: currentSemester || null,
               courseCode: courseCode,
               description: description,
               units: units,
