@@ -24,7 +24,7 @@ export class AISISScraper {
 
   async _request(url, options = {}) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000); // 15s Timeout
+    const timeout = setTimeout(() => controller.abort(), 30000); // 30s Timeout
 
     const opts = {
       ...options,
@@ -119,25 +119,23 @@ export class AISISScraper {
         if (cells.length > 10) {
           const subject = $table(cells[0]).text().trim();
           
-          // 🛑 STRICT FILTER: Ignore Headers ("Subject Code") & Garbage
+          // 🛑 STRICT FILTER: Ignore Headers (Fixes "1 class found")
           if (/subject|code/i.test(subject) || subject.includes('Ateneo Integrated') || subject === '') {
             return; 
           }
 
           deptResults.push({
-            term_code: term, // Add term to record
             department:  dept,
             subjectCode: subject,
             section:     $table(cells[1]).text().trim(),
             title:       $table(cells[2]).text().trim(),
             units:       $table(cells[3]).text().trim(),
-            time:        $table(cells[4]).text().trim(),
+            time_pattern: $table(cells[4]).text().trim(),
             room:        $table(cells[5]).text().trim(),
             instructor:  $table(cells[6]).text().trim(),
-            maxSlots:    $table(cells[7]).text().trim(),
+            max_capacity: $table(cells[7]).text().trim(),
             language:    $table(cells[8]).text().trim(),
             level:       $table(cells[9]).text().trim(),
-            freeSlots:   $table(cells[10]).text().trim(),
             remarks:     $table(cells[11]).text().trim()
           });
         }
@@ -162,7 +160,6 @@ export class AISISScraper {
     console.log(`\n📅 Starting Schedule Extraction for term: ${term}...`);
     const results = [];
 
-    // Cleaned manual list (53 depts)
     const deptCodes = [
         "BIO", "CH", "CHN", "COM", "CEPP", "CPA", "ELM", "DS", "EC", "ECE", 
         "EN", "ES", "EU", "FIL", "FAA", "FA", "HSP", "HI", "SOHUM", "DISCS", 
@@ -175,14 +172,12 @@ export class AISISScraper {
     console.log(`   Using manual list of ${deptCodes.length} departments.`);
     this.headers['Referer'] = `${this.baseUrl}/j_aisis/J_VCSC.do`;
 
-    // Batch Size: 5
     const BATCH_SIZE = 5; 
     for (let i = 0; i < deptCodes.length; i += BATCH_SIZE) {
         const batch = deptCodes.slice(i, i + BATCH_SIZE);
         const batchResults = await Promise.all(batch.map(dept => this._scrapeDept(dept, term)));
-        
         batchResults.forEach(res => results.push(...res));
-        await new Promise(r => setTimeout(r, 100));
+        await new Promise(r => setTimeout(r, 200));
     }
 
     console.log(`✅ Schedule extraction complete: ${results.length} total classes`);
@@ -243,15 +238,12 @@ export class AISISScraper {
                 });
             } catch (e) { }
         }));
-        
-        await new Promise(r => setTimeout(r, 100));
+        await new Promise(r => setTimeout(r, 200));
     }
 
     console.log(`✅ Curriculum extraction complete: ${results.length} items`);
     return results;
   }
 
-  async close() {
-    console.log('🔒 Session Closed');
-  }
+  async close() { }
 }
