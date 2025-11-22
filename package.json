@@ -2,10 +2,11 @@
   "name": "aisis-scraper",
   "version": "3.0.0",
   "type": "module",
-  "description": "Production-grade AISIS scraper using native DOM extraction with direct Supabase and Google Sheets integration.",
+  "description": "Production-grade AISIS scraper with Supabase and Google Sheets integration",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "dev": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -34,6 +35,6 @@
     "node-fetch": "^3.3.2"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=18.0.0"
   }
 }
