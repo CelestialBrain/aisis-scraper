@@ -5,6 +5,18 @@ import { CookieJar } from 'tough-cookie';
 // Use node-fetch directly instead of fetch-cookie
 const { default: fetch } = await import('node-fetch');
 
+// Login/session validation patterns
+const LOGIN_SUCCESS_MARKERS = [
+  'User Identified As',
+  'MY INDIVIDUAL PROGRAM OF STUDY',
+  'Welcome'
+];
+
+const LOGIN_FAILURE_MARKERS = [
+  'sign in',
+  'login.do'
+];
+
 export class AISISScraper {
   constructor(username, password) {
     this.username = username;
@@ -126,7 +138,7 @@ export class AISISScraper {
         const response = await this._request(`${this.baseUrl}/j_aisis/J_VMCS.do`);
         const text = await response.text();
         
-        if (text.includes('MY INDIVIDUAL PROGRAM OF STUDY') || text.includes('User Identified As')) {
+        if (LOGIN_SUCCESS_MARKERS.some(marker => text.includes(marker))) {
             console.log('   ✅ Existing session is valid!');
             return true;
         } else {
@@ -166,9 +178,7 @@ export class AISISScraper {
       const responseText = await loginResponse.text();
       
       // Check for successful login markers in HTML
-      if (responseText.includes('User Identified As') || 
-          responseText.includes('MY INDIVIDUAL PROGRAM OF STUDY') ||
-          responseText.includes('Welcome')) {
+      if (LOGIN_SUCCESS_MARKERS.some(marker => responseText.includes(marker))) {
         
         console.log('   ✅ Login response contains success markers');
         
@@ -187,15 +197,16 @@ export class AISISScraper {
         // Validation 2: Test protected page to confirm session is valid
         console.log('   🔍 Verifying session with protected page...');
         try {
-          const testResponse = await this._request(`${this.baseUrl}/j_aisis/J_VMCS.do`);
+          const protectedPageUrl = new URL('/j_aisis/J_VMCS.do', this.baseUrl).toString();
+          const testResponse = await this._request(protectedPageUrl);
           const testText = await testResponse.text();
           
-          if (testText.includes('sign in') || testText.includes('login.do')) {
+          if (LOGIN_FAILURE_MARKERS.some(marker => testText.includes(marker))) {
             console.error('❌ Post-login protected page still shows login screen');
             return false;
           }
           
-          if (testText.includes('MY INDIVIDUAL PROGRAM OF STUDY') || testText.includes('User Identified As')) {
+          if (LOGIN_SUCCESS_MARKERS.some(marker => testText.includes(marker))) {
             console.log('   ✅ Post-login protected page check passed');
           } else {
             console.warn('   ⚠️ Protected page validation inconclusive, proceeding anyway');
@@ -311,7 +322,7 @@ export class AISISScraper {
     const html = await response.text();
     
     // Check for session expiry
-    if (html.includes('sign in') || html.includes('login.do')) {
+    if (LOGIN_FAILURE_MARKERS.some(marker => html.includes(marker))) {
       throw new Error('Session expired');
     }
 
