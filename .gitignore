@@ -5,6 +5,9 @@ node_modules/
 .env
 .env.local
 
+# Session data (Never commit these!)
+cookies.json
+
 # Data files (sent to Supabase, not stored in repo)
 data/
 

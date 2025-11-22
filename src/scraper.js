@@ -1,6 +1,7 @@
 import fs from 'fs';
 import * as cheerio from 'cheerio';
 import { CookieJar } from 'tough-cookie';
+import crypto from 'crypto';
 
 // Use node-fetch directly instead of fetch-cookie
 const { default: fetch } = await import('node-fetch');
@@ -145,7 +146,7 @@ export class AISISScraper {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
           'Origin': this.baseUrl,
-          'Referer': `${this.baseUrl}/j_aisis/login.do`
+          'Referer': `${this.baseUrl}/j_aisis/displayLogin.do`
         }
       });
 
@@ -182,7 +183,7 @@ export class AISISScraper {
 
   _generateRandom() {
     // Generate like Python: r + 20 hex chars from 10 random bytes
-    const bytes = Buffer.alloc(10);
+    const bytes = crypto.randomBytes(10);
     return 'r' + bytes.toString('hex');
   }
 
