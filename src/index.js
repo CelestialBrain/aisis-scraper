@@ -7,7 +7,7 @@ import 'dotenv/config';
 
 async function main() {
   console.log('═══════════════════════════════════════════════════════');
-  console.log('🎓 AISIS Data Pipeline (Supabase + Google Sheets)');
+  console.log('🎓 AISIS Schedule Scraper (Supabase + Sheets)');
   console.log('═══════════════════════════════════════════════════════\n');
 
   const { 
@@ -15,12 +15,13 @@ async function main() {
     GOOGLE_SERVICE_ACCOUNT, SPREADSHEET_ID 
   } = process.env;
   
-  if (!AISIS_USERNAME || !AISIS_PASSWORD || !DATA_INGEST_TOKEN) {
+  if (!AISIS_USERNAME || !AISIS_PASSWORD) {
     console.error('❌ FATAL: Missing AISIS credentials.');
     process.exit(1);
   }
 
-  const CURRENT_TERM = '2025-1'; 
+  // Fallback Term (Will auto-detect if possible)
+  const CURRENT_TERM_FALLBACK = '2025-1'; 
 
   const scraper = new AISISScraper(AISIS_USERNAME, AISIS_PASSWORD);
   const supabase = new SupabaseManager(DATA_INGEST_TOKEN);
@@ -39,52 +40,46 @@ async function main() {
     await scraper.init();
     await scraper.login();
 
-    const rawSchedule = await scraper.scrapeSchedule(CURRENT_TERM);
-    const rawCurriculum = await scraper.scrapeCurriculum();
+    // Only Scrape Schedule
+    const scheduleData = await scraper.scrapeSchedule(CURRENT_TERM_FALLBACK);
 
     if (!fs.existsSync('data')) fs.mkdirSync('data');
 
-    // --- SCHEDULE ---
-    if (rawSchedule.length > 0) {
-      const cleanSchedule = supabase.transformScheduleData(rawSchedule);
+    // --- PROCESS SCHEDULES ---
+    if (scheduleData.length > 0) {
+      // 1. Clean Data
+      const cleanSchedule = supabase.transformScheduleData(scheduleData);
       
-      // 1. Save Local
+      // 2. Save Local Backup
       fs.writeFileSync('data/courses.json', JSON.stringify(cleanSchedule, null, 2));
+      console.log(`   💾 Saved ${scheduleData.length} classes to data/courses.json`);
 
-      // 2. Sync Supabase (Batched)
-      const byDept = rawSchedule.reduce((acc, item) => {
-        const d = item.department || 'UNKNOWN';
-        if (!acc[d]) acc[d] = [];
-        acc[d].push(item);
-        return acc;
-      }, {});
+      // 3. Sync to Supabase (Batched by Dept)
+      if (DATA_INGEST_TOKEN) {
+        const byDept = scheduleData.reduce((acc, item) => {
+          const d = item.department || 'UNKNOWN';
+          if (!acc[d]) acc[d] = [];
+          acc[d].push(item);
+          return acc;
+        }, {});
 
-      for (const dept of Object.keys(byDept)) {
-        const batchData = supabase.transformScheduleData(byDept[dept]);
-        // Convert stringified array back to array for Supabase
-        const supabaseBatch = batchData.map(d => ({
-            ...d,
-            days_of_week: JSON.parse(d.days_of_week)
-        }));
-        await supabase.syncToSupabase('schedules', supabaseBatch, CURRENT_TERM, dept);
+        for (const dept of Object.keys(byDept)) {
+          const batchData = supabase.transformScheduleData(byDept[dept]);
+          // Fix array format for Supabase
+          const supabaseBatch = batchData.map(d => ({
+              ...d,
+              days_of_week: JSON.parse(d.days_of_week)
+          }));
+          await supabase.syncToSupabase('schedules', supabaseBatch, CURRENT_TERM_FALLBACK, dept);
+        }
       }
 
-      // 3. Sync Sheets
-      if (sheets) await sheets.syncData(SPREADSHEET_ID, 'Schedules', cleanSchedule);
-    }
-
-    // --- CURRICULUM ---
-    if (rawCurriculum.length > 0) {
-      const cleanCurriculum = supabase.transformCurriculumData(rawCurriculum);
-
-      // 1. Save Local
-      fs.writeFileSync('data/curriculum.json', JSON.stringify(cleanCurriculum, null, 2));
-
-      // 2. Sync Supabase
-      await supabase.syncToSupabase('curriculum', cleanCurriculum);
-
-      // 3. Sync Sheets
-      if (sheets) await sheets.syncData(SPREADSHEET_ID, 'Curriculum', cleanCurriculum);
+      // 4. Sync to Google Sheets (All at once)
+      if (sheets) {
+        await sheets.syncData(SPREADSHEET_ID, 'Schedules', cleanSchedule);
+      }
+    } else {
+      console.warn("   ⚠️ No schedule data found (Term might be empty).");
     }
 
     console.log('\n✅ Done!');
