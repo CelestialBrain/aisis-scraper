@@ -14,7 +14,8 @@ async function main() {
     AISIS_PASSWORD, 
     DATA_INGEST_TOKEN, 
     GOOGLE_SERVICE_ACCOUNT, 
-    SPREADSHEET_ID 
+    SPREADSHEET_ID,
+    APPLICABLE_PERIOD  // Optional override for term
   } = process.env;
   
   if (!AISIS_USERNAME || !AISIS_PASSWORD) {
@@ -23,7 +24,13 @@ async function main() {
     process.exit(1);
   }
 
-  const CURRENT_TERM = '2024-2'; // Use the same term as Python script
+  // Optional term override from environment variable
+  const termOverride = APPLICABLE_PERIOD || null;
+  if (termOverride) {
+    console.log(`   📌 Term override from environment: ${termOverride}`);
+  } else {
+    console.log('   🔍 Term will be auto-detected from AISIS');
+  }
 
   const scraper = new AISISScraper(AISIS_USERNAME, AISIS_PASSWORD);
   const supabase = DATA_INGEST_TOKEN ? new SupabaseManager(DATA_INGEST_TOKEN) : null;
@@ -50,12 +57,15 @@ async function main() {
     }
 
     console.log('📥 Scraping schedule data...');
-    const scheduleData = await scraper.scrapeSchedule(CURRENT_TERM);
+    const scheduleData = await scraper.scrapeSchedule(termOverride);
+    
+    // Get the actual term that was used (either override or auto-detected)
+    const usedTerm = scraper.lastUsedTerm;
 
     if (!fs.existsSync('data')) fs.mkdirSync('data');
 
     if (scheduleData.length > 0) {
-      console.log(`\n💾 Processing ${scheduleData.length} courses...`);
+      console.log(`\n💾 Processing ${scheduleData.length} courses from term ${usedTerm}...`);
       
       const cleanSchedule = supabase ? supabase.transformScheduleData(scheduleData) : scheduleData;
       
@@ -69,7 +79,7 @@ async function main() {
         
         // Sync all data at once instead of by department
         try {
-          const success = await supabase.syncToSupabase('schedules', cleanSchedule, CURRENT_TERM, 'ALL');
+          const success = await supabase.syncToSupabase('schedules', cleanSchedule, usedTerm, 'ALL');
           if (success) {
             console.log('   ✅ Supabase sync completed successfully');
           } else {
@@ -94,12 +104,13 @@ async function main() {
       }
 
     } else {
-      console.warn("\n⚠️ No schedule data found.");
+      console.warn(`\n⚠️ No schedule data found for term ${usedTerm}.`);
       console.log("   This could be because:");
-      console.log("   - No courses are available for the current term");
+      console.log("   - No courses are available for this term");
+      console.log("   - The term has not been published yet in AISIS");
       console.log("   - The session expired during scraping");
       console.log("   - There are issues with the AISIS system");
-      console.log("   Check the debug/ folder for more information");
+      console.log(`   - Try setting APPLICABLE_PERIOD env variable to override term`);
     }
 
     console.log('\n✅ Scraping completed!');

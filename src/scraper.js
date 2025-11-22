@@ -244,12 +244,87 @@ export class AISISScraper {
     return 'r' + bytes.toString('hex');
   }
 
-  async scrapeSchedule(term = '2024-2') {
+  /**
+   * Auto-detect the current term from AISIS Schedule of Classes page
+   * @returns {Promise<string>} The current term (e.g., '2025-1')
+   */
+  async _detectCurrentTerm() {
+    if (!this.loggedIn) {
+      throw new Error('Not logged in - cannot detect current term');
+    }
+
+    console.log('🔍 Auto-detecting current term from AISIS...');
+
+    try {
+      // GET the Schedule of Classes page
+      const response = await this._request(`${this.baseUrl}/j_aisis/J_VCSC.do`, {
+        method: 'GET',
+        headers: {
+          'Referer': `${this.baseUrl}/j_aisis/J_VMCS.do`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to load Schedule of Classes page: HTTP ${response.status}`);
+      }
+
+      const html = await response.text();
+
+      // Check for session expiry
+      if (LOGIN_FAILURE_MARKERS.some(marker => html.includes(marker))) {
+        throw new Error('Session expired while detecting current term');
+      }
+
+      // Parse HTML to find applicablePeriod select
+      const $ = cheerio.load(html);
+      const select = $('select[name="applicablePeriod"]');
+
+      if (select.length === 0) {
+        throw new Error('Could not find applicablePeriod select element on page');
+      }
+
+      // Try to find the selected option first
+      let selectedOption = select.find('option[selected]');
+      
+      // If no option is explicitly selected, use the first option
+      if (selectedOption.length === 0) {
+        selectedOption = select.find('option').first();
+      }
+
+      if (selectedOption.length === 0) {
+        throw new Error('No options found in applicablePeriod select');
+      }
+
+      const term = selectedOption.attr('value');
+      const termText = selectedOption.text().trim();
+
+      if (!term) {
+        throw new Error('Selected option has no value attribute');
+      }
+
+      console.log(`   ✅ Detected term: ${term} (${termText})`);
+      return term;
+
+    } catch (error) {
+      console.error(`   ❌ Failed to auto-detect term: ${error.message}`);
+      throw error;
+    }
+  }
+
+  async scrapeSchedule(term = null) {
     if (!this.loggedIn) {
       throw new Error('Not logged in');
     }
 
-    console.log(`\n📅 Scraping schedule for term: ${term}`);
+    // Auto-detect term if not provided
+    if (!term) {
+      term = await this._detectCurrentTerm();
+    }
+
+    // Store the term being used for reference
+    this.lastUsedTerm = term;
+
+    console.log(`\n📅 Using applicablePeriod term: ${term}`);
     
     const departments = [
       "BIO", "CH", "CHN", "COM", "CEPP", "CPA", "ELM", "DS", 
@@ -302,35 +377,59 @@ export class AISISScraper {
     return allCourses;
   }
 
-  async _scrapeDepartment(term, deptCode) {
+  async _scrapeDepartment(term, deptCode, retryCount = 0) {
     const formData = new URLSearchParams();
     formData.append('command', 'displayResults');
     formData.append('applicablePeriod', term);
     formData.append('deptCode', deptCode);
     formData.append('subjCode', 'ALL');
 
-    const response = await this._request(`${this.baseUrl}/j_aisis/J_VCSC.do`, {
-      method: 'POST',
-      body: formData.toString(),
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Origin': this.baseUrl,
-        'Referer': `${this.baseUrl}/j_aisis/J_VCSC.do`
+    try {
+      const response = await this._request(`${this.baseUrl}/j_aisis/J_VCSC.do`, {
+        method: 'POST',
+        body: formData.toString(),
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Origin': this.baseUrl,
+          'Referer': `${this.baseUrl}/j_aisis/J_VCSC.do`
+        }
+      });
+
+      if (!response.ok) {
+        const errorMsg = `HTTP ${response.status} for dept ${deptCode}, term ${term}`;
+        
+        // Retry once on 5xx errors (server errors)
+        if (response.status >= 500 && response.status < 600 && retryCount === 0) {
+          console.log(`   ⚠️  ${errorMsg} - retrying in 2 seconds...`);
+          await this._delay(2000);
+          return this._scrapeDepartment(term, deptCode, 1);
+        }
+        
+        throw new Error(errorMsg);
       }
-    });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      const html = await response.text();
+      
+      // Check for session expiry
+      if (LOGIN_FAILURE_MARKERS.some(marker => html.includes(marker))) {
+        throw new Error('Session expired');
+      }
+
+      const courses = this._parseCourses(html, deptCode);
+      
+      // Log warning if no courses found
+      if (courses.length === 0) {
+        console.log(`   ⚠️  ${deptCode}: No courses found for term ${term}`);
+      }
+      
+      return courses;
+    } catch (error) {
+      // Re-throw with more context if not already detailed
+      if (!error.message.includes(deptCode)) {
+        throw new Error(`${deptCode}: ${error.message}`);
+      }
+      throw error;
     }
-
-    const html = await response.text();
-    
-    // Check for session expiry
-    if (LOGIN_FAILURE_MARKERS.some(marker => html.includes(marker))) {
-      throw new Error('Session expired');
-    }
-
-    return this._parseCourses(html, deptCode);
   }
 
   _parseCourses(html, deptCode) {

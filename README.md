@@ -34,13 +34,23 @@ In your GitHub repository, go to `Settings` > `Secrets and variables` > `Actions
 - `AISIS_PASSWORD`: Your AISIS password
 - `DATA_INGEST_TOKEN`: The authentication token for your Supabase data ingest endpoint
 
-### 3. Update Term Code
+### 3. Term Auto-Detection
 
-In `src/index.js`, update the `CURRENT_TERM` variable to match the current academic term:
+The scraper now **automatically detects** the current academic term from AISIS without requiring manual code changes. It reads the term from the Schedule of Classes page dropdown.
 
-```javascript
-const CURRENT_TERM = '20253'; // Update this when the semester changes
+**To override the term** (e.g., for scraping historical data), you can set the `APPLICABLE_PERIOD` environment variable:
+
+```bash
+APPLICABLE_PERIOD=2024-2 npm start
 ```
+
+Or add it to your `.env` file:
+
+```
+APPLICABLE_PERIOD=2024-2
+```
+
+If no override is provided, the scraper will auto-detect and use the currently selected term in AISIS.
 
 ## How It Works
 
@@ -73,6 +83,9 @@ const CURRENT_TERM = '20253'; // Update this when the semester changes
    AISIS_USERNAME=your_username
    AISIS_PASSWORD=your_password
    DATA_INGEST_TOKEN=your_ingest_token
+   
+   # Optional: Override the term for manual scraping
+   # APPLICABLE_PERIOD=2024-2
    ```
 
 4. **Run the scraper**:
