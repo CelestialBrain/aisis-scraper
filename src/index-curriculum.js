@@ -78,9 +78,21 @@ async function main() {
     if (curriculumData.length > 0) {
       console.log(`\n💾 Processing ${curriculumData.length} curriculum programs...`);
       
+      // Filter out unavailable curricula (those with AISIS error page)
+      const unavailableCurricula = curriculumData.filter(p => p.status === 'unavailable');
+      const availableCurricula = curriculumData.filter(p => p.status !== 'unavailable');
+      
+      if (unavailableCurricula.length > 0) {
+        console.log(`   ⚠️  ${unavailableCurricula.length} curricula marked as unavailable (AISIS error page):`);
+        unavailableCurricula.forEach(p => {
+          console.log(`      - ${p.degCode}: ${p.label}`);
+        });
+        console.log(`   ✅ ${availableCurricula.length} curricula available for processing\n`);
+      }
+      
       // Debug instrumentation: dump raw HTML for specific degCode before parsing
       const debugDegCode = process.env.DEBUG_DEGCODE || 'BS MGT-H_2025_1';
-      const debugProgram = curriculumData.find(p => p.degCode === debugDegCode);
+      const debugProgram = availableCurricula.find(p => p.degCode === debugDegCode);
       if (debugProgram) {
         console.log(`   🐛 Debug: Found ${debugDegCode} in scraped data, saving raw HTML...`);
         fs.writeFileSync(`debug/${debugDegCode.replace(/[/\\:*?"<>|]/g, '_')}-raw.html`, debugProgram.html || '');
@@ -90,10 +102,17 @@ async function main() {
         console.log(`   ⚠️  Debug: ${debugDegCode} not found in scraped data`);
       }
       
+      // Only parse available curricula
+      if (availableCurricula.length === 0) {
+        console.warn(`   ⚠️  No available curricula to parse (all returned AISIS error page)`);
+        console.log('\n✅ Curriculum scraping completed (no data to process)!');
+        process.exit(0);
+      }
+      
       // Parse curriculum HTML into structured course rows
       console.log('   🔍 Parsing curriculum HTML into structured course rows...');
       let parseErrors = 0;
-      const { programs, allRows } = parseAllCurricula(curriculumData);
+      const { programs, allRows } = parseAllCurricula(availableCurricula);
       
       // Check if debug program had a mismatch error during parsing
       if (debugProgram && !programs.find(p => p.degCode === debugDegCode)) {
