@@ -32,6 +32,15 @@ const SCRAPE_CONFIG = {
   BATCH_DELAY_MS: 500    // Delay in milliseconds between batches (reduced from 750ms)
 };
 
+// Department codes to exclude when parsing available departments from AISIS
+// These are placeholder/special values that should not be scraped as departments
+const EXCLUDED_DEPT_CODES = [
+  'ALL',      // Special value for "All Departments" option in dropdown
+  '',         // Empty values
+  'NONE',     // Possible placeholder value
+  'SELECT'    // Possible placeholder text
+];
+
 export class AISISScraper {
   constructor(username, password) {
     this.username = username;
@@ -376,12 +385,16 @@ export class AISISScraper {
         const value = $(option).attr('value');
         const label = $(option).text().trim();
         
-        // Skip empty options (like "ALL" or placeholder options)
-        if (value && value.trim() !== '' && value.toUpperCase() !== 'ALL') {
-          departments.push({
-            value: value.trim(),
-            label: label
-          });
+        // Skip excluded department codes (placeholders and special values)
+        // See EXCLUDED_DEPT_CODES constant for the list of excluded values
+        if (value && value.trim() !== '') {
+          const upperValue = value.trim().toUpperCase();
+          if (!EXCLUDED_DEPT_CODES.some(excluded => upperValue === excluded.toUpperCase())) {
+            departments.push({
+              value: value.trim(),
+              label: label
+            });
+          }
         }
       });
 
