@@ -27,10 +27,25 @@ const RETRY_CONFIG = {
 
 // Scrape behavior configuration for batched concurrent department scraping
 // Optimized for performance while remaining polite to AISIS server
-const SCRAPE_CONFIG = {
+// Can be overridden via environment variables for fast mode or custom tuning
+const DEFAULT_SCRAPE_CONFIG = {
   CONCURRENCY: 8,        // Number of departments to scrape in parallel per batch (increased from 5)
   BATCH_DELAY_MS: 500    // Delay in milliseconds between batches (reduced from 750ms)
 };
+
+// Get scrape configuration from environment variables or defaults
+function getScrapeConfig() {
+  const concurrencyEnv = parseInt(process.env.AISIS_CONCURRENCY, 10);
+  const concurrency = isNaN(concurrencyEnv) ? DEFAULT_SCRAPE_CONFIG.CONCURRENCY : concurrencyEnv;
+  
+  const batchDelayEnv = parseInt(process.env.AISIS_BATCH_DELAY_MS, 10);
+  const batchDelayMs = isNaN(batchDelayEnv) ? DEFAULT_SCRAPE_CONFIG.BATCH_DELAY_MS : batchDelayEnv;
+  
+  return {
+    CONCURRENCY: Math.max(1, Math.min(concurrency, 20)), // Clamp between 1 and 20
+    BATCH_DELAY_MS: Math.max(0, Math.min(batchDelayMs, 5000)) // Clamp between 0 and 5000ms
+  };
+}
 
 // Department codes to exclude when parsing available departments from AISIS
 // These are placeholder/special values that should not be scraped as departments
@@ -415,7 +430,23 @@ export class AISISScraper {
     // Helper function for formatting time
     const formatTime = (ms) => `${(ms / 1000).toFixed(1)}s`;
 
-    // Auto-detect term if not provided
+    // Check for FAST_MODE and custom configuration
+    const fastMode = process.env.FAST_MODE === 'true';
+    const SCRAPE_CONFIG = getScrapeConfig();
+    
+    // Log active configuration
+    if (fastMode || process.env.AISIS_CONCURRENCY || process.env.AISIS_BATCH_DELAY_MS) {
+      console.log('\n⚡ Custom scraping configuration active:');
+      if (fastMode) console.log('   🚀 FAST_MODE enabled');
+      if (process.env.AISIS_CONCURRENCY) {
+        console.log(`   📊 AISIS_CONCURRENCY: ${SCRAPE_CONFIG.CONCURRENCY} (default: ${DEFAULT_SCRAPE_CONFIG.CONCURRENCY})`);
+      }
+      if (process.env.AISIS_BATCH_DELAY_MS) {
+        console.log(`   ⏱  AISIS_BATCH_DELAY_MS: ${SCRAPE_CONFIG.BATCH_DELAY_MS}ms (default: ${DEFAULT_SCRAPE_CONFIG.BATCH_DELAY_MS}ms)`);
+      }
+    }
+
+    // Auto-detect term if not provided (skip in FAST_MODE if term is provided)
     const termDetectStart = Date.now();
     if (!term) {
       term = await this._detectCurrentTerm();
@@ -447,7 +478,25 @@ export class AISISScraper {
     const availableDeptSet = new Set(availableDepartments.map(d => d.value));
     
     // Use canonical DEPARTMENTS list as the authoritative set to scrape
-    const departments = DEPARTMENTS;
+    // Filter by AISIS_DEPARTMENTS env var if provided (for local/dev runs)
+    let departments = DEPARTMENTS;
+    if (process.env.AISIS_DEPARTMENTS) {
+      const requestedDepts = process.env.AISIS_DEPARTMENTS.split(',').map(d => d.trim()).filter(d => d);
+      const validDepts = requestedDepts.filter(d => DEPARTMENTS.includes(d));
+      const invalidDepts = requestedDepts.filter(d => !DEPARTMENTS.includes(d));
+      
+      if (invalidDepts.length > 0) {
+        console.warn(`   ⚠️  Invalid departments in AISIS_DEPARTMENTS (not in canonical list): ${invalidDepts.join(', ')}`);
+      }
+      
+      if (validDepts.length > 0) {
+        departments = validDepts;
+        console.log(`   🎯 AISIS_DEPARTMENTS filter active: scraping ${departments.length} of ${DEPARTMENTS.length} departments`);
+        console.log(`      Departments: ${departments.join(', ')}`);
+      } else {
+        console.warn(`   ⚠️  No valid departments in AISIS_DEPARTMENTS - using all canonical departments`);
+      }
+    }
 
     const allCourses = [];
     
@@ -464,42 +513,15 @@ export class AISISScraper {
       }
     }
     
-    // Test with just 1 department first to verify session and term
-    console.log('   🧪 Testing with first department...');
-    const testDeptStart = Date.now();
-    const testDept = departments[0];
-    
-    try {
-      const testCourses = await this._scrapeDepartment(term, testDept);
-      const testDeptTime = Date.now() - testDeptStart;
-      console.log(`   ⏱  Test department: ${formatTime(testDeptTime)}`);
+    // In FAST_MODE, skip the test department pass and go straight to batched scraping
+    if (fastMode) {
+      console.log('   ⚡ FAST_MODE: Skipping test department pass, proceeding directly to batch scraping');
       
-      if (testCourses && testCourses.length > 0) {
-        console.log(`   ✅ Test successful: ${testCourses.length} courses found in ${testDept}`);
-        allCourses.push(...testCourses);
-        departmentStatus[testDept] = {
-          status: 'success',
-          row_count: testCourses.length,
-          error: null
-        };
-      } else {
-        // 0 courses is valid (no offerings or explicit no-results)
-        // Detailed logging already happened in _scrapeDepartment
-        console.log(`   ✅ Test successful: ${testDept} has no courses for this term`);
-        departmentStatus[testDept] = {
-          status: 'success_empty',
-          row_count: 0,
-          error: null
-        };
-      }
+      // Process all departments using batched concurrent scraping
+      const totalBatches = Math.ceil(departments.length / SCRAPE_CONFIG.CONCURRENCY);
       
-      // Continue with remaining departments using batched concurrent scraping
-      const remainingDepts = departments.slice(1);
-      const totalBatches = Math.ceil(remainingDepts.length / SCRAPE_CONFIG.CONCURRENCY);
-      
-      // Split remaining departments into batches for concurrent processing
-      for (let i = 0; i < remainingDepts.length; i += SCRAPE_CONFIG.CONCURRENCY) {
-        const batch = remainingDepts.slice(i, i + SCRAPE_CONFIG.CONCURRENCY);
+      for (let i = 0; i < departments.length; i += SCRAPE_CONFIG.CONCURRENCY) {
+        const batch = departments.slice(i, i + SCRAPE_CONFIG.CONCURRENCY);
         const batchNum = Math.floor(i / SCRAPE_CONFIG.CONCURRENCY) + 1;
         
         console.log(`   📦 Processing batch ${batchNum}/${totalBatches} (${batch.join(', ')})...`);
@@ -570,17 +592,129 @@ export class AISISScraper {
         console.log(`   ⏱  Batch ${batchNum}: ${formatTime(batchTime)}`);
         
         // Add delay between batches (but not after the last batch)
-        if (i + SCRAPE_CONFIG.CONCURRENCY < remainingDepts.length) {
+        if (i + SCRAPE_CONFIG.CONCURRENCY < departments.length && SCRAPE_CONFIG.BATCH_DELAY_MS > 0) {
           await this._delay(SCRAPE_CONFIG.BATCH_DELAY_MS);
         }
       }
-    } catch (error) {
-      console.error(`   💥 Test failed for ${testDept}:`, error.message);
-      departmentStatus[testDept] = {
-        status: 'failed',
-        row_count: 0,
-        error: error.message
-      };
+    } else {
+      // Standard mode: Test with just 1 department first to verify session and term
+      console.log('   🧪 Testing with first department...');
+      const testDeptStart = Date.now();
+      const testDept = departments[0];
+    
+      try {
+        const testCourses = await this._scrapeDepartment(term, testDept);
+        const testDeptTime = Date.now() - testDeptStart;
+        console.log(`   ⏱  Test department: ${formatTime(testDeptTime)}`);
+        
+        if (testCourses && testCourses.length > 0) {
+          console.log(`   ✅ Test successful: ${testCourses.length} courses found in ${testDept}`);
+          allCourses.push(...testCourses);
+          departmentStatus[testDept] = {
+            status: 'success',
+            row_count: testCourses.length,
+            error: null
+          };
+        } else {
+          // 0 courses is valid (no offerings or explicit no-results)
+          // Detailed logging already happened in _scrapeDepartment
+          console.log(`   ✅ Test successful: ${testDept} has no courses for this term`);
+          departmentStatus[testDept] = {
+            status: 'success_empty',
+            row_count: 0,
+            error: null
+          };
+        }
+        
+        // Continue with remaining departments using batched concurrent scraping
+        const remainingDepts = departments.slice(1);
+        const totalBatches = Math.ceil(remainingDepts.length / SCRAPE_CONFIG.CONCURRENCY);
+        
+        // Split remaining departments into batches for concurrent processing
+        for (let i = 0; i < remainingDepts.length; i += SCRAPE_CONFIG.CONCURRENCY) {
+          const batch = remainingDepts.slice(i, i + SCRAPE_CONFIG.CONCURRENCY);
+          const batchNum = Math.floor(i / SCRAPE_CONFIG.CONCURRENCY) + 1;
+          
+          console.log(`   📦 Processing batch ${batchNum}/${totalBatches} (${batch.join(', ')})...`);
+          const batchStart = Date.now();
+          
+          // Scrape all departments in this batch concurrently with retry tracking
+          const batchPromises = batch.map(async (dept) => {
+            console.log(`   📚 Scraping ${dept}...`);
+            
+            // Retry failed departments up to MAX_DEPT_RETRIES times
+            const MAX_DEPT_RETRIES = 2;
+            let lastError = null;
+            
+            for (let attempt = 0; attempt <= MAX_DEPT_RETRIES; attempt++) {
+              try {
+                const courses = await this._scrapeDepartment(term, dept);
+                
+                if (courses && courses.length > 0) {
+                  console.log(`   ✅ ${dept}: ${courses.length} courses`);
+                  departmentStatus[dept] = {
+                    status: 'success',
+                    row_count: courses.length,
+                    error: null,
+                    attempts: attempt + 1
+                  };
+                  return courses;
+                } else {
+                  // 0 courses returned - this is valid (no offerings or explicit no-results)
+                  // Detailed logging already happened in _scrapeDepartment
+                  departmentStatus[dept] = {
+                    status: 'success_empty',
+                    row_count: 0,
+                    error: null,
+                    attempts: attempt + 1
+                  };
+                  return [];
+                }
+              } catch (error) {
+                lastError = error;
+                if (attempt < MAX_DEPT_RETRIES) {
+                  const backoffMs = 1000 * Math.pow(2, attempt);
+                  console.log(`   ⚠️  ${dept}: Retry ${attempt + 1}/${MAX_DEPT_RETRIES} after ${backoffMs}ms - ${error.message}`);
+                  await this._delay(backoffMs);
+                } else {
+                  console.error(`   ❌ ${dept}: Failed after ${MAX_DEPT_RETRIES + 1} attempts - ${error.message}`);
+                  departmentStatus[dept] = {
+                    status: 'failed',
+                    row_count: 0,
+                    error: error.message,
+                    attempts: attempt + 1
+                  };
+                }
+              }
+            }
+            
+            return [];
+          });
+          
+          // Wait for all departments in this batch to complete
+          const batchResults = await Promise.all(batchPromises);
+          
+          // Flatten and add all courses from this batch
+          for (const courses of batchResults) {
+            allCourses.push(...courses);
+          }
+          
+          const batchTime = Date.now() - batchStart;
+          console.log(`   ⏱  Batch ${batchNum}: ${formatTime(batchTime)}`);
+          
+          // Add delay between batches (but not after the last batch)
+          if (i + SCRAPE_CONFIG.CONCURRENCY < remainingDepts.length && SCRAPE_CONFIG.BATCH_DELAY_MS > 0) {
+            await this._delay(SCRAPE_CONFIG.BATCH_DELAY_MS);
+          }
+        }
+      } catch (error) {
+        console.error(`   💥 Test failed for ${testDept}:`, error.message);
+        departmentStatus[testDept] = {
+          status: 'failed',
+          row_count: 0,
+          error: error.message
+        };
+      }
     }
 
     // Generate summary and save to logs
@@ -910,6 +1044,12 @@ export class AISISScraper {
    * Uses the J_VOFC.do endpoint discovered through HAR file analysis.
    * This is an EXPERIMENTAL feature that depends on AISIS UI structure.
    * 
+   * Supports filtering and limiting via environment variables:
+   * - CURRICULUM_LIMIT: Take first N degree codes (e.g., "10" for first 10 programs)
+   * - CURRICULUM_SAMPLE: Select specific degree codes (e.g., "BS CS_2024_1,BS ME_2023_1")
+   * - CURRICULUM_DELAY_MS: Delay between requests (default: 500ms, 0 for fast mode)
+   * - CURRICULUM_CONCURRENCY: Number of programs to scrape in parallel (default: 1, max: 5)
+   * 
    * Workflow:
    * 1. GET J_VOFC.do to retrieve list of curriculum versions (degCode dropdown)
    * 2. For each degCode, POST to J_VOFC.do to fetch curriculum HTML
@@ -929,11 +1069,88 @@ export class AISISScraper {
     console.log('   ⚠️ NOTE: Curriculum scraping is EXPERIMENTAL and UI-dependent');
     console.log('   This feature may break if AISIS changes the J_VOFC.do page structure.\n');
 
-    // Get list of all degree programs
-    const degreePrograms = await this.getDegreePrograms();
+    // Parse environment variables for curriculum scraping control
+    const curriculumLimitEnv = parseInt(process.env.CURRICULUM_LIMIT, 10);
+    const curriculumLimit = isNaN(curriculumLimitEnv) ? null : curriculumLimitEnv;
+    
+    const curriculumSample = process.env.CURRICULUM_SAMPLE 
+      ? process.env.CURRICULUM_SAMPLE.split(',').map(s => s.trim()).filter(s => s)
+      : null;
+    
+    // PERFORMANCE FIX: Reduce default delay from 500ms to 100ms for better performance
+    // Fast mode sets delay to 0ms for maximum speed
+    const defaultCurriculumDelay = fastMode ? 0 : 100;  // Changed from 500ms to 100ms
+    const curriculumDelayEnv = parseInt(process.env.CURRICULUM_DELAY_MS, 10);
+    const curriculumDelayMs = isNaN(curriculumDelayEnv) 
+      ? defaultCurriculumDelay 
+      : Math.max(0, curriculumDelayEnv);
+    
+    // PERFORMANCE FIX: Enable concurrency by default (2 programs in parallel)
+    // This significantly improves scraping speed without being too aggressive
+    const defaultCurriculumConcurrency = 2;  // Changed from 1 to 2
+    const curriculumConcurrencyEnv = parseInt(process.env.CURRICULUM_CONCURRENCY, 10);
+    const curriculumConcurrency = isNaN(curriculumConcurrencyEnv) 
+      ? defaultCurriculumConcurrency 
+      : Math.max(1, Math.min(curriculumConcurrencyEnv, 5));
+    
+    const fastMode = process.env.FAST_MODE === 'true';
+    
+    // Log active configuration
+    // Always show configuration since we now have improved defaults
+    console.log('⚡ Curriculum scraping configuration:');
+    if (fastMode) console.log('   🚀 FAST_MODE enabled');
+    if (curriculumLimit) console.log(`   🔢 CURRICULUM_LIMIT: ${curriculumLimit}`);
+    if (curriculumSample) console.log(`   🎯 CURRICULUM_SAMPLE: ${curriculumSample.length} specific programs`);
+    
+    // Show delay configuration
+    if (process.env.CURRICULUM_DELAY_MS !== undefined) {
+      console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (override, old default was 500ms)`);
+    } else if (fastMode) {
+      console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (FAST_MODE, old default was 500ms)`);
+    } else {
+      console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (NEW improved default, was 500ms)`);
+    }
+    
+    // Show concurrency configuration
+    if (process.env.CURRICULUM_CONCURRENCY !== undefined) {
+      console.log(`   📊 CURRICULUM_CONCURRENCY: ${curriculumConcurrency} (override, old default was 1)`);
+    } else {
+      console.log(`   📊 CURRICULUM_CONCURRENCY: ${curriculumConcurrency} (NEW improved default, was 1 - parallel scraping enabled!)`);
+    }
+    console.log('');
 
-    if (degreePrograms.length === 0) {
+    // Get list of all degree programs
+    const allDegreePrograms = await this.getDegreePrograms();
+
+    if (allDegreePrograms.length === 0) {
       console.warn('   ⚠️ No curriculum versions found - returning empty array');
+      return [];
+    }
+
+    // Filter degree programs based on environment variables
+    let degreePrograms = allDegreePrograms;
+    
+    // Apply sampling filter first (most specific)
+    if (curriculumSample && curriculumSample.length > 0) {
+      const sampleSet = new Set(curriculumSample);
+      degreePrograms = allDegreePrograms.filter(p => sampleSet.has(p.degCode));
+      
+      const notFound = curriculumSample.filter(code => !allDegreePrograms.some(p => p.degCode === code));
+      if (notFound.length > 0) {
+        console.warn(`   ⚠️ CURRICULUM_SAMPLE: ${notFound.length} requested codes not found in AISIS:`);
+        console.warn(`      ${notFound.join(', ')}`);
+      }
+      
+      console.log(`   🎯 Filtered to ${degreePrograms.length} programs via CURRICULUM_SAMPLE`);
+    }
+    // Apply limit filter (less specific)
+    else if (curriculumLimit && curriculumLimit > 0) {
+      degreePrograms = allDegreePrograms.slice(0, curriculumLimit);
+      console.log(`   🔢 Limited to first ${degreePrograms.length} programs via CURRICULUM_LIMIT`);
+    }
+    
+    if (degreePrograms.length === 0) {
+      console.warn('   ⚠️ No programs match filters - returning empty array');
       return [];
     }
 
@@ -941,43 +1158,132 @@ export class AISISScraper {
     let successCount = 0;
     let failureCount = 0;
 
-    console.log(`   📖 Processing ${degreePrograms.length} curriculum versions...\n`);
+    console.log(`   📖 Processing ${degreePrograms.length} of ${allDegreePrograms.length} curriculum versions...\n`);
 
-    // Scrape each degree program
-    for (let i = 0; i < degreePrograms.length; i++) {
-      const { degCode, label } = degreePrograms[i];
-      console.log(`   [${i + 1}/${degreePrograms.length}] Scraping ${degCode} (${label})...`);
+    // Track progress for ETA calculation
+    const startTime = Date.now();
+    let lastProgressLog = startTime;
+    const PROGRESS_LOG_INTERVAL_MS = 30000; // Log progress every 30 seconds
 
-      try {
-        const html = await this._scrapeDegree(degCode);
-        const rawText = this._flattenCurriculumHtmlToText(html);
+    // Helper function to log progress with ETA
+    const logProgress = (index, total, force = false) => {
+      const now = Date.now();
+      if (!force && now - lastProgressLog < PROGRESS_LOG_INTERVAL_MS) return;
+      
+      lastProgressLog = now;
+      const elapsed = now - startTime;
+      const rate = index / elapsed; // programs per ms
+      const remaining = total - index;
+      const etaMs = remaining / rate;
+      const etaSec = Math.round(etaMs / 1000);
+      
+      console.log(`   📊 Progress: ${index}/${total} (${Math.round(index/total*100)}%) - ETA: ${etaSec}s`);
+    };
 
-        allCurricula.push({
-          degCode,
-          label,
-          html,          // Include HTML for structured parsing
-          raw_text: rawText
-        });
+    // Scrape degree programs with configurable concurrency
+    if (curriculumConcurrency === 1) {
+      // Sequential scraping (original behavior)
+      for (let i = 0; i < degreePrograms.length; i++) {
+        const { degCode, label } = degreePrograms[i];
+        console.log(`   [${i + 1}/${degreePrograms.length}] Scraping ${degCode} (${label})...`);
 
-        successCount++;
-        console.log(`   ✅ ${degCode}: ${html.length} characters HTML, ${rawText.length} characters text`);
+        try {
+          const html = await this._scrapeDegree(degCode);
+          const rawText = this._flattenCurriculumHtmlToText(html);
 
-        // Polite delay between requests
-        if (i < degreePrograms.length - 1) {
-          await this._delay(500);
+          allCurricula.push({
+            degCode,
+            label,
+            html,          // Include HTML for structured parsing
+            raw_text: rawText
+          });
+
+          successCount++;
+          console.log(`   ✅ ${degCode}: ${html.length} characters HTML, ${rawText.length} characters text`);
+
+          // Log periodic progress
+          logProgress(i + 1, degreePrograms.length);
+
+          // Polite delay between requests
+          if (i < degreePrograms.length - 1 && curriculumDelayMs > 0) {
+            await this._delay(curriculumDelayMs);
+          }
+
+        } catch (error) {
+          failureCount++;
+          console.error(`   ❌ ${degCode}: ${error.message}`);
+          // Continue with next curriculum instead of failing entirely
         }
-
-      } catch (error) {
-        failureCount++;
-        console.error(`   ❌ ${degCode}: ${error.message}`);
-        // Continue with next curriculum instead of failing entirely
+      }
+    } else {
+      // Concurrent scraping (new behavior)
+      console.log(`   ⚡ Using concurrent scraping with concurrency ${curriculumConcurrency}`);
+      
+      for (let i = 0; i < degreePrograms.length; i += curriculumConcurrency) {
+        const batch = degreePrograms.slice(i, i + curriculumConcurrency);
+        const batchNum = Math.floor(i / curriculumConcurrency) + 1;
+        const totalBatches = Math.ceil(degreePrograms.length / curriculumConcurrency);
+        
+        console.log(`   📦 Batch ${batchNum}/${totalBatches} (${batch.map(p => p.degCode).join(', ')})...`);
+        
+        const batchPromises = batch.map(async ({ degCode, label }, batchIndex) => {
+          const globalIndex = i + batchIndex;
+          try {
+            const html = await this._scrapeDegree(degCode);
+            const rawText = this._flattenCurriculumHtmlToText(html);
+            
+            console.log(`   ✅ [${globalIndex + 1}/${degreePrograms.length}] ${degCode}: ${html.length} chars HTML`);
+            
+            return {
+              success: true,
+              data: {
+                degCode,
+                label,
+                html,
+                raw_text: rawText
+              }
+            };
+          } catch (error) {
+            console.error(`   ❌ [${globalIndex + 1}/${degreePrograms.length}] ${degCode}: ${error.message}`);
+            return {
+              success: false,
+              error: error.message
+            };
+          }
+        });
+        
+        const batchResults = await Promise.all(batchPromises);
+        
+        // Process results
+        for (const result of batchResults) {
+          if (result.success) {
+            allCurricula.push(result.data);
+            successCount++;
+          } else {
+            failureCount++;
+          }
+        }
+        
+        // Log periodic progress
+        logProgress(i + batch.length, degreePrograms.length);
+        
+        // Delay between batches (but not after the last batch)
+        if (i + curriculumConcurrency < degreePrograms.length && curriculumDelayMs > 0) {
+          await this._delay(curriculumDelayMs);
+        }
       }
     }
 
+    // Force final progress log
+    logProgress(degreePrograms.length, degreePrograms.length, true);
+
     console.log(`\n   📊 Curriculum Scraping Summary:`);
-    console.log(`      Total versions: ${degreePrograms.length}`);
+    console.log(`      Total available: ${allDegreePrograms.length}`);
+    console.log(`      Requested: ${degreePrograms.length}`);
     console.log(`      Successful: ${successCount}`);
     console.log(`      Failed: ${failureCount}`);
+    const totalTime = Date.now() - startTime;
+    console.log(`      Total time: ${(totalTime / 1000).toFixed(1)}s`);
     console.log(`   📚 Total curriculum versions scraped: ${allCurricula.length}\n`);
 
     return allCurricula;
