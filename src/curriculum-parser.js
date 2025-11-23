@@ -173,25 +173,73 @@ export function isProgramMatch(degCode, label, programTitle) {
   // Pattern: (YYYY-N) at the end of the string
   const labelWithoutVersion = normLabel.replace(/\s*\(\d{4}-\d+\)\s*$/, '').trim();
   
-  // Check 1: Program title contains label text (sans version) or vice versa
-  const labelMatch = normTitle.includes(labelWithoutVersion) || labelWithoutVersion.includes(normTitle);
+  // Also remove "IN" prefix from title if present (e.g., "BACHELOR OF SCIENCE IN COMPUTER SCIENCE")
+  const titleWithoutPrefix = normTitle
+    .replace(/^BACHELOR OF SCIENCE IN /i, 'BS ')
+    .replace(/^BACHELOR OF ARTS IN /i, 'AB ')
+    .replace(/^MASTER OF /i, 'M')
+    .trim();
+  
+  // Check 1: Direct substring match (either direction)
+  const labelMatch = normTitle.includes(labelWithoutVersion) || 
+                     labelWithoutVersion.includes(normTitle) ||
+                     titleWithoutPrefix.includes(labelWithoutVersion) ||
+                     labelWithoutVersion.includes(titleWithoutPrefix);
   
   // Check 2: Program title contains base program code
-  const baseCodeMatch = normTitle.includes(baseCode);
+  const baseCodeMatch = normTitle.includes(baseCode) || titleWithoutPrefix.includes(baseCode);
   
   // Check 3: Look for significant word overlap between label and title
-  // Extract significant words (3+ chars) from both
-  const labelWords = labelWithoutVersion.split(/\s+/).filter(w => w.length >= 3);
-  const titleWords = normTitle.split(/\s+/).filter(w => w.length >= 3);
+  // Extract significant words (3+ chars) from both, excluding common words and parentheses
+  const commonWords = new Set(['THE', 'AND', 'FOR', 'WITH', 'FROM']);
+  const labelWords = labelWithoutVersion
+    .replace(/[()]/g, ' ')  // Remove parentheses
+    .split(/\s+/)
+    .filter(w => w.length >= 3 && !commonWords.has(w));
+  const titleWords = normTitle
+    .replace(/[()]/g, ' ')  // Remove parentheses
+    .split(/\s+/)
+    .filter(w => w.length >= 3 && !commonWords.has(w));
   
   // Count overlapping significant words
   const overlappingWords = labelWords.filter(word => titleWords.includes(word));
   const overlapRatio = overlappingWords.length / Math.max(labelWords.length, 1);
   
+  // Check 4: Check for program code abbreviation components in title
+  // e.g., "MGT-H" should match if title contains both "MANAGEMENT" and "HONORS"
+  // Split base code by hyphens and spaces to get individual components
+  const codeComponents = baseCode.split(/[-\s]+/).filter(w => w.length >= 2);
+  
+  // For each code component, check if it's a common abbreviation
+  const abbreviationMap = {
+    'MGT': 'MANAGEMENT',
+    'ME': 'MECHANICAL',
+    'CS': 'COMPUTER',
+    'DS': 'DEVELOPMENT',
+    'AM': 'APPLIED MATHEMATICS',
+    'H': 'HONORS'  // Single letter codes like H for Honors
+  };
+  
+  // Check if the title contains the expanded form of each code component
+  let codeComponentsFound = 0;
+  for (const component of codeComponents) {
+    const expanded = abbreviationMap[component] || component;
+    // Check if title contains this component or its expansion
+    if (normTitle.includes(component) || normTitle.includes(expanded)) {
+      codeComponentsFound++;
+    }
+  }
+  const codeComponentRatio = codeComponentsFound / Math.max(codeComponents.length, 1);
+  
   // Consider it a match if:
-  // - Label matches title OR
-  // - Base code is in title AND there's reasonable word overlap (50%+)
-  const isMatch = labelMatch || (baseCodeMatch && overlapRatio >= 0.5);
+  // - Direct label match OR
+  // - Base code is in title AND reasonable word overlap (40%+) OR
+  // - Very high word overlap (70%+) even without base code OR
+  // - Most code components found (80%+) and some general word overlap (40%+)
+  const isMatch = labelMatch || 
+                  (baseCodeMatch && overlapRatio >= 0.4) ||
+                  (overlapRatio >= 0.7) ||
+                  (codeComponentRatio >= 0.8 && overlapRatio >= 0.4);
   
   return isMatch;
 }
