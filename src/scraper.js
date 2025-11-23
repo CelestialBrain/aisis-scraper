@@ -1124,7 +1124,7 @@ export class AISISScraper {
     
     // Show concurrency configuration
     if (process.env.CURRICULUM_CONCURRENCY !== undefined) {
-      console.log(`   📊 CURRICULUM_CONCURRENCY: ${curriculumConcurrency} (override, old default was 1, max is now 10)`);
+      console.log(`   📊 CURRICULUM_CONCURRENCY: ${curriculumConcurrency} (override, old default was 1, max increased from 5 to 10)`);
     } else {
       console.log(`   📊 CURRICULUM_CONCURRENCY: ${curriculumConcurrency} (NEW improved default, was 1 - parallel scraping enabled!)`);
     }
