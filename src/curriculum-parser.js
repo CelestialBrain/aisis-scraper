@@ -87,14 +87,16 @@ function parseUnits(text) {
  * @returns {string|null} Program title or null if not found
  */
 function extractProgramTitle($) {
-  // Try various header selectors
+  // Try various header selectors in priority order
+  // More specific selectors (like td.header06) are tried first
+  // Generic fallback selector (table:first tr:first td:first) is tried last
   const headerSelectors = [
-    'td.header06',
-    'div.pageHeader',
-    'table:first tr:first td:first',
-    'td.header',
-    'h1',
-    'h2'
+    'td.header06',      // AISIS curriculum page header (most common)
+    'div.pageHeader',   // Alternative page header
+    'td.header',        // Generic header cell
+    'h1',               // Standard HTML heading
+    'h2',               // Standard HTML heading
+    'table:first tr:first td:first'  // Generic fallback (least specific, tried last)
   ];
   
   for (const selector of headerSelectors) {
@@ -102,7 +104,16 @@ function extractProgramTitle($) {
     if (element.length > 0) {
       const text = element.text().trim();
       // Only accept if it looks like a program title (not too short, not too long)
+      // Also exclude text that looks like year headers (e.g., "First Year", "Second Year")
       if (text && text.length > 5 && text.length < 200) {
+        // Skip if it looks like a year level header
+        if (parseYearLevel(text) !== null) {
+          continue;
+        }
+        // Skip if it looks like a semester header
+        if (parseSemester(text) !== null) {
+          continue;
+        }
         return text;
       }
     }

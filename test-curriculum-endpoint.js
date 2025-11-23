@@ -79,6 +79,7 @@ async function testCurriculumEndpoint() {
         const sample = parsedRows[0];
         console.log(`   deg_code: ${sample.deg_code}`);
         console.log(`   program_label: ${sample.program_label}`);
+        console.log(`   program_title: ${sample.program_title}`); // Added program_title
         console.log(`   year_level: ${sample.year_level}`);
         console.log(`   semester: ${sample.semester}`);
         console.log(`   course_code: ${sample.course_code}`);
@@ -86,6 +87,13 @@ async function testCurriculumEndpoint() {
         console.log(`   units: ${sample.units}`);
         console.log(`   prerequisites: ${sample.prerequisites}`);
         console.log(`   category: ${sample.category}`);
+        
+        // Verify program_title is non-empty
+        if (!sample.program_title || sample.program_title.trim() === '') {
+          console.warn('\n   ⚠️  Warning: program_title is empty! Parser may need adjustment.');
+        } else {
+          console.log(`\n   ✅ program_title extracted successfully`);
+        }
       } else {
         console.warn('\n   ⚠️  No courses parsed from HTML - parser may need adjustment');
       }
@@ -144,11 +152,27 @@ async function testCurriculumEndpoint() {
         const row = allRows[0];
         console.log(`   deg_code: ${row.deg_code}`);
         console.log(`   program_label: ${row.program_label}`);
+        console.log(`   program_title: ${row.program_title}`); // Added program_title
         console.log(`   year_level: ${row.year_level}`);
         console.log(`   semester: ${row.semester}`);
         console.log(`   course_code: ${row.course_code}`);
         console.log(`   course_title: ${row.course_title}`);
         console.log(`   units: ${row.units}`);
+        
+        // Test that each program has its own correct program_title
+        const uniquePrograms = [...new Set(allRows.map(r => r.deg_code))];
+        console.log(`\n   Verifying program_title uniqueness across ${uniquePrograms.length} programs...`);
+        for (const degCode of uniquePrograms) {
+          const programRows = allRows.filter(r => r.deg_code === degCode);
+          const programTitles = [...new Set(programRows.map(r => r.program_title))];
+          if (programTitles.length > 1) {
+            console.warn(`   ⚠️  ${degCode} has ${programTitles.length} different program_title values: ${programTitles.join(', ')}`);
+          } else if (programTitles.length === 1 && programTitles[0]) {
+            console.log(`   ✅ ${degCode}: consistent program_title = "${programTitles[0]}"`);
+          } else {
+            console.warn(`   ⚠️  ${degCode} has empty program_title`);
+          }
+        }
       }
       
       console.log('\n   ✅ All tests passed!');

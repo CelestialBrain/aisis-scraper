@@ -73,15 +73,39 @@ async function main() {
     const curriculumData = await scraper.scrapeCurriculum();
 
     if (!fs.existsSync('data')) fs.mkdirSync('data');
+    if (!fs.existsSync('debug')) fs.mkdirSync('debug');
 
     if (curriculumData.length > 0) {
       console.log(`\n💾 Processing ${curriculumData.length} curriculum programs...`);
+      
+      // Debug instrumentation: dump raw HTML for specific degCode before parsing
+      const debugDegCode = process.env.DEBUG_DEGCODE || 'BS MGT-H_2025_1';
+      const debugProgram = curriculumData.find(p => p.degCode === debugDegCode);
+      if (debugProgram) {
+        console.log(`   🐛 Debug: Found ${debugDegCode} in scraped data, saving raw HTML...`);
+        fs.writeFileSync(`debug/${debugDegCode.replace(/[/\\:*?"<>|]/g, '_')}-raw.html`, debugProgram.html || '');
+        fs.writeFileSync(`debug/${debugDegCode.replace(/[/\\:*?"<>|]/g, '_')}-raw.json`, JSON.stringify(debugProgram, null, 2));
+        console.log(`   ✅ Debug: Saved ${debugDegCode} raw HTML and JSON to debug/`);
+      } else if (process.env.DEBUG_DEGCODE) {
+        console.log(`   ⚠️  Debug: ${debugDegCode} not found in scraped data`);
+      }
       
       // Parse curriculum HTML into structured course rows
       console.log('   🔍 Parsing curriculum HTML into structured course rows...');
       const { programs, allRows } = parseAllCurricula(curriculumData);
       
       console.log(`   ✅ Parsed ${programs.length} programs into ${allRows.length} course rows`);
+      
+      // Debug instrumentation: dump parsed rows for specific degCode after parsing
+      if (debugProgram) {
+        const debugRows = allRows.filter(row => row.deg_code === debugDegCode);
+        console.log(`   🐛 Debug: Found ${debugRows.length} parsed rows for ${debugDegCode}, saving...`);
+        fs.writeFileSync(`debug/${debugDegCode.replace(/[/\\:*?"<>|]/g, '_')}-rows.json`, JSON.stringify(debugRows, null, 2));
+        if (debugRows.length > 0) {
+          console.log(`   🐛 Debug: Sample row program_title: "${debugRows[0].program_title}"`);
+        }
+        console.log(`   ✅ Debug: Saved ${debugDegCode} parsed rows to debug/`);
+      }
       
       // 1. Local backup - save both detailed programs and flattened rows
       const curriculumOutput = {
@@ -106,6 +130,7 @@ async function main() {
         const transformedRows = allRows.map(row => ({
           degree_code: row.deg_code,
           program_label: row.program_label,
+          program_title: row.program_title,
           year_level: row.year_level,
           semester: row.semester,
           course_code: row.course_code,
