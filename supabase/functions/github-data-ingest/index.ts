@@ -199,7 +199,7 @@ async function upsertSchedulesInBatches(
   }
 
   // Optional: Delete existing records for this term/department if replace_existing is true
-  if (metadata?.replace_existing === true && metadata?.term_code && metadata?.department) {
+  if (metadata?.replace_existing && metadata?.term_code && metadata?.department) {
     console.log(`Replacing existing records for term=${metadata.term_code}, department=${metadata.department}`);
     try {
       const { error: deleteError } = await supabase

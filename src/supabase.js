@@ -315,8 +315,10 @@ export class SupabaseManager {
 
   transformScheduleData(scheduleItems) {
     const transformed = [];
-    const invalidRecords = [];
-    const headerRecords = [];
+    const invalidRecordSamples = [];
+    const headerRecordSamples = [];
+    let totalHeadersFiltered = 0;
+    let totalInvalidFiltered = 0;
     
     for (const item of scheduleItems) {
       // Transform first
@@ -345,8 +347,9 @@ export class SupabaseManager {
       
       // Check for header/placeholder rows
       if (isHeaderLikeRecord(record)) {
-        if (headerRecords.length < SAMPLE_INVALID_RECORDS_COUNT) {
-          headerRecords.push({
+        totalHeadersFiltered++;
+        if (headerRecordSamples.length < SAMPLE_INVALID_RECORDS_COUNT) {
+          headerRecordSamples.push({
             subject_code: record.subject_code,
             section: record.section,
             course_title: record.course_title
@@ -357,8 +360,9 @@ export class SupabaseManager {
       
       // Validate required fields
       if (!validateScheduleRecord(record)) {
-        if (invalidRecords.length < SAMPLE_INVALID_RECORDS_COUNT) {
-          invalidRecords.push({
+        totalInvalidFiltered++;
+        if (invalidRecordSamples.length < SAMPLE_INVALID_RECORDS_COUNT) {
+          invalidRecordSamples.push({
             subject_code: record.subject_code,
             section: record.section,
             department: record.department,
@@ -373,16 +377,18 @@ export class SupabaseManager {
     }
     
     // Log validation results if any records were filtered
-    if (headerRecords.length > 0) {
-      console.log(`   ℹ️  Filtered ${headerRecords.length} header/placeholder record(s)`);
-      if (process.env.DEBUG_SCRAPER === 'true') {
-        console.log(`   🔍 Sample header records:`, headerRecords);
+    if (totalHeadersFiltered > 0) {
+      console.log(`   ℹ️  Filtered ${totalHeadersFiltered} header/placeholder record(s)`);
+      if (process.env.DEBUG_SCRAPER === 'true' && headerRecordSamples.length > 0) {
+        console.log(`   🔍 Sample header records (showing ${headerRecordSamples.length}):`, headerRecordSamples);
       }
     }
     
-    if (invalidRecords.length > 0) {
-      console.log(`   ⚠️  Filtered ${invalidRecords.length} invalid record(s) (missing required fields)`);
-      console.log(`   📋 Sample invalid records:`, invalidRecords);
+    if (totalInvalidFiltered > 0) {
+      console.log(`   ⚠️  Filtered ${totalInvalidFiltered} invalid record(s) (missing required fields)`);
+      if (invalidRecordSamples.length > 0) {
+        console.log(`   📋 Sample invalid records (showing ${invalidRecordSamples.length}):`, invalidRecordSamples);
+      }
     }
     
     return transformed;
