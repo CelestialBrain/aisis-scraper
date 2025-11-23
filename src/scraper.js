@@ -19,6 +19,9 @@ const LOGIN_FAILURE_MARKERS = [
   'login.do'
 ];
 
+// AISIS system error page marker
+const AISIS_ERROR_PAGE_MARKER = 'Your Request Cannot Be Processed At This Time';
+
 // Retry configuration for HTTP errors
 const RETRY_CONFIG = {
   MAX_RETRIES: 1,
@@ -1075,7 +1078,7 @@ export class AISISScraper {
         
         // Check for AISIS system error page
         // Note: Using substring match for robustness - the key phrase is unlikely to change
-        const isAisisErrorPage = html.includes('Your Request Cannot Be Processed At This Time');
+        const isAisisErrorPage = html.includes(AISIS_ERROR_PAGE_MARKER);
         
         if (isAisisErrorPage) {
           if (attempt < maxAttempts) {
@@ -1090,7 +1093,7 @@ export class AISISScraper {
             continue;
           } else {
             // All attempts returned error page - mark as unavailable
-            console.error(`   ❌ ${degCode}: AISIS returned system error page ("Your Request Cannot Be Processed At This Time") on all ${maxAttempts} attempts. Marking curriculum as unavailable.`);
+            console.error(`   ❌ ${degCode}: AISIS returned system error page ("${AISIS_ERROR_PAGE_MARKER}") on all ${maxAttempts} attempts. Marking curriculum as unavailable.`);
             throw new Error(`AISIS_ERROR_PAGE:${degCode}`);
           }
         }
