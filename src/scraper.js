@@ -608,20 +608,25 @@ export class AISISScraper {
       // Extract text from each cell, handling <br> tags by replacing them with spaces
       const cellTexts = cells.map((_, cell) => {
         const rawHtml = $(cell).html() || '';
-        const text = rawHtml
-          .replace(/<br\s*\/?>/gi, ' ')
-          .replace(/<[^>]+>/g, '')  // Remove any other HTML tags
-          .replace(/\s+/g, ' ')
-          .trim();
+        // First normalize <br> tags to spaces to preserve line breaks
+        let text = rawHtml.replace(/<br\s*\/?>/gi, ' ');
+        // Then strip all remaining HTML tags completely
+        // Using a more comprehensive approach to handle nested and malformed tags
+        while (/<[^>]+>/.test(text)) {
+          text = text.replace(/<[^>]+>/g, '');
+        }
+        // Finally normalize whitespace
+        text = text.replace(/\s+/g, ' ').trim();
         return text;
       }).get();
       
       // Enhanced time parsing to preserve TBA and special markers
+      // Note: <br> tags already normalized above, now just clean up modality markers
       let timeField = cellTexts[4];
       // Remove modality markers but preserve TBA and (~) for special courses
       timeField = timeField.replace(/\(FULLY ONSITE\)|\(FULLY ONLINE\)/g, '').trim();
       // Preserve (~) marker for special courses but remove empty ()
-      timeField = timeField.replace(/\(\)$/g, '').trim();
+      timeField = timeField.replace(/\(\)\s*$/g, '').trim();
       
       const course = {
         department: deptCode,
