@@ -1068,20 +1068,16 @@ export class AISISScraper {
     // Note: Dynamic import to avoid circular dependencies
     const { extractProgramTitle, isProgramMatch } = await import('./curriculum-parser.js');
     
-    // Track if all attempts resulted in AISIS error page
-    let aisIsErrorPageCount = 0;
-    
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         // Fetch HTML from AISIS
         const html = await this._scrapeDegree(degCode);
         
         // Check for AISIS system error page
+        // Note: Using substring match for robustness - the key phrase is unlikely to change
         const isAisisErrorPage = html.includes('Your Request Cannot Be Processed At This Time');
         
         if (isAisisErrorPage) {
-          aisIsErrorPageCount++;
-          
           if (attempt < maxAttempts) {
             // Retry with exponential backoff
             const backoffMs = 2000 * Math.pow(2, attempt - 1);
