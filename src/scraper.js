@@ -1103,9 +1103,9 @@ export class AISISScraper {
         return html;
         
       } catch (error) {
-        // If error is validation failure, it will be retried above
-        // For other errors (network, etc.), throw immediately
-        if (!error.message.includes('Curriculum HTML mismatch')) {
+        // If error is NOT a validation failure, throw immediately (network errors, etc.)
+        if (!error.message.includes('Curriculum HTML mismatch') && 
+            !error.message.includes('Validation failed')) {
           throw error;
         }
         
@@ -1113,6 +1113,8 @@ export class AISISScraper {
         if (attempt === maxAttempts) {
           throw error;
         }
+        
+        // Otherwise, the validation failure will trigger retry in the next iteration
       }
     }
     

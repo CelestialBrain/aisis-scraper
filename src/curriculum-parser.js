@@ -177,7 +177,8 @@ export function isProgramMatch(degCode, label, programTitle) {
   const titleWithoutPrefix = normTitle
     .replace(/^BACHELOR OF SCIENCE IN /i, 'BS ')
     .replace(/^BACHELOR OF ARTS IN /i, 'AB ')
-    .replace(/^MASTER OF /i, 'M')
+    .replace(/^MASTER OF SCIENCE IN /i, 'MS ')
+    .replace(/^MASTER OF ARTS IN /i, 'MA ')
     .trim();
   
   // Check 1: Direct substring match (either direction)
@@ -211,13 +212,17 @@ export function isProgramMatch(degCode, label, programTitle) {
   const codeComponents = baseCode.split(/[-\s]+/).filter(w => w.length >= 2);
   
   // For each code component, check if it's a common abbreviation
+  // Only include well-known, specific abbreviations to avoid false matches
   const abbreviationMap = {
     'MGT': 'MANAGEMENT',
     'ME': 'MECHANICAL',
     'CS': 'COMPUTER',
     'DS': 'DEVELOPMENT',
     'AM': 'APPLIED MATHEMATICS',
-    'H': 'HONORS'  // Single letter codes like H for Honors
+    'ECE': 'ELECTRONICS',
+    'CTM': 'COMMUNICATIONS',
+    // Note: Single-letter codes like 'H' are intentionally excluded
+    // to prevent false matches. They must appear in the base code itself.
   };
   
   // Check if the title contains the expanded form of each code component

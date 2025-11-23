@@ -138,16 +138,25 @@ export function isProgramMatch(degCode, label, programTitle) {
   // Extract base program code from degCode (e.g., "BS ME" from "BS ME_2025_1")
   // Remove version suffix from label (e.g., "(2025-1)")
   
-  // Check 1: Program title contains label text or vice versa
+  // Check 1: Direct substring match (either direction)
   // Check 2: Program title contains base program code
-  // Check 3: Significant word overlap (50%+) between label and title
+  // Check 3: Significant word overlap between label and title
+  // Check 4: Code component abbreviations (MGT->MANAGEMENT, ME->MECHANICAL, etc.)
   
-  return labelMatch || (baseCodeMatch && overlapRatio >= 0.5);
+  // Match criteria (any one is sufficient):
+  // - Direct label/title match OR
+  // - Base code in title + 40%+ word overlap OR
+  // - 70%+ word overlap (even without base code) OR
+  // - 80%+ code components found + 40%+ word overlap
+  
+  return isMatch;
 }
 ```
 
 **Examples:**
 - ✅ Match: `degCode="BS ME_2025_1"`, `programTitle="BS Mechanical Engineering"` 
+- ✅ Match: `degCode="BS MGT-H_2025_1"`, `programTitle="BS Management - Honors Program"`
+- ✅ Match: `degCode="BS CS_2024_1"`, `programTitle="Bachelor of Science in Computer Science"`
 - ❌ Mismatch: `degCode="BS ME_2025_1"`, `programTitle="BS Management (Honors)"`
 - ❌ Mismatch: `degCode="AB DS_2024_1"`, `programTitle="AB Applied Mathematics"`
 
