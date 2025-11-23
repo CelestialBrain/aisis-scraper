@@ -19,6 +19,9 @@ const LOGIN_FAILURE_MARKERS = [
   'login.do'
 ];
 
+// AISIS system error page marker
+const AISIS_ERROR_PAGE_MARKER = 'Your Request Cannot Be Processed At This Time';
+
 // Retry configuration for HTTP errors
 const RETRY_CONFIG = {
   MAX_RETRIES: 1,
@@ -1073,6 +1076,28 @@ export class AISISScraper {
         // Fetch HTML from AISIS
         const html = await this._scrapeDegree(degCode);
         
+        // Check for AISIS system error page
+        // Note: Using substring match for robustness - the key phrase is unlikely to change
+        const isAisisErrorPage = html.includes(AISIS_ERROR_PAGE_MARKER);
+        
+        if (isAisisErrorPage) {
+          if (attempt < maxAttempts) {
+            // Retry with exponential backoff
+            const backoffMs = 2000 * Math.pow(2, attempt - 1);
+            // Use info level for first attempt, warning for subsequent
+            const logFn = attempt === 1 ? console.log : console.warn;
+            const icon = attempt === 1 ? 'ℹ️' : '⚠️';
+            logFn(`   ${icon} ${degCode} (attempt ${attempt}/${maxAttempts}): AISIS returned system error page`);
+            logFn(`      Retrying after ${backoffMs}ms...`);
+            await this._delay(backoffMs);
+            continue;
+          } else {
+            // All attempts returned error page - mark as unavailable
+            console.error(`   ❌ ${degCode}: AISIS returned system error page ("${AISIS_ERROR_PAGE_MARKER}") on all ${maxAttempts} attempts. Marking curriculum as unavailable.`);
+            throw new Error(`AISIS_ERROR_PAGE:${degCode}`);
+          }
+        }
+        
         // Parse and validate program title
         const $ = cheerio.load(html);
         const programTitle = extractProgramTitle($) || label;
@@ -1084,8 +1109,11 @@ export class AISISScraper {
           if (attempt < maxAttempts) {
             // Retry with exponential backoff
             const backoffMs = 2000 * Math.pow(2, attempt - 1);
-            console.warn(`   ⚠️ ${errorMsg}`);
-            console.warn(`      Retrying after ${backoffMs}ms (AISIS session bleed suspected)...`);
+            // Use info level for first attempt, warning for subsequent
+            const logFn = attempt === 1 ? console.log : console.warn;
+            const icon = attempt === 1 ? 'ℹ️' : '⚠️';
+            logFn(`   ${icon} ${errorMsg}`);
+            logFn(`      Retrying after ${backoffMs}ms (AISIS session bleed suspected)...`);
             await this._delay(backoffMs);
             continue;
           } else {
@@ -1103,6 +1131,11 @@ export class AISISScraper {
         return html;
         
       } catch (error) {
+        // If error is AISIS error page, handle specially
+        if (error.message.startsWith('AISIS_ERROR_PAGE:')) {
+          throw error; // Propagate to mark as unavailable
+        }
+        
         // If error is NOT a validation failure, throw immediately (network errors, etc.)
         if (!error.message.includes('Curriculum HTML mismatch') && 
             !error.message.includes('Validation failed')) {
@@ -1306,8 +1339,20 @@ export class AISISScraper {
           }
 
         } catch (error) {
-          failureCount++;
-          console.error(`   ❌ ${degCode}: ${error.message}`);
+          // Special handling for AISIS error page - mark as unavailable
+          if (error.message.startsWith('AISIS_ERROR_PAGE:')) {
+            allCurricula[i] = {
+              degCode,
+              label,
+              status: 'unavailable',
+              reason: 'aisis_error_page',
+              error: 'AISIS returned system error page on all attempts'
+            };
+            failureCount++;
+          } else {
+            failureCount++;
+            console.error(`   ❌ ${degCode}: ${error.message}`);
+          }
           // Continue with next curriculum instead of failing entirely
         }
       }
@@ -1343,12 +1388,28 @@ export class AISISScraper {
               }
             };
           } catch (error) {
-            console.error(`   ❌ [${globalIndex + 1}/${degreePrograms.length}] ${degCode}: ${error.message}`);
-            return {
-              success: false,
-              globalIndex,
-              error: error.message
-            };
+            // Special handling for AISIS error page
+            if (error.message.startsWith('AISIS_ERROR_PAGE:')) {
+              return {
+                success: false,
+                globalIndex,
+                isUnavailable: true,
+                data: {
+                  degCode,
+                  label,
+                  status: 'unavailable',
+                  reason: 'aisis_error_page',
+                  error: 'AISIS returned system error page on all attempts'
+                }
+              };
+            } else {
+              console.error(`   ❌ [${globalIndex + 1}/${degreePrograms.length}] ${degCode}: ${error.message}`);
+              return {
+                success: false,
+                globalIndex,
+                error: error.message
+              };
+            }
           }
         });
         
@@ -1359,6 +1420,10 @@ export class AISISScraper {
           if (result.success) {
             allCurricula[result.globalIndex] = result.data;
             successCount++;
+          } else if (result.isUnavailable) {
+            // Store unavailable curricula so they're tracked
+            allCurricula[result.globalIndex] = result.data;
+            failureCount++;
           } else {
             failureCount++;
           }
