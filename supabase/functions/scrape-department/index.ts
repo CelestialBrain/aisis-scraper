@@ -9,6 +9,16 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const ONCONFLICT_SCHEDULES = 'term_code,subject_code,section,department';
 const BATCH_SIZE = 100;
 
+// Sample size for logging invalid records
+const SAMPLE_INVALID_RECORDS_COUNT = 3;
+
+// Common header/placeholder values
+const HEADER_MARKERS = {
+  SUBJECT_CODE: ['SUBJECT CODE', 'SUBJ CODE', 'CODE'],
+  SECTION: ['SECTION', 'SEC'],
+  COURSE_TITLE: ['COURSE TITLE', 'TITLE', 'COURSE'],
+};
+
 interface ScheduleRecord {
   term_code: string;
   subject_code: string;
@@ -27,6 +37,25 @@ interface ScheduleRecord {
   remarks?: string;
   max_capacity?: number;
   delivery_mode?: string | null;
+}
+
+// Helper: Check if a schedule record appears to be a header or placeholder row
+function isHeaderLikeRecord(record: ScheduleRecord): boolean {
+  if (!record) return true;
+  
+  const subjectCode = (record.subject_code || '').toUpperCase().trim();
+  const courseTitle = (record.course_title || '').toUpperCase().trim();
+  const section = (record.section || '').toUpperCase().trim();
+  
+  // Check for header marker values
+  if (HEADER_MARKERS.SUBJECT_CODE.some(marker => subjectCode === marker)) return true;
+  if (HEADER_MARKERS.SECTION.some(marker => section === marker)) return true;
+  if (HEADER_MARKERS.COURSE_TITLE.some(marker => courseTitle === marker)) return true;
+  
+  // Check for obviously invalid patterns
+  if (subjectCode === '' && courseTitle === '') return true;
+  
+  return false;
 }
 
 // Helper: Validate schedule record
@@ -77,12 +106,46 @@ serve(async (req) => {
       );
     }
 
-    // Validate schedules
-    const validSchedules = schedules.filter(validateScheduleRecord);
-    const invalidCount = schedules.length - validSchedules.length;
+    // Filter out header/placeholder records first
+    const headerSamples: ScheduleRecord[] = [];
+    let filteredHeaders = 0;
+    const nonHeaderSchedules = schedules.filter(record => {
+      if (isHeaderLikeRecord(record)) {
+        filteredHeaders++;
+        if (headerSamples.length < SAMPLE_INVALID_RECORDS_COUNT) {
+          headerSamples.push(record);
+        }
+        return false;
+      }
+      return true;
+    });
 
-    if (invalidCount > 0) {
-      console.warn(`Filtered out ${invalidCount} invalid schedule records`);
+    if (filteredHeaders > 0) {
+      console.log(`Filtered ${filteredHeaders} header/placeholder record(s)`);
+      if (headerSamples.length > 0) {
+        console.log(`Sample header records:`, JSON.stringify(headerSamples.slice(0, SAMPLE_INVALID_RECORDS_COUNT)));
+      }
+    }
+
+    // Validate schedules
+    const invalidSamples: ScheduleRecord[] = [];
+    let filteredInvalid = 0;
+    const validSchedules = nonHeaderSchedules.filter(record => {
+      if (!validateScheduleRecord(record)) {
+        filteredInvalid++;
+        if (invalidSamples.length < SAMPLE_INVALID_RECORDS_COUNT) {
+          invalidSamples.push(record);
+        }
+        return false;
+      }
+      return true;
+    });
+
+    if (filteredInvalid > 0) {
+      console.log(`Filtered ${filteredInvalid} invalid record(s) (missing required fields)`);
+      if (invalidSamples.length > 0) {
+        console.log(`Sample invalid records:`, JSON.stringify(invalidSamples.slice(0, SAMPLE_INVALID_RECORDS_COUNT)));
+      }
     }
 
     // Process in batches with correct onConflict key
@@ -127,7 +190,8 @@ serve(async (req) => {
         inserted: totalInserted,
         total: schedules.length,
         valid: validSchedules.length,
-        invalid: invalidCount,
+        filtered_headers: filteredHeaders,
+        filtered_invalid: filteredInvalid,
         errors: errors,
         department: department,
         term_code: term_code

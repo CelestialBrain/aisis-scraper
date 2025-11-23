@@ -49,24 +49,51 @@ We implemented a 7-part enhancement:
 **Using shared constants:**
 - Imports `DEPARTMENTS` from `src/constants.js`
 
-### Constants (`src/constants.js`) [NEW]
+### Constants (`src/constants.js`)
 
-Shared constants to avoid duplication:
+Shared constants and utilities to avoid duplication:
 - `DEPARTMENTS` - List of all department codes
-- `SAMPLE_INVALID_RECORDS_COUNT` - Sample size for error logging
+- `SAMPLE_INVALID_RECORDS_COUNT` - Sample size for error logging (default: 3)
+- `HEADER_MARKERS` - Common header/placeholder values for detection
+- `isHeaderLikeRecord()` - Function to detect header/placeholder rows
+- `validateScheduleRecord()` - Function to validate required fields
+
+**NEW: Header Detection:**
+The scraper now filters out table header rows and placeholder data that may appear in AISIS HTML:
+- Detects rows with "SUBJECT CODE", "SECTION", "COURSE TITLE" etc. as values
+- Prevents these from being treated as actual course records
+- Logs filtered headers for transparency
+
+### Supabase Transformation (`src/supabase.js`)
+
+**Enhanced `transformScheduleData` method:**
+- Filters header/placeholder records using `isHeaderLikeRecord()`
+- Validates all records using `validateScheduleRecord()`
+- Logs counts and samples of filtered records
+- Only returns valid, clean records for ingestion
+
+**Enhanced `buildMetadata` method:**
+- Now includes `record_count` in metadata
+- Ensures payload metadata is complete for debugging
 
 ### Edge Functions
 
-**`supabase/functions/aisis-scraper/index.ts`:**
+**`supabase/functions/github-data-ingest/index.ts`:**
+- Added `HEADER_MARKERS` constant
+- Added `isHeaderLikeRecord()` function for header detection
 - Enhanced `upsertSchedulesInBatches`:
-  - Logs sample invalid records (shows which records failed validation)
-  - Logs sample records from failed batches (shows which batches failed upsert)
-  - Better error context for debugging
-- Uses `SAMPLE_INVALID_RECORDS_COUNT` constant
+  - Filters header/placeholder records before validation
+  - Filters invalid records (missing required fields)
+  - Logs sample invalid records (up to 3 by default)
+  - Supports optional `replace_existing` flag in metadata for term/department scoped replacement
+  - Returns detailed counts: `inserted`, `filtered_headers`, `filtered_invalid`
+- Updated response format to include filtering counts
 
-**`supabase/functions/import-schedules/index.ts`:**
-- Similar enhancements for validation logging
-- Logs sample invalid records for debugging
+**`supabase/functions/scrape-department/index.ts`:**
+- Added header detection using shared logic
+- Enhanced validation with sample logging
+- Returns filtering counts in response
+- Consistent validation with github-data-ingest
 
 ### Verification Script (`src/verify-schedules.js`) [NEW]
 
