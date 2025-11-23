@@ -1,6 +1,7 @@
 import { AISISScraper } from './scraper.js';
 import { SupabaseManager } from './supabase.js';
 import { GoogleSheetsManager } from './sheets.js';
+import { BaselineManager } from './baseline.js';
 import fs from 'fs';
 import 'dotenv/config';
 
@@ -83,6 +84,13 @@ async function main() {
     
     // Get the actual term that was used (either override or auto-detected)
     const usedTerm = scraper.lastUsedTerm;
+    
+    // Initialize baseline manager for regression detection
+    const baselineManager = new BaselineManager();
+    const baselineConfig = baselineManager.getConfigSummary();
+    console.log(`\n🔍 Baseline tracking enabled:`);
+    console.log(`   Drop threshold: ${baselineConfig.dropThresholdPercent}%`);
+    console.log(`   Warn-only mode: ${baselineConfig.warnOnly ? 'Yes' : 'No (will fail on regression)'}`);
 
     if (!fs.existsSync('data')) fs.mkdirSync('data');
 
@@ -101,7 +109,42 @@ async function main() {
       fs.writeFileSync('data/courses.json', JSON.stringify(cleanSchedule, null, 2));
       console.log(`   ✅ Saved ${scheduleData.length} courses to data/courses.json`);
 
-      // 2. Supabase Sync
+      // 2. Baseline comparison and regression detection
+      // NOTE: We check for regression BEFORE syncing to Supabase
+      // This allows us to detect data loss issues early and decide whether to proceed
+      // The baseline is still recorded even if we decide not to sync bad data
+      
+      // Extract per-department counts for detailed analysis
+      const deptCounts = {};
+      for (const course of scheduleData) {
+        const dept = course.department || 'UNKNOWN';
+        deptCounts[dept] = (deptCounts[dept] || 0) + 1;
+      }
+      
+      // Compare with previous baseline
+      const comparisonResult = baselineManager.compareWithBaseline(
+        usedTerm,
+        scheduleData.length,
+        deptCounts
+      );
+      
+      // Record new baseline for future comparisons
+      // This happens regardless of regression detection to maintain continuity
+      baselineManager.recordBaseline(usedTerm, scheduleData.length, deptCounts, {
+        scrapeTime: phaseTimings.scraping,
+        departmentCount: Object.keys(deptCounts).length
+      });
+      
+      // Check if we should fail the job due to regression
+      let regressionFailed = false;
+      if (baselineManager.shouldFailJob(comparisonResult)) {
+        console.error(`\n❌ REGRESSION DETECTED: Total record count dropped significantly`);
+        console.error(`   This likely indicates data loss during scraping`);
+        console.error(`   Set BASELINE_WARN_ONLY=true to make this a warning instead of failure`);
+        regressionFailed = true;
+      }
+
+      // 3. Supabase Sync
       if (supabase) {
         console.log('   🚀 Starting Supabase Sync...');
         const supabaseStart = Date.now();
@@ -126,7 +169,7 @@ async function main() {
         phaseTimings.supabase = 0;
       }
 
-      // 3. Google Sheets Sync
+      // 4. Google Sheets Sync
       if (sheets) {
         console.log('   📊 Syncing to Google Sheets...');
         const sheetsStart = Date.now();
@@ -156,6 +199,12 @@ async function main() {
         console.log(`   Sheets sync: ${formatTime(phaseTimings.sheets)}`);
       }
       console.log(`   Total time: ${formatTime(totalTime)}`);
+      
+      // Exit with error if regression detected and not in warn-only mode
+      if (regressionFailed) {
+        console.log('\n❌ Scraping completed with REGRESSION ERROR!');
+        process.exit(1);
+      }
 
     } else {
       console.warn(`\n⚠️ No schedule data found for term ${usedTerm}.`);

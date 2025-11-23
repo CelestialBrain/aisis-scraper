@@ -1,0 +1,451 @@
+<!-- 
+  Real AISIS English Department Schedule Sample
+  Extracted from actual AISIS output for 2025-2026-First Semester
+  
+  This fixture tests critical edge cases from real data:
+  - Courses with decimal numbers (ENE 13.03i, ENGL 9.1, ENGL 298.66, etc.)
+  - Complex section codes (WXY1, ST1A, THES/DISS1-8, etc.)
+  - 0-unit enrollment objects (COMP, SUB-A, SUB-B, THES/DISS, YYY, RESID, ODEF1)
+  - TBA (~) marker for special courses
+  - Multi-instructor courses
+-->
+<html>
+<body>
+<table>
+  <!-- Regular course with decimal course number -->
+  <tr>
+    <td class="text02">ENE 13.03i</td>
+    <td class="text02">N</td>
+    <td class="text02">STORY AND NARRATIVE IN THE HUMANITIES</td>
+    <td class="text02">3</td>
+    <td class="text02">T-F 1400-1530 (FULLY ONSITE)</td>
+    <td class="text02">SEC-A203</td>
+    <td class="text02">SUAREZ, CECILIA A.</td>
+    <td class="text02">32</td>
+    <td class="text02">ENG</td>
+    <td class="text02">U</td>
+    <td class="text02">-1</td>
+    <td class="text02">-</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+  <!-- Complex section code: WXY1 -->
+  <tr>
+    <td class="text02">ENGL 11</td>
+    <td class="text02">WXY1</td>
+    <td class="text02">PURPOSIVE COMMUNICATION</td>
+    <td class="text02">3</td>
+    <td class="text02">W 1500-1800 (FULLY ONSITE)</td>
+    <td class="text02">CTC 107</td>
+    <td class="text02">SUNICO, RAMON VICENTE C.</td>
+    <td class="text02">30</td>
+    <td class="text02">ENG</td>
+    <td class="text02">U</td>
+    <td class="text02">1</td>
+    <td class="text02">-</td>
+    <td class="text02">AS</td>
+    <td class="text02">AP</td>
+  </tr>
+  
+  <!-- Section code: ST1A -->
+  <tr>
+    <td class="text02">ENE 13.04i</td>
+    <td class="text02">ST1A</td>
+    <td class="text02">STORY AND NARRATIVE IN MANAGEMENT</td>
+    <td class="text02">3</td>
+    <td class="text02">W 0800-1100 (FULLY ONSITE)</td>
+    <td class="text02">SEC-A118A</td>
+    <td class="text02">AGUSTIN, ROY TRISTAN B.</td>
+    <td class="text02">32</td>
+    <td class="text02">ENG</td>
+    <td class="text02">U</td>
+    <td class="text02">-2</td>
+    <td class="text02">-</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+  <!-- Graduate course with special section -->
+  <tr>
+    <td class="text02">ENGL 223</td>
+    <td class="text02">PT-GRAD</td>
+    <td class="text02">ELLT SEMINAR: CRITICAL LANGUAGE PEDAGOGY</td>
+    <td class="text02">3</td>
+    <td class="text02">T 1700-2000 (FULLY ONSITE)</td>
+    <td class="text02">CTC 104</td>
+    <td class="text02">SUAREZ, ELINETH ELIZABETH L.</td>
+    <td class="text02">15</td>
+    <td class="text02">ENG</td>
+    <td class="text02">G</td>
+    <td class="text02">12</td>
+    <td class="text02">*Learning Collaboratory ONSITE Schedule: August 23, August 30, September 6, 2025 (8:00am-5:00pm)</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+  <!-- 0-unit: COMP - Comprehensive Examinations -->
+  <tr>
+    <td class="text02">ENGL 296</td>
+    <td class="text02">COMP</td>
+    <td class="text02">COMPREHENSIVE EXAMINATIONS</td>
+    <td class="text02">0</td>
+    <td class="text02">TBA (~)</td>
+    <td class="text02">TBA</td>
+    <td class="text02">SUAREZ, ELINETH ELIZABETH L.</td>
+    <td class="text02">50</td>
+    <td class="text02">ENG</td>
+    <td class="text02">G</td>
+    <td class="text02">50</td>
+    <td class="text02">-</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+  <!-- 0-unit: SUB-A - Submission with decimal course number -->
+  <tr>
+    <td class="text02">ENGL 298.66</td>
+    <td class="text02">SUB-A</td>
+    <td class="text02">SUBMISSION OF FINAL CAPSTONE PROJECT</td>
+    <td class="text02">0</td>
+    <td class="text02">TBA (~)</td>
+    <td class="text02">TBA</td>
+    <td class="text02">TBA, -</td>
+    <td class="text02">50</td>
+    <td class="text02">ENG</td>
+    <td class="text02">G</td>
+    <td class="text02">50</td>
+    <td class="text02">-</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+  <!-- 0-unit: SUB-B -->
+  <tr>
+    <td class="text02">ENGL 298.77</td>
+    <td class="text02">SUB-B</td>
+    <td class="text02">SUBMISSION OF FINAL CAPSTONE PROJECT</td>
+    <td class="text02">0</td>
+    <td class="text02">TBA (~)</td>
+    <td class="text02">TBA</td>
+    <td class="text02">TBA, -</td>
+    <td class="text02">50</td>
+    <td class="text02">ENG</td>
+    <td class="text02">G</td>
+    <td class="text02">50</td>
+    <td class="text02">-</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+  <!-- 0-unit: THES/DISS1 - Thesis I -->
+  <tr>
+    <td class="text02">ENGL 299.1</td>
+    <td class="text02">THES/DISS1</td>
+    <td class="text02">THESIS I</td>
+    <td class="text02">0</td>
+    <td class="text02">TBA (~)</td>
+    <td class="text02">EN DEPT</td>
+    <td class="text02">CANILAO, MARIA LUZ ELENA N.</td>
+    <td class="text02">5</td>
+    <td class="text02">ENG</td>
+    <td class="text02">G</td>
+    <td class="text02">4</td>
+    <td class="text02">-</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+  <!-- 0-unit: THES/DISS2 -->
+  <tr>
+    <td class="text02">ENGL 299.1</td>
+    <td class="text02">THES/DISS2</td>
+    <td class="text02">THESIS I</td>
+    <td class="text02">0</td>
+    <td class="text02">TBA (~)</td>
+    <td class="text02">EN DEPT</td>
+    <td class="text02">CRUZ, PRISCILLA ANGELA T.</td>
+    <td class="text02">5</td>
+    <td class="text02">ENG</td>
+    <td class="text02">G</td>
+    <td class="text02">5</td>
+    <td class="text02">-</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+  <!-- 0-unit: THES/DISS7 -->
+  <tr>
+    <td class="text02">ENGL 299.1</td>
+    <td class="text02">THES/DISS7</td>
+    <td class="text02">THESIS I</td>
+    <td class="text02">0</td>
+    <td class="text02">TBA (~)</td>
+    <td class="text02">EN DEPT</td>
+    <td class="text02">SUAREZ, ELINETH ELIZABETH L.</td>
+    <td class="text02">5</td>
+    <td class="text02">ENG</td>
+    <td class="text02">G</td>
+    <td class="text02">5</td>
+    <td class="text02">-</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+  <!-- 0-unit: YYY - Thesis Proposal Defense -->
+  <tr>
+    <td class="text02">ENGL 299.19</td>
+    <td class="text02">YYY</td>
+    <td class="text02">THESIS PROPOSAL DEFENSE</td>
+    <td class="text02">0</td>
+    <td class="text02">TBA (~)</td>
+    <td class="text02">TBA</td>
+    <td class="text02">TBA, -</td>
+    <td class="text02">10</td>
+    <td class="text02">ENG</td>
+    <td class="text02">G</td>
+    <td class="text02">9</td>
+    <td class="text02">-</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+  <!-- 0-unit: THES/DISS4 - Multiple instructors -->
+  <tr>
+    <td class="text02">ENGL 299.2</td>
+    <td class="text02">THES/DISS4</td>
+    <td class="text02">THESIS II</td>
+    <td class="text02">0</td>
+    <td class="text02">TBA (~)</td>
+    <td class="text02">EN DEPT</td>
+    <td class="text02">MONTENEGRO, MARIA CONCEPCION B., SUAREZ, ELINETH ELIZABETH L.</td>
+    <td class="text02">5</td>
+    <td class="text02">ENG</td>
+    <td class="text02">G</td>
+    <td class="text02">5</td>
+    <td class="text02">-</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+  <!-- 0-unit: ODEF1 - Oral Defense (note: different modality marker) -->
+  <tr>
+    <td class="text02">ENGL 299.4</td>
+    <td class="text02">ODEF1</td>
+    <td class="text02">ORAL DEFENSE</td>
+    <td class="text02">0</td>
+    <td class="text02">TBA (FULLY ONSITE)</td>
+    <td class="text02">TBA</td>
+    <td class="text02">TBA, -</td>
+    <td class="text02">40</td>
+    <td class="text02">ENG</td>
+    <td class="text02">G</td>
+    <td class="text02">39</td>
+    <td class="text02">-</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+  <!-- 0-unit: RESID - Residency -->
+  <tr>
+    <td class="text02">ENGL 299.5</td>
+    <td class="text02">RESID</td>
+    <td class="text02">RESIDENCY</td>
+    <td class="text02">0</td>
+    <td class="text02">TBA (~)</td>
+    <td class="text02">TBA</td>
+    <td class="text02">TBA, -</td>
+    <td class="text02">50</td>
+    <td class="text02">ENG</td>
+    <td class="text02">G</td>
+    <td class="text02">50</td>
+    <td class="text02">-</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+  <!-- 0-unit: SUB-A - Final Paper Submission (Masters) -->
+  <tr>
+    <td class="text02">ENGL 299.6</td>
+    <td class="text02">SUB-A</td>
+    <td class="text02">FINAL PAPER SUBMISSION (MASTERS)</td>
+    <td class="text02">0</td>
+    <td class="text02">TBA (~)</td>
+    <td class="text02">TBA</td>
+    <td class="text02">TBA, -</td>
+    <td class="text02">50</td>
+    <td class="text02">ENG</td>
+    <td class="text02">G</td>
+    <td class="text02">49</td>
+    <td class="text02">-</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+  <!-- 0-unit: SUB-B - Final Paper Submission (Masters) -->
+  <tr>
+    <td class="text02">ENGL 299.7</td>
+    <td class="text02">SUB-B</td>
+    <td class="text02">FINAL PAPER SUBMISSION (MASTERS)</td>
+    <td class="text02">0</td>
+    <td class="text02">TBA (~)</td>
+    <td class="text02">TBA</td>
+    <td class="text02">TBA, -</td>
+    <td class="text02">50</td>
+    <td class="text02">ENG</td>
+    <td class="text02">G</td>
+    <td class="text02">50</td>
+    <td class="text02">-</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+  <!-- Doctoral level courses -->
+  
+  <!-- 0-unit: COMP - Comprehensive Examinations (Doctoral) -->
+  <tr>
+    <td class="text02">ENLL 396</td>
+    <td class="text02">COMP</td>
+    <td class="text02">COMPREHENSIVE EXAMINATIONS</td>
+    <td class="text02">0</td>
+    <td class="text02">TBA (~)</td>
+    <td class="text02">TBA</td>
+    <td class="text02">SUAREZ, ELINETH ELIZABETH L.</td>
+    <td class="text02">50</td>
+    <td class="text02">ENG</td>
+    <td class="text02">G</td>
+    <td class="text02">50</td>
+    <td class="text02">-</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+  <!-- 0-unit: THES/DISS1 - Dissertation I -->
+  <tr>
+    <td class="text02">ENLL 399.1</td>
+    <td class="text02">THES/DISS1</td>
+    <td class="text02">DISSERTATION I</td>
+    <td class="text02">0</td>
+    <td class="text02">TBA (~)</td>
+    <td class="text02">EN DEPT</td>
+    <td class="text02">CAMPOMANES, OSCAR V.</td>
+    <td class="text02">5</td>
+    <td class="text02">ENG</td>
+    <td class="text02">G</td>
+    <td class="text02">5</td>
+    <td class="text02">-</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+  <!-- 0-unit: THES/DISS8 - Dissertation I -->
+  <tr>
+    <td class="text02">ENLL 399.1</td>
+    <td class="text02">THES/DISS8</td>
+    <td class="text02">DISSERTATION I</td>
+    <td class="text02">0</td>
+    <td class="text02">TBA (~)</td>
+    <td class="text02">EN DEPT</td>
+    <td class="text02">VERIC, CHARLIE S.</td>
+    <td class="text02">5</td>
+    <td class="text02">ENG</td>
+    <td class="text02">G</td>
+    <td class="text02">5</td>
+    <td class="text02">-</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+  <!-- 0-unit: YYY - Dissertation Proposal Defense -->
+  <tr>
+    <td class="text02">ENLL 399.19</td>
+    <td class="text02">YYY</td>
+    <td class="text02">DISSERTATION PROPOSAL DEFENSE</td>
+    <td class="text02">0</td>
+    <td class="text02">TBA (~)</td>
+    <td class="text02">TBA</td>
+    <td class="text02">TBA, -</td>
+    <td class="text02">50</td>
+    <td class="text02">ENG</td>
+    <td class="text02">G</td>
+    <td class="text02">50</td>
+    <td class="text02">-</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+  <!-- 0-unit: THES/DISS4 - Dissertation II -->
+  <tr>
+    <td class="text02">ENLL 399.2</td>
+    <td class="text02">THES/DISS4</td>
+    <td class="text02">DISSERTATION II</td>
+    <td class="text02">0</td>
+    <td class="text02">TBA (~)</td>
+    <td class="text02">EN DEPT</td>
+    <td class="text02">DEVILLES, GARY C.</td>
+    <td class="text02">5</td>
+    <td class="text02">ENG</td>
+    <td class="text02">G</td>
+    <td class="text02">5</td>
+    <td class="text02">-</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+  <!-- 0-unit: RESID - Residency (Doctoral) -->
+  <tr>
+    <td class="text02">ENLL 399.5</td>
+    <td class="text02">RESID</td>
+    <td class="text02">RESIDENCY</td>
+    <td class="text02">0</td>
+    <td class="text02">TBA (~)</td>
+    <td class="text02">TBA</td>
+    <td class="text02">TBA, -</td>
+    <td class="text02">50</td>
+    <td class="text02">ENG</td>
+    <td class="text02">G</td>
+    <td class="text02">50</td>
+    <td class="text02">-</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+  <!-- 0-unit: SUB-A - Final Paper Submission (Doctoral) -->
+  <tr>
+    <td class="text02">ENLL 399.6</td>
+    <td class="text02">SUB-A</td>
+    <td class="text02">FINAL PAPER SUBMISSION (DOCTORAL)</td>
+    <td class="text02">0</td>
+    <td class="text02">TBA (~)</td>
+    <td class="text02">TBA</td>
+    <td class="text02">TBA, -</td>
+    <td class="text02">50</td>
+    <td class="text02">ENG</td>
+    <td class="text02">G</td>
+    <td class="text02">50</td>
+    <td class="text02">-</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+  <!-- 0-unit: SUB-B - Final Paper Submission (Doctoral) - THE SPECIFIC EDGE CASE! -->
+  <tr>
+    <td class="text02">ENLL 399.7</td>
+    <td class="text02">SUB-B</td>
+    <td class="text02">FINAL PAPER SUBMISSION (DOCTORAL)</td>
+    <td class="text02">0</td>
+    <td class="text02">TBA (~)</td>
+    <td class="text02">TBA</td>
+    <td class="text02">TBA, -</td>
+    <td class="text02">50</td>
+    <td class="text02">ENG</td>
+    <td class="text02">G</td>
+    <td class="text02">50</td>
+    <td class="text02">-</td>
+    <td class="text02">N</td>
+    <td class="text02">N</td>
+  </tr>
+  
+</table>
+</body>
+</html>

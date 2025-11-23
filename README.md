@@ -120,7 +120,43 @@ AISIS_TERM=2025-1
 
 If no override is provided, the scraper will auto-detect and use the currently selected term in AISIS. Using an override skips the term auto-detection request, which can speed up startup time in CI environments.
 
-### 4. Performance Tuning
+### 4. Baseline Tracking and Regression Detection
+
+The scraper includes automatic regression detection to alert when scraped record counts drop significantly between runs.
+
+#### How It Works
+
+- After each scrape, the total record count and per-department counts are saved as a "baseline" in `logs/baselines/baseline-{term}.json`
+- On subsequent runs for the same term, the current count is compared with the previous baseline
+- If the count drops by more than a configurable threshold, a warning or error is triggered
+
+#### Configuration
+
+```bash
+# Threshold percentage for triggering regression alert (default: 5.0)
+BASELINE_DROP_THRESHOLD=5.0 npm start
+
+# Warn-only mode: log warning but don't fail job (default: true)
+# Set to false to fail the job when regression is detected
+BASELINE_WARN_ONLY=true npm start
+```
+
+#### Example Output
+
+```
+📊 Baseline Comparison:
+   Term: 2025-1
+   Previous run: 2025-01-15T10:30:00.000Z
+   Previous total: 4000 records
+   Current total: 3520 records
+   Change: -480 records (-12.00%)
+   ⚠️ WARNING: Record count dropped by 480 records (12.00%)
+   This exceeds the configured threshold of 5.0%
+```
+
+The baseline files are stored locally in `logs/baselines/` and are not committed to git (already in .gitignore). In GitHub Actions, these files are ephemeral unless you configure artifact upload.
+
+### 5. Performance Tuning
 
 The scraper includes several performance optimization options:
 
@@ -260,6 +296,67 @@ For more details, see `supabase/functions/README.md`.
 - All credentials are stored securely in GitHub Secrets or local `.env` files
 - The Supabase sync endpoint should be protected with API key authentication
 - Never commit your `.env` file to version control
+
+## Data Validation and Testing
+
+### Parser Validation
+
+The scraper includes comprehensive tests to ensure all course patterns are correctly parsed:
+
+```bash
+npm test  # Run all parser tests
+node tests/test-real-world-patterns.js  # Test with real AISIS patterns
+```
+
+The tests validate:
+- **Decimal course codes**: `ENE 13.03i`, `ENGL 298.66`
+- **Complex section codes**: `WXY1`, `ST1A`, `PT-GRAD`, `THES/DISS1-8`
+- **0-unit enrollment objects**: `COMP`, `SUB-A`, `SUB-B`, `THES/DISS`, `YYY`, `ODEF`, `RESID`
+- **Special markers**: `TBA (~)` for special enrollment courses
+- **Graduate courses**: 200-300 level courses
+- **Lab sections**: `LAB1-VW`, `LAB2-VW`
+
+### Baseline Tracking
+
+Baseline files are stored in `logs/baselines/baseline-{term}.json` and track:
+- Total record count per term
+- Per-department record counts
+- Timestamp of scrape
+- GitHub Actions metadata (if running in CI)
+
+**Important**: Baseline files are local and not committed to git. To preserve baselines across GitHub Actions runs:
+
+1. Upload baselines as artifacts:
+   ```yaml
+   - name: Upload baselines
+     uses: actions/upload-artifact@v3
+     with:
+       name: baselines
+       path: logs/baselines/
+   ```
+
+2. Download baselines before running scraper:
+   ```yaml
+   - name: Download baselines
+     uses: actions/download-artifact@v3
+     with:
+       name: baselines
+       path: logs/baselines/
+     continue-on-error: true  # Don't fail if no previous baseline
+   ```
+
+### Environment Variables Summary
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AISIS_USERNAME` | - | **Required**: AISIS login username |
+| `AISIS_PASSWORD` | - | **Required**: AISIS login password |
+| `DATA_INGEST_TOKEN` | - | Supabase ingest endpoint token |
+| `SUPABASE_URL` | - | Supabase project URL |
+| `AISIS_TERM` | Auto-detect | Override term code (e.g., `2025-1`) |
+| `SUPABASE_CLIENT_BATCH_SIZE` | `2000` | Records per HTTP request |
+| `BASELINE_DROP_THRESHOLD` | `5.0` | Regression alert threshold (%) |
+| `BASELINE_WARN_ONLY` | `true` | Warn only (don't fail job) on regression |
 
 ## License
 
