@@ -99,6 +99,209 @@ graph TD
 - **Returns**: Multi-line text with headers and tab-separated course data
 - **Status**: Still included in scraped data as `raw_text` field for backward compatibility
 
+## AISIS Session Bleed and Race Conditions
+
+### The Problem
+
+AISIS J_VOFC.do endpoint suffers from **server-side session bleed** when handling concurrent or rapid requests. This manifests as:
+
+**Symptoms:**
+- For some `degCode` values (e.g., `BS ME_2025_1`, `AB DS_2024_1`), AISIS sometimes returns HTML for a **different** program
+- The POST request payload's `degCode` is correct, but the HTML response contains data for a previously-selected program
+- This occurs more frequently with:
+  - Higher concurrency (multiple programs scraped in parallel)
+  - Lower delays between requests (< 1 second)
+  - Sequential requests for different programs without sufficient delay
+
+**Impact:**
+- Contaminated data in Supabase/Google Sheets
+- Rows where `deg_code` is for one program (e.g., BS ME) but `program_title` and course list belong to a different program (e.g., BS MGT-H)
+- Data integrity issues that are hard to detect manually
+
+**Root Cause:**
+The AISIS server appears to maintain session state for the "currently selected" curriculum in the backend. When requests arrive too quickly or concurrently, the server may return HTML for the wrong program, even though the request specified the correct `degCode`.
+
+### Validation and Defense Mechanisms
+
+To prevent contaminated data from being persisted, the scraper now implements multiple layers of validation:
+
+#### 1. Program Title Validation (`isProgramMatch`)
+
+**Location:** `src/curriculum-parser.js`
+
+**Purpose:** Validates that HTML program title matches the requested `degCode` and `label`
+
+**How it works:**
+```javascript
+export function isProgramMatch(degCode, label, programTitle) {
+  // Normalize strings (uppercase, collapse whitespace)
+  // Extract base program code from degCode (e.g., "BS ME" from "BS ME_2025_1")
+  // Remove version suffix from label (e.g., "(2025-1)")
+  
+  // Check 1: Program title contains label text or vice versa
+  // Check 2: Program title contains base program code
+  // Check 3: Significant word overlap (50%+) between label and title
+  
+  return labelMatch || (baseCodeMatch && overlapRatio >= 0.5);
+}
+```
+
+**Examples:**
+- ✅ Match: `degCode="BS ME_2025_1"`, `programTitle="BS Mechanical Engineering"` 
+- ❌ Mismatch: `degCode="BS ME_2025_1"`, `programTitle="BS Management (Honors)"`
+- ❌ Mismatch: `degCode="AB DS_2024_1"`, `programTitle="AB Applied Mathematics"`
+
+#### 2. Circuit Breaker in Parser (`parseCurriculumHtml`)
+
+**Location:** `src/curriculum-parser.js`
+
+**Purpose:** Refuse to parse HTML that doesn't match the requested program
+
+**Behavior:**
+```javascript
+const programTitle = extractProgramTitle($) || label;
+
+if (!isProgramMatch(degCode, label, programTitle)) {
+  console.error(`🚨 CRITICAL: Curriculum HTML mismatch detected!`);
+  console.error(`   Requested degCode: ${degCode}`);
+  console.error(`   HTML program_title: ${programTitle}`);
+  throw new Error(`Curriculum HTML mismatch for ${degCode}`);
+}
+```
+
+**Result:** Parser throws error **before** extracting any course rows, preventing contamination
+
+#### 3. Validation and Retry Wrapper (`_scrapeDegreeWithValidation`)
+
+**Location:** `src/scraper.js`
+
+**Purpose:** Validate HTML at scraping time and retry on mismatch
+
+**Behavior:**
+- Fetches HTML via `_scrapeDegree(degCode)`
+- Validates program title matches `degCode` and `label` using `isProgramMatch`
+- If validation fails:
+  - Logs warning with attempt count
+  - Retries with exponential backoff (2s, 4s, 8s...)
+  - Maximum 3 attempts by default
+- After max attempts, throws error and refuses to accept HTML
+
+**Result:** Most session bleeds are resolved by retrying after a delay
+
+#### 4. Safe Parsing in `parseAllCurricula`
+
+**Location:** `src/curriculum-parser.js`
+
+**Purpose:** Skip programs with mismatch errors, don't contaminate output
+
+**Behavior:**
+```javascript
+try {
+  const rows = parseCurriculumHtml(html, degCode, label);
+  // ... add to programs and allRows
+} catch (error) {
+  if (error.message.includes('Curriculum HTML mismatch')) {
+    console.warn(`⚠️ Skipping ${degCode} due to HTML mismatch`);
+    // Do NOT push any rows - prevent contamination
+  } else {
+    throw error; // Re-throw unexpected errors
+  }
+}
+```
+
+**Result:** Programs with mismatched HTML are excluded from final output
+
+### Safe Configuration Settings
+
+To minimize AISIS session bleed, use these recommended settings:
+
+#### Production / CI (Maximum Safety)
+```bash
+# Sequential scraping (no concurrency)
+CURRICULUM_CONCURRENCY=1
+
+# 2-second delay between requests
+CURRICULUM_DELAY_MS=2000
+
+# Don't use FAST_MODE
+```
+
+#### Development / Testing (Balanced)
+```bash
+# Low concurrency
+CURRICULUM_CONCURRENCY=2
+
+# 1-second delay
+CURRICULUM_DELAY_MS=1000
+```
+
+#### Fast Mode (Higher Risk)
+```bash
+# Enable fast mode
+FAST_MODE=true
+
+# This sets:
+# - CURRICULUM_DELAY_MS=500 (reduced from 2000)
+# - Still uses CURRICULUM_CONCURRENCY=1 by default
+```
+
+**WARNING:** Higher concurrency (> 2) and lower delays (< 1000ms) significantly increase the risk of session bleed.
+
+### Debug Instrumentation
+
+Set `DEBUG_DEGCODE` to inspect raw HTML and parsed rows for a specific program:
+
+```bash
+DEBUG_DEGCODE="BS ME_2025_1" npm run curriculum
+```
+
+This creates in `debug/`:
+- `{degCode}-raw.html` - Raw HTML from AISIS
+- `{degCode}-raw.json` - Full scraped object
+- `{degCode}-rows.json` - Parsed course rows
+- `{degCode}-mismatch.html` - HTML that failed validation (if mismatch occurred)
+
+Use this to verify:
+- `program_title` matches `deg_code`
+- Course list matches expected curriculum
+- No contamination from other programs
+
+### Monitoring and Detection
+
+**Signs of session bleed in logs:**
+```
+⚠️ Validation failed for BS ME_2025_1 (attempt 1/3): 
+   HTML contains "BS Management (Honors)" but expected "BS Mechanical Engineering"
+   Retrying after 2000ms (AISIS session bleed suspected)...
+```
+
+**Signs of successful retry:**
+```
+✅ BS ME_2025_1: Validation passed on attempt 2
+```
+
+**Signs of persistent failure:**
+```
+🚨 CRITICAL: Curriculum HTML mismatch detected!
+   Requested degCode: BS ME_2025_1
+   HTML program_title: BS Management (Honors)
+⚠️ Skipping BS ME_2025_1 due to HTML mismatch (session bleed detected)
+```
+
+**Metrics to track:**
+- Validation failures per scrape
+- Programs skipped due to mismatch
+- Retry success rate
+- Total programs scraped vs. total programs available
+
+If validation failures exceed 10% of programs, consider:
+1. Increasing `CURRICULUM_DELAY_MS`
+2. Reducing `CURRICULUM_CONCURRENCY` to 1
+3. Running scraper during low-traffic hours
+4. Contacting AISIS administrators about session handling
+
+
+
 #### 5. `parseCurriculumHtml(html, degCode, label)` (**NEW**)
 - **Module**: `src/curriculum-parser.js`
 - **Purpose**: Parse curriculum HTML into structured course row objects

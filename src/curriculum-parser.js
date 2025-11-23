@@ -86,7 +86,7 @@ function parseUnits(text) {
  * @param {cheerio.CheerioAPI} $ - Cheerio instance
  * @returns {string|null} Program title or null if not found
  */
-function extractProgramTitle($) {
+export function extractProgramTitle($) {
   // Try various header selectors in priority order
   // More specific selectors (like td.header06) are tried first
   // Generic fallback selector (table:first tr:first td:first) is tried last
@@ -123,12 +123,87 @@ function extractProgramTitle($) {
 }
 
 /**
+ * Normalize a string for comparison (uppercase, collapse whitespace)
+ * @param {string} str - String to normalize
+ * @returns {string} Normalized string
+ */
+function normalizeForComparison(str) {
+  if (!str) return '';
+  return str.toUpperCase().replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Extract base program code from degCode
+ * Examples: "BS ME_2025_1" -> "BS ME", "AB DS_2024_1" -> "AB DS"
+ * @param {string} degCode - Full degree code with version suffix
+ * @returns {string} Base program code
+ */
+function extractBaseProgramCode(degCode) {
+  if (!degCode) return '';
+  // Split by underscore and take the first part
+  const parts = degCode.split('_');
+  return parts[0] || '';
+}
+
+/**
+ * Check if program title matches the requested degCode and label
+ * 
+ * This function validates that AISIS returned HTML for the correct program
+ * by comparing the HTML program title against the requested degCode and label.
+ * 
+ * The validation is conservative - it rejects obvious mismatches like:
+ * - BS ME vs BS MGT-H
+ * - Development Studies vs Applied Mathematics
+ * 
+ * @param {string} degCode - Requested degree code (e.g., 'BS ME_2025_1')
+ * @param {string} label - Requested program label (e.g., 'BS Mechanical Engineering (2025-1)')
+ * @param {string} programTitle - Program title extracted from HTML
+ * @returns {boolean} True if match, false if obvious mismatch
+ */
+export function isProgramMatch(degCode, label, programTitle) {
+  // Normalize all inputs for comparison
+  const normDegCode = normalizeForComparison(degCode);
+  const normLabel = normalizeForComparison(label);
+  const normTitle = normalizeForComparison(programTitle);
+  
+  // Extract base program code from degCode (e.g., "BS ME" from "BS ME_2025_1")
+  const baseCode = normalizeForComparison(extractBaseProgramCode(degCode));
+  
+  // Remove version suffix from label (e.g., "(2025-1)", "(2024-1)")
+  // Pattern: (YYYY-N) at the end of the string
+  const labelWithoutVersion = normLabel.replace(/\s*\(\d{4}-\d+\)\s*$/, '').trim();
+  
+  // Check 1: Program title contains label text (sans version) or vice versa
+  const labelMatch = normTitle.includes(labelWithoutVersion) || labelWithoutVersion.includes(normTitle);
+  
+  // Check 2: Program title contains base program code
+  const baseCodeMatch = normTitle.includes(baseCode);
+  
+  // Check 3: Look for significant word overlap between label and title
+  // Extract significant words (3+ chars) from both
+  const labelWords = labelWithoutVersion.split(/\s+/).filter(w => w.length >= 3);
+  const titleWords = normTitle.split(/\s+/).filter(w => w.length >= 3);
+  
+  // Count overlapping significant words
+  const overlappingWords = labelWords.filter(word => titleWords.includes(word));
+  const overlapRatio = overlappingWords.length / Math.max(labelWords.length, 1);
+  
+  // Consider it a match if:
+  // - Label matches title OR
+  // - Base code is in title AND there's reasonable word overlap (50%+)
+  const isMatch = labelMatch || (baseCodeMatch && overlapRatio >= 0.5);
+  
+  return isMatch;
+}
+
+/**
  * Parse curriculum HTML into structured course rows
  * 
  * @param {string} html - Raw curriculum HTML from J_VOFC.do
  * @param {string} degCode - Degree code (e.g., 'BS CS_2024_1')
  * @param {string} label - Program label (e.g., 'BS Computer Science (2024-1)')
  * @returns {Array<Object>} Array of structured course row objects
+ * @throws {Error} If HTML program title doesn't match requested degCode/label (session bleed)
  */
 export function parseCurriculumHtml(html, degCode, label) {
   const $ = cheerio.load(html);
@@ -136,6 +211,17 @@ export function parseCurriculumHtml(html, degCode, label) {
   
   // Extract program title from HTML (fallback to label if not found)
   const programTitle = extractProgramTitle($) || label;
+  
+  // CIRCUIT BREAKER: Validate that HTML matches requested program
+  // This prevents contamination from AISIS session bleed / race conditions
+  if (!isProgramMatch(degCode, label, programTitle)) {
+    console.error(`   🚨 CRITICAL: Curriculum HTML mismatch detected!`);
+    console.error(`      Requested degCode: ${degCode}`);
+    console.error(`      Requested label: ${label}`);
+    console.error(`      HTML program_title: ${programTitle}`);
+    console.error(`      This indicates AISIS session bleed - refusing to parse contaminated data`);
+    throw new Error(`Curriculum HTML mismatch for ${degCode}: got "${programTitle}" but expected "${label}"`);
+  }
   
   // State tracking for current context
   let currentYear = null;
@@ -215,6 +301,8 @@ export function parseCurriculumHtml(html, degCode, label) {
  * Takes the output from scrapeCurriculum() which contains raw HTML,
  * and converts each program's HTML into structured course rows.
  * 
+ * Programs with HTML mismatches (session bleed) are skipped and logged.
+ * 
  * @param {Array<Object>} curriculumPrograms - Array of { degCode, label, html } objects
  * @returns {Object} Object with { programs: Array, allRows: Array }
  *   - programs: Array of { degCode, label, program_title, rows } for detailed view
@@ -232,23 +320,37 @@ export function parseAllCurricula(curriculumPrograms) {
       continue;
     }
     
-    // Parse the HTML into structured rows
-    const rows = parseCurriculumHtml(html, degCode, label);
-    
-    // Store program with its rows
-    if (rows.length > 0) {
-      const programTitle = rows[0]?.program_title || label;
-      programs.push({
-        degCode,
-        label,
-        program_title: programTitle,
-        rows
-      });
+    try {
+      // Parse the HTML into structured rows
+      // This will throw if HTML doesn't match degCode/label (session bleed)
+      const rows = parseCurriculumHtml(html, degCode, label);
       
-      // Add to flattened list
-      allRows.push(...rows);
-    } else {
-      console.warn(`   ⚠️ No courses found for ${degCode}`);
+      // Store program with its rows
+      if (rows.length > 0) {
+        const programTitle = rows[0]?.program_title || label;
+        programs.push({
+          degCode,
+          label,
+          program_title: programTitle,
+          rows
+        });
+        
+        // Add to flattened list
+        allRows.push(...rows);
+      } else {
+        console.warn(`   ⚠️ No courses found for ${degCode}`);
+      }
+    } catch (error) {
+      // Catch mismatch errors and skip this program to prevent contamination
+      if (error.message.includes('Curriculum HTML mismatch')) {
+        console.warn(`   ⚠️ Skipping ${degCode} due to HTML mismatch (session bleed detected)`);
+        console.warn(`      Error: ${error.message}`);
+        // Do not push any rows for this program - prevent contamination
+      } else {
+        // Re-throw unexpected errors
+        console.error(`   ❌ Unexpected error parsing ${degCode}: ${error.message}`);
+        throw error;
+      }
     }
   }
   
