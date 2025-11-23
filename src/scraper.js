@@ -1049,6 +1049,80 @@ export class AISISScraper {
   }
 
   /**
+   * Scrape a single degree with validation and retry
+   * 
+   * This wrapper validates that AISIS returns HTML for the correct program
+   * by checking the HTML program title against the requested degCode/label.
+   * 
+   * If validation fails (session bleed detected), it retries with exponential backoff.
+   * After maxAttempts failures, it throws an error.
+   * 
+   * @param {string} degCode - Curriculum version identifier (e.g., 'BS CS_2024_1')
+   * @param {string} label - Program label (e.g., 'BS Computer Science (2024-1)')
+   * @param {number} maxAttempts - Maximum number of attempts (default: 3)
+   * @returns {Promise<string>} Validated HTML for the curriculum
+   * @throws {Error} If validation fails after all attempts
+   */
+  async _scrapeDegreeWithValidation(degCode, label, maxAttempts = 3) {
+    // Import validation functions from curriculum-parser
+    // Note: Dynamic import to avoid circular dependencies
+    const { extractProgramTitle, isProgramMatch } = await import('./curriculum-parser.js');
+    
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        // Fetch HTML from AISIS
+        const html = await this._scrapeDegree(degCode);
+        
+        // Parse and validate program title
+        const $ = cheerio.load(html);
+        const programTitle = extractProgramTitle($) || label;
+        
+        // Validate that HTML matches requested program
+        if (!isProgramMatch(degCode, label, programTitle)) {
+          const errorMsg = `Validation failed for ${degCode} (attempt ${attempt}/${maxAttempts}): HTML contains "${programTitle}" but expected "${label}"`;
+          
+          if (attempt < maxAttempts) {
+            // Retry with exponential backoff
+            const backoffMs = 2000 * Math.pow(2, attempt - 1);
+            console.warn(`   ⚠️ ${errorMsg}`);
+            console.warn(`      Retrying after ${backoffMs}ms (AISIS session bleed suspected)...`);
+            await this._delay(backoffMs);
+            continue;
+          } else {
+            // Final attempt failed
+            console.error(`   🚨 ${errorMsg}`);
+            console.error(`      Maximum retry attempts exhausted - refusing to accept contaminated HTML`);
+            throw new Error(`Curriculum HTML mismatch for ${degCode} after ${maxAttempts} attempts: got "${programTitle}"`);
+          }
+        }
+        
+        // Validation passed
+        if (attempt > 1) {
+          console.log(`   ✅ ${degCode}: Validation passed on attempt ${attempt}`);
+        }
+        return html;
+        
+      } catch (error) {
+        // If error is NOT a validation failure, throw immediately (network errors, etc.)
+        if (!error.message.includes('Curriculum HTML mismatch') && 
+            !error.message.includes('Validation failed')) {
+          throw error;
+        }
+        
+        // If this was the last attempt and it's a validation error, re-throw
+        if (attempt === maxAttempts) {
+          throw error;
+        }
+        
+        // Otherwise, the validation failure will trigger retry in the next iteration
+      }
+    }
+    
+    // Should never reach here, but just in case
+    throw new Error(`Failed to scrape ${degCode} after ${maxAttempts} attempts`);
+  }
+
+  /**
    * Scrape curriculum data for all degree programs
    * 
    * Uses the J_VOFC.do endpoint discovered through HAR file analysis.
@@ -1057,14 +1131,17 @@ export class AISISScraper {
    * Supports filtering and limiting via environment variables:
    * - CURRICULUM_LIMIT: Take first N degree codes (e.g., "10" for first 10 programs)
    * - CURRICULUM_SAMPLE: Select specific degree codes (e.g., "BS CS_2024_1,BS ME_2023_1")
-   * - CURRICULUM_DELAY_MS: Delay between requests (default: 500ms, 0 for fast mode)
-   * - CURRICULUM_CONCURRENCY: Number of programs to scrape in parallel (default: 1, max: 5)
+   * - CURRICULUM_DELAY_MS: Delay between requests (default: 2000ms, 500ms in FAST_MODE)
+   *   ⚠️ WARNING: Lower delays increase risk of AISIS session bleed
+   * - CURRICULUM_CONCURRENCY: Number of programs to scrape in parallel (default: 1, max: 10)
+   *   ⚠️ WARNING: Higher concurrency increases risk of AISIS session bleed
    * 
    * Workflow:
    * 1. GET J_VOFC.do to retrieve list of curriculum versions (degCode dropdown)
-   * 2. For each degCode, POST to J_VOFC.do to fetch curriculum HTML
-   * 3. Extract HTML and flatten to text format
-   * 4. Return array of curriculum records with HTML and raw_text
+   * 2. For each degCode, POST to J_VOFC.do to fetch curriculum HTML with validation
+   * 3. Validate HTML matches requested program (circuit breaker for session bleed)
+   * 4. Extract HTML and flatten to text format
+   * 5. Return array of curriculum records with HTML and raw_text
    * 
    * The HTML can be parsed using src/curriculum-parser.js to extract structured course rows.
    * 
@@ -1090,43 +1167,49 @@ export class AISISScraper {
       ? process.env.CURRICULUM_SAMPLE.split(',').map(s => s.trim()).filter(s => s)
       : null;
     
-    // PERFORMANCE FIX: Reduce default delay from 500ms to 100ms for better performance
-    // Fast mode sets delay to 0ms for maximum speed
-    const defaultCurriculumDelay = fastMode ? 0 : 100;  // Changed from 500ms to 100ms
+    // SAFETY FIX: Increase default delay to reduce AISIS session bleed risk
+    // Fast mode uses 500ms (reduced from 0ms for safety)
+    // Normal mode uses 2000ms (increased from 100ms for safety)
+    const defaultCurriculumDelay = fastMode ? 500 : 2000;
     const curriculumDelayEnv = parseInt(process.env.CURRICULUM_DELAY_MS, 10);
     const curriculumDelayMs = isNaN(curriculumDelayEnv) 
       ? defaultCurriculumDelay 
       : Math.max(0, curriculumDelayEnv);
     
-    // PERFORMANCE FIX: Enable concurrency by default (4 programs in parallel)
-    // This significantly improves scraping speed without being too aggressive
-    const defaultCurriculumConcurrency = 4;  // Changed from 1 to 4 (was 2)
+    // SAFETY FIX: Reduce default concurrency to 1 to prevent AISIS session bleed
+    // Sequential scraping is safer and prevents race conditions
+    const defaultCurriculumConcurrency = 1;
     const curriculumConcurrencyEnv = parseInt(process.env.CURRICULUM_CONCURRENCY, 10);
     const curriculumConcurrency = isNaN(curriculumConcurrencyEnv) 
       ? defaultCurriculumConcurrency 
-      : Math.max(1, Math.min(curriculumConcurrencyEnv, 10));  // Increased max from 5 to 10
+      : Math.max(1, Math.min(curriculumConcurrencyEnv, 10));
     
     // Log active configuration
-    // Always show configuration since we now have improved defaults
     console.log('⚡ Curriculum scraping configuration:');
     if (fastMode) console.log('   🚀 FAST_MODE enabled');
     if (curriculumLimit) console.log(`   🔢 CURRICULUM_LIMIT: ${curriculumLimit}`);
     if (curriculumSample) console.log(`   🎯 CURRICULUM_SAMPLE: ${curriculumSample.length} specific programs`);
     
-    // Show delay configuration
+    // Show delay configuration with warnings
     if (process.env.CURRICULUM_DELAY_MS !== undefined) {
-      console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (override, old default was 500ms)`);
+      console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (override)`);
+      if (curriculumDelayMs < 1000) {
+        console.warn(`      ⚠️  Low delay may increase risk of AISIS session bleed`);
+      }
     } else if (fastMode) {
-      console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (FAST_MODE, old default was 500ms)`);
+      console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (FAST_MODE)`);
     } else {
-      console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (NEW improved default, was 500ms)`);
+      console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (default - safe mode)`);
     }
     
-    // Show concurrency configuration
+    // Show concurrency configuration with warnings
     if (process.env.CURRICULUM_CONCURRENCY !== undefined) {
-      console.log(`   📊 CURRICULUM_CONCURRENCY: ${curriculumConcurrency} (override, old default was 1, max increased from 5 to 10)`);
+      console.log(`   📊 CURRICULUM_CONCURRENCY: ${curriculumConcurrency} (override, max: 10)`);
+      if (curriculumConcurrency > 1) {
+        console.warn(`      ⚠️  Concurrency > 1 may increase risk of AISIS session bleed`);
+      }
     } else {
-      console.log(`   📊 CURRICULUM_CONCURRENCY: ${curriculumConcurrency} (NEW improved default, was 1 - parallel scraping enabled!)`);
+      console.log(`   📊 CURRICULUM_CONCURRENCY: ${curriculumConcurrency} (default - sequential scraping)`);
     }
     console.log('');
 
@@ -1194,13 +1277,14 @@ export class AISISScraper {
 
     // Scrape degree programs with configurable concurrency
     if (curriculumConcurrency === 1) {
-      // Sequential scraping (original behavior)
+      // Sequential scraping (safer for avoiding AISIS session bleed)
       for (let i = 0; i < degreePrograms.length; i++) {
         const { degCode, label } = degreePrograms[i];
         console.log(`   [${i + 1}/${degreePrograms.length}] Scraping ${degCode} (${label})...`);
 
         try {
-          const html = await this._scrapeDegree(degCode);
+          // Use validation wrapper to ensure HTML matches requested program
+          const html = await this._scrapeDegreeWithValidation(degCode, label);
           const rawText = this._flattenCurriculumHtmlToText(html);
 
           allCurricula[i] = {
@@ -1228,8 +1312,9 @@ export class AISISScraper {
         }
       }
     } else {
-      // Concurrent scraping (new behavior)
+      // Concurrent scraping (riskier - may trigger AISIS session bleed)
       console.log(`   ⚡ Using concurrent scraping with concurrency ${curriculumConcurrency}`);
+      console.warn(`      ⚠️  Concurrent scraping increases risk of session bleed - validation is active`);
       
       for (let i = 0; i < degreePrograms.length; i += curriculumConcurrency) {
         const batch = degreePrograms.slice(i, i + curriculumConcurrency);
@@ -1241,7 +1326,8 @@ export class AISISScraper {
         const batchPromises = batch.map(async ({ degCode, label }, batchIndex) => {
           const globalIndex = i + batchIndex;
           try {
-            const html = await this._scrapeDegree(degCode);
+            // Use validation wrapper even in concurrent mode
+            const html = await this._scrapeDegreeWithValidation(degCode, label);
             const rawText = this._flattenCurriculumHtmlToText(html);
             
             console.log(`   ✅ [${globalIndex + 1}/${degreePrograms.length}] ${degCode}: ${html.length} chars HTML`);

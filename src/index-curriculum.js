@@ -92,7 +92,16 @@ async function main() {
       
       // Parse curriculum HTML into structured course rows
       console.log('   🔍 Parsing curriculum HTML into structured course rows...');
+      let parseErrors = 0;
       const { programs, allRows } = parseAllCurricula(curriculumData);
+      
+      // Check if debug program had a mismatch error during parsing
+      if (debugProgram && !programs.find(p => p.degCode === debugDegCode)) {
+        console.log(`   🐛 Debug: ${debugDegCode} was filtered during parsing (possible mismatch)`);
+        // Dump mismatch HTML for inspection
+        fs.writeFileSync(`debug/${debugDegCode.replace(/[/\\:*?"<>|]/g, '_')}-mismatch.html`, debugProgram.html || '');
+        console.log(`   ✅ Debug: Saved ${debugDegCode} mismatch HTML to debug/`);
+      }
       
       console.log(`   ✅ Parsed ${programs.length} programs into ${allRows.length} course rows`);
       
