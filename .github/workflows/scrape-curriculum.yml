@@ -31,4 +31,22 @@ jobs:
           DATA_INGEST_TOKEN: ${{ secrets.DATA_INGEST_TOKEN }}
           GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+
+          # Performance optimizations for CI
+          # (targeting ~2-5 min for limited runs or ~25-30 min for full scrapes)
+          # See CURRICULUM_PERFORMANCE_FIX.md and README.md for details
+          FAST_MODE: 'true'
+          # Skip validation passes, use minimal delays
+          CURRICULUM_DELAY_MS: '100'
+          # Balanced delay - much faster than code default (2000ms),
+          # still polite to AISIS
+          CURRICULUM_CONCURRENCY: '2'
+          # Scrape 2 programs in parallel - 2x speedup,
+          # well-tested and safe
+
+          # Optional: Uncomment to limit scraping to first N programs
+          # for faster CI runs
+          # CURRICULUM_LIMIT: '50'
+          # (Scrape only first 50 programs - ~2-3 minutes
+          # instead of 25-30 minutes)
         run: npm run curriculum
