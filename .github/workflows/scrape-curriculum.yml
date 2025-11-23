@@ -40,8 +40,8 @@ jobs:
           CURRICULUM_DELAY_MS: '100'
           # Balanced delay - much faster than code default (2000ms),
           # still polite to AISIS
-          CURRICULUM_CONCURRENCY: '2'
-          # Scrape 2 programs in parallel - 2x speedup,
+          CURRICULUM_CONCURRENCY: '4'
+          # Scrape 2 programs in parallel - 4x speedup,
           # well-tested and safe
 
           # Optional: Uncomment to limit scraping to first N programs
