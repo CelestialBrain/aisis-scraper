@@ -14,6 +14,20 @@ const DEFAULT_BATCH_SIZE = 100;
 const MIN_BATCH_SIZE = 50;
 const MAX_BATCH_SIZE = 500;
 
+// Sample size for logging invalid records
+const SAMPLE_INVALID_RECORDS_COUNT = 3;
+
+// Common header/placeholder values that should not be treated as course records
+const HEADER_MARKERS = {
+  SUBJECT_CODE: ['SUBJECT CODE', 'SUBJ CODE', 'CODE'],
+  SECTION: ['SECTION', 'SEC'],
+  COURSE_TITLE: ['COURSE TITLE', 'TITLE', 'COURSE'],
+  UNITS: ['UNITS', 'U'],
+  TIME: ['TIME', 'SCHEDULE'],
+  ROOM: ['ROOM', 'RM'],
+  INSTRUCTOR: ['INSTRUCTOR', 'FACULTY']
+};
+
 // Parse batch size from environment with bounds checking
 function getBatchSize(): number {
   const envValue = Deno.env.get('GITHUB_INGEST_DB_BATCH_SIZE');
@@ -82,16 +96,39 @@ interface IngestPayload {
   metadata?: {
     term_code?: string;
     department?: string;
+    record_count?: number;
+    replace_existing?: boolean;
   };
 }
 
 interface BatchResult {
   inserted: number;
   errors: string[];
+  filtered_headers: number;
+  filtered_invalid: number;
 }
 
 // Helper: Add delay between batches to avoid rate limits
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Helper: Check if a schedule record appears to be a header or placeholder row
+function isHeaderLikeRecord(record: ScheduleRecord): boolean {
+  if (!record) return true;
+  
+  const subjectCode = (record.subject_code || '').toUpperCase().trim();
+  const courseTitle = (record.course_title || '').toUpperCase().trim();
+  const section = (record.section || '').toUpperCase().trim();
+  
+  // Check for header marker values
+  if (HEADER_MARKERS.SUBJECT_CODE.some(marker => subjectCode === marker)) return true;
+  if (HEADER_MARKERS.SECTION.some(marker => section === marker)) return true;
+  if (HEADER_MARKERS.COURSE_TITLE.some(marker => courseTitle === marker)) return true;
+  
+  // Check for obviously invalid patterns
+  if (subjectCode === '' && courseTitle === '') return true;
+  
+  return false;
+}
 
 // Helper: Validate schedule record has required fields
 function validateScheduleRecord(record: ScheduleRecord): boolean {
@@ -111,19 +148,76 @@ function validateScheduleRecord(record: ScheduleRecord): boolean {
 async function upsertSchedulesInBatches(
   supabase: any,
   schedules: ScheduleRecord[],
+  metadata: any,
   batchSize: number = BATCH_SIZE
 ): Promise<BatchResult> {
   const result: BatchResult = {
     inserted: 0,
-    errors: []
+    errors: [],
+    filtered_headers: 0,
+    filtered_invalid: 0
   };
 
-  // Filter out invalid records
-  const validSchedules = schedules.filter(validateScheduleRecord);
-  const invalidCount = schedules.length - validSchedules.length;
+  // Filter out header/placeholder records first
+  const headerSamples: ScheduleRecord[] = [];
+  const nonHeaderSchedules = schedules.filter(record => {
+    if (isHeaderLikeRecord(record)) {
+      result.filtered_headers++;
+      if (headerSamples.length < SAMPLE_INVALID_RECORDS_COUNT) {
+        headerSamples.push(record);
+      }
+      return false;
+    }
+    return true;
+  });
+
+  if (result.filtered_headers > 0) {
+    console.log(`Filtered ${result.filtered_headers} header/placeholder record(s)`);
+    if (headerSamples.length > 0) {
+      console.log(`Sample header records:`, JSON.stringify(headerSamples.slice(0, SAMPLE_INVALID_RECORDS_COUNT)));
+    }
+  }
+
+  // Filter out invalid records (missing required fields)
+  const invalidSamples: ScheduleRecord[] = [];
+  const validSchedules = nonHeaderSchedules.filter(record => {
+    if (!validateScheduleRecord(record)) {
+      result.filtered_invalid++;
+      if (invalidSamples.length < SAMPLE_INVALID_RECORDS_COUNT) {
+        invalidSamples.push(record);
+      }
+      return false;
+    }
+    return true;
+  });
   
-  if (invalidCount > 0) {
-    result.errors.push(`Filtered out ${invalidCount} invalid records (missing required fields)`);
+  if (result.filtered_invalid > 0) {
+    console.log(`Filtered ${result.filtered_invalid} invalid record(s) (missing required fields)`);
+    if (invalidSamples.length > 0) {
+      console.log(`Sample invalid records:`, JSON.stringify(invalidSamples.slice(0, SAMPLE_INVALID_RECORDS_COUNT)));
+    }
+  }
+
+  // Optional: Delete existing records for this term/department if replace_existing is true
+  if (metadata?.replace_existing && metadata?.term_code && metadata?.department) {
+    console.log(`Replacing existing records for term=${metadata.term_code}, department=${metadata.department}`);
+    try {
+      const { error: deleteError } = await supabase
+        .from('aisis_schedules')
+        .delete()
+        .eq('term_code', metadata.term_code)
+        .eq('department', metadata.department);
+      
+      if (deleteError) {
+        console.error(`Failed to delete existing records: ${deleteError.message}`);
+        result.errors.push(`Delete failed: ${deleteError.message}`);
+      } else {
+        console.log(`Deleted existing records for term=${metadata.term_code}, department=${metadata.department}`);
+      }
+    } catch (err) {
+      console.error(`Exception during delete: ${err.message}`);
+      result.errors.push(`Delete exception: ${err.message}`);
+    }
   }
 
   // Process in batches
@@ -173,7 +267,9 @@ async function upsertCurriculum(
 ): Promise<BatchResult> {
   const result: BatchResult = {
     inserted: 0,
-    errors: []
+    errors: [],
+    filtered_headers: 0,
+    filtered_invalid: 0
   };
 
   // Curriculum typically has fewer records, but we still batch for consistency
@@ -248,10 +344,11 @@ serve(async (req) => {
     if (data_type === 'schedules') {
       result = await upsertSchedulesInBatches(
         supabaseClient,
-        records as ScheduleRecord[]
+        records as ScheduleRecord[],
+        metadata
       );
 
-      console.log(`Schedules sync completed: ${result.inserted}/${records.length} inserted`);
+      console.log(`Schedules sync completed: ${result.inserted}/${records.length} inserted, ${result.filtered_headers} headers filtered, ${result.filtered_invalid} invalid filtered`);
       
       if (result.errors.length > 0) {
         console.error(`Encountered ${result.errors.length} errors during sync`);
@@ -262,6 +359,8 @@ serve(async (req) => {
           success: result.errors.length === 0,
           inserted: result.inserted,
           total: records.length,
+          filtered_headers: result.filtered_headers,
+          filtered_invalid: result.filtered_invalid,
           errors: result.errors,
           partial_success: result.inserted > 0 && result.errors.length > 0
         }),

@@ -196,6 +196,53 @@ Every scrape operation generates a summary report at `logs/schedule_summary-<ter
 - `success_empty`: Department scraped successfully but no courses found (may be valid for that term)
 - `failed`: Department scraping failed after retries
 
+### 4.2 Enhanced Validation and Logging
+
+The scraper now includes multi-layer validation to ensure data quality:
+
+**Parser-level validation (`src/scraper.js`):**
+- Detects and filters header/placeholder rows (e.g., rows with "SUBJECT CODE" as subject_code)
+- Validates required fields (subject_code, section, etc.)
+- Logs sample invalid rows for debugging (configurable via `SAMPLE_INVALID_RECORDS_COUNT`)
+- Debug mode (`DEBUG_SCRAPER=true`) shows sample parsed courses per department
+
+**Transformation validation (`src/supabase.js`):**
+- Re-validates transformed records for required fields
+- Filters out any remaining header-like records
+- Logs counts and samples of filtered records
+
+**Edge Function validation (`github-data-ingest`, `scrape-department`):**
+- Final validation before database upsert
+- Filters header/placeholder records
+- Validates required fields (term_code, subject_code, section, department)
+- Logs sample invalid records (up to 3 by default)
+- Returns filtering counts in response
+
+**Example enhanced logging output:**
+```
+   ℹ️  ENLL: 2 header/placeholder row(s) filtered
+   ⚠️  ENGG: 1 invalid row(s) skipped (sample shown)
+      - Row 42: missing subject code - {"section":"X","title":"TBA"}
+   🔍 ENLL: Sample of 2 parsed course(s):
+      - ENLL 101 A: Introduction to Literature
+      - ENLL 399.7 SUB-B: FINAL PAPER SUBMISSION (DOCTORAL)
+```
+
+### 4.3 Debug Mode
+
+Enable detailed logging with the `DEBUG_SCRAPER` environment variable:
+
+```bash
+DEBUG_SCRAPER=true npm start
+```
+
+Debug mode outputs:
+- Sample parsed courses per department (first 2)
+- Header rows detected with details
+- Time pattern parsing details (when applicable)
+
+This mode is useful for troubleshooting but adds minimal overhead (~0.5s for a full scrape).
+
 ### 4.2 Verification Script
 
 Use `npm run verify` to compare AISIS data with Supabase:

@@ -1,24 +1,28 @@
 # AISIS Scraper Tests
 
-This directory contains tests for the AISIS scraper, focusing on edge cases and data completeness validation.
+This directory contains tests for the AISIS scraper, focusing on edge cases, validation, and data completeness.
 
 ## Test Structure
 
 ```
 tests/
-├── fixtures/              # HTML fixtures from AISIS
+├── fixtures/                    # HTML fixtures from AISIS
 │   └── aisis-schedule-edge-cases.html
-└── test-parser.js        # Parser unit tests
+├── test-parser.js              # Parser unit tests
+├── test-validation.js          # Validation utility tests
+└── test-transformation.js      # Transformation validation tests
 ```
 
 ## Running Tests
 
 ```bash
-# Run all tests
+# Run all tests (runs parser tests)
 npm test
 
-# Run specific test
+# Run specific tests
 node tests/test-parser.js
+node tests/test-validation.js
+node tests/test-transformation.js
 ```
 
 ## Test Coverage
@@ -39,18 +43,66 @@ Tests the `_parseCourses` method with edge cases:
 - `ENLL 399.5 SUB-C` - Residency
 - Courses with modality markers that should be stripped
 
+### Validation Tests (`test-validation.js`) **NEW**
+
+Tests validation utilities from `src/constants.js`:
+
+1. **Header detection** - Identifies table header rows
+2. **Field validation** - Validates required fields
+3. **Format compatibility** - Supports both raw and transformed formats
+
+**Test cases:**
+- Valid course records (should pass validation)
+- Header rows with "SUBJECT CODE", "SECTION", etc. (should be detected)
+- Empty records (should be detected as headers and invalid)
+- Missing required fields (should fail validation)
+- Raw format records (subjectCode vs subject_code compatibility)
+- Special courses (doctoral courses with special characters)
+
+### Transformation Tests (`test-transformation.js`) **NEW**
+
+Tests transformation and validation in `src/supabase.js`:
+
+1. **Header filtering** - Filters out header/placeholder rows
+2. **Invalid record filtering** - Filters records missing required fields
+3. **Valid record preservation** - Ensures valid records pass through
+4. **Logging verification** - Confirms proper logging of filtered records
+
+**Test data:**
+- 2 valid records (should pass through)
+- 1 header record (should be filtered)
+- 1 invalid record with missing term_code (should be filtered)
+
+**Expected output:**
+- 2 records after transformation
+- All output records have required fields
+- Filtered records logged with samples
+
 ### Expected Test Results
 
 ```
+# Parser tests
 📊 Test Results:
    Total: 6
    ✅ Passed: 6
    ❌ Failed: 0
+
+# Validation tests
+📊 Test Summary:
+   Total tests: 7
+   ✅ Passed: 7
+   ❌ Failed: 0
+
+# Transformation tests
+✅ Transformation test PASSED!
+   Expected 2 records, got 2
+✅ All output records have required fields
 ```
 
 All tests should pass. If tests fail, it may indicate:
 - AISIS HTML structure has changed
 - Parser logic needs updating
+- Validation logic has bugs
 - Test fixtures need updating
 
 ## Adding New Tests

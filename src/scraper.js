@@ -2,7 +2,7 @@ import fs from 'fs';
 import * as cheerio from 'cheerio';
 import { CookieJar } from 'tough-cookie';
 import crypto from 'crypto';
-import { DEPARTMENTS } from './constants.js';
+import { DEPARTMENTS, isHeaderLikeRecord, SAMPLE_INVALID_RECORDS_COUNT } from './constants.js';
 
 // Use node-fetch directly instead of fetch-cookie
 const { default: fetch } = await import('node-fetch');
@@ -591,8 +591,13 @@ export class AISISScraper {
       console.log(`   ℹ️  ${deptCode}: Processing ${expectedRows} complete rows, ${remainder} cells will be skipped.`);
     }
 
+    // Track invalid rows for debug logging
+    const invalidRows = [];
+    const debugMode = process.env.DEBUG_SCRAPER === 'true';
+
     // Process in chunks of CELLS_PER_ROW cells per course
     let skippedRows = 0;
+    let headerRows = 0;
     for (let i = 0; i < courseCells.length; i += CELLS_PER_ROW) {
       if (i + CELLS_PER_ROW - 1 >= courseCells.length) {
         // Not enough cells for a complete row - log and skip
@@ -646,9 +651,29 @@ export class AISISScraper {
         p: this._cleanText(cellTexts[13] || '')
       };
 
+      // Check for header/placeholder rows
+      if (isHeaderLikeRecord(course)) {
+        if (debugMode && headerRows < SAMPLE_INVALID_RECORDS_COUNT) {
+          console.log(`   🔍 ${deptCode}: Header row detected at index ${i}:`, {
+            subjectCode: course.subjectCode,
+            section: course.section,
+            title: course.title
+          });
+        }
+        headerRows++;
+        skippedRows++;
+        continue;
+      }
+
       // Validate required fields before adding
       if (!course.subjectCode || !course.subjectCode.trim()) {
-        console.log(`   ⚠️  ${deptCode}: Skipped row at index ${i} - missing subject code`);
+        if (invalidRows.length < SAMPLE_INVALID_RECORDS_COUNT) {
+          invalidRows.push({
+            index: i,
+            reason: 'missing subject code',
+            data: { section: course.section, title: course.title }
+          });
+        }
         skippedRows++;
         continue;
       }
@@ -657,8 +682,23 @@ export class AISISScraper {
     }
 
     // Summary logging
-    if (skippedRows > 0) {
-      console.log(`   ⚠️  ${deptCode}: ${skippedRows} row(s) skipped due to incomplete or invalid data`);
+    if (headerRows > 0) {
+      console.log(`   ℹ️  ${deptCode}: ${headerRows} header/placeholder row(s) filtered`);
+    }
+    if (invalidRows.length > 0) {
+      console.log(`   ⚠️  ${deptCode}: ${skippedRows - headerRows} invalid row(s) skipped (sample shown)`);
+      invalidRows.forEach(({ index, reason, data }) => {
+        console.log(`      - Row ${index}: ${reason} - ${JSON.stringify(data)}`);
+      });
+    }
+
+    // Debug logging: show sample of parsed courses
+    if (debugMode && courses.length > 0) {
+      const sampleSize = Math.min(2, courses.length);
+      console.log(`   🔍 ${deptCode}: Sample of ${sampleSize} parsed course(s):`);
+      courses.slice(0, sampleSize).forEach(c => {
+        console.log(`      - ${c.subjectCode} ${c.section}: ${c.title}`);
+      });
     }
 
     return courses;

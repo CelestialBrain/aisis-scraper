@@ -1,5 +1,6 @@
 // Add this import at the top
 import fetch from 'node-fetch';
+import { validateScheduleRecord, isHeaderLikeRecord, SAMPLE_INVALID_RECORDS_COUNT } from './constants.js';
 
 export class SupabaseManager {
   constructor(ingestToken, supabaseUrl = null) {
@@ -130,15 +131,17 @@ export class SupabaseManager {
    * @param {string|null} termCode - Term code for schedules
    * @param {string|null} department - Department code
    * @param {string|null} programCode - Program code for curriculum
+   * @param {number|null} recordCount - Number of records in the payload
    * @returns {Object} Metadata object with all available context
    */
-  buildMetadata(termCode = null, department = null, programCode = null) {
+  buildMetadata(termCode = null, department = null, programCode = null, recordCount = null) {
     const metadata = {};
     
     // Add context-specific metadata
     if (termCode) metadata.term_code = termCode;
     if (department) metadata.department = department;
     if (programCode) metadata.program_code = programCode;
+    if (recordCount !== null) metadata.record_count = recordCount;
     
     // Add GitHub Actions context if available
     if (process.env.GITHUB_WORKFLOW) {
@@ -189,8 +192,8 @@ export class SupabaseManager {
    * @returns {Promise<boolean>} True if successful, false if all retries failed
    */
   async sendRequest(dataType, records, termCode = null, department = null, programCode = null) {
-    // Build metadata with GitHub Actions context
-    const metadata = this.buildMetadata(termCode, department, programCode);
+    // Build metadata with GitHub Actions context and record count
+    const metadata = this.buildMetadata(termCode, department, programCode, records.length);
 
     const payload = {
       data_type: dataType,
@@ -311,10 +314,17 @@ export class SupabaseManager {
   }
 
   transformScheduleData(scheduleItems) {
-    return scheduleItems.map(item => {
-      const parsedTime = this.parseTimePattern(item.time);  // Fix: use item.time not item.time_pattern
+    const transformed = [];
+    const invalidRecordSamples = [];
+    const headerRecordSamples = [];
+    let totalHeadersFiltered = 0;
+    let totalInvalidFiltered = 0;
+    
+    for (const item of scheduleItems) {
+      // Transform first
+      const parsedTime = this.parseTimePattern(item.time);
       
-      return {
+      const record = {
         subject_code: item.subjectCode,
         section: item.section,
         course_title: item.title, 
@@ -334,7 +344,54 @@ export class SupabaseManager {
         delivery_mode: null,
         term_code: item.term_code  // Preserve term_code from enriched record
       };
-    });
+      
+      // Check for header/placeholder rows
+      if (isHeaderLikeRecord(record)) {
+        totalHeadersFiltered++;
+        if (headerRecordSamples.length < SAMPLE_INVALID_RECORDS_COUNT) {
+          headerRecordSamples.push({
+            subject_code: record.subject_code,
+            section: record.section,
+            course_title: record.course_title
+          });
+        }
+        continue;
+      }
+      
+      // Validate required fields
+      if (!validateScheduleRecord(record)) {
+        totalInvalidFiltered++;
+        if (invalidRecordSamples.length < SAMPLE_INVALID_RECORDS_COUNT) {
+          invalidRecordSamples.push({
+            subject_code: record.subject_code,
+            section: record.section,
+            department: record.department,
+            term_code: record.term_code,
+            reason: 'missing required fields'
+          });
+        }
+        continue;
+      }
+      
+      transformed.push(record);
+    }
+    
+    // Log validation results if any records were filtered
+    if (totalHeadersFiltered > 0) {
+      console.log(`   ℹ️  Filtered ${totalHeadersFiltered} header/placeholder record(s)`);
+      if (process.env.DEBUG_SCRAPER === 'true' && headerRecordSamples.length > 0) {
+        console.log(`   🔍 Sample header records (showing ${headerRecordSamples.length}):`, headerRecordSamples);
+      }
+    }
+    
+    if (totalInvalidFiltered > 0) {
+      console.log(`   ⚠️  Filtered ${totalInvalidFiltered} invalid record(s) (missing required fields)`);
+      if (invalidRecordSamples.length > 0) {
+        console.log(`   📋 Sample invalid records (showing ${invalidRecordSamples.length}):`, invalidRecordSamples);
+      }
+    }
+    
+    return transformed;
   }
 
   transformCurriculumData(curriculumItems) {
