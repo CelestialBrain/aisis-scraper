@@ -557,9 +557,9 @@ async function upsertCurriculumVersions(
             for (const rule of group.rules) {
               const newRule: any = {
                 requirement_group_id,
-                rule_type: 'by_course', // Changed from 'explicit_courses' to 'by_course'
+                rule_type: 'by_course', // Must be one of: by_course, by_tag, by_prefix, by_pattern (per DB constraint)
                 course_code: rule.course_code,
-                tag_pattern: rule.tag_pattern || null, // Ensure null when empty
+                tag_pattern: rule.tag_pattern?.trim() || null, // Ensure null when empty string
                 description: rule.course_title ? `${rule.course_code}: ${rule.course_title}` : rule.course_code
               };
 
