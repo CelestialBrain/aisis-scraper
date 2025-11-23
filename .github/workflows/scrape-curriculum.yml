@@ -37,7 +37,7 @@ jobs:
           # See CURRICULUM_PERFORMANCE_FIX.md and README.md for details
           FAST_MODE: 'true'
           # Skip validation passes, use minimal delays
-          CURRICULUM_DELAY_MS: '100'
+          CURRICULUM_DELAY_MS: '500'
           # Balanced delay - much faster than code default (2000ms),
           # still polite to AISIS
           CURRICULUM_CONCURRENCY: '4'
