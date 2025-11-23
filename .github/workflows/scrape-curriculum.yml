@@ -38,7 +38,7 @@ jobs:
           FAST_MODE: 'true'
           # Skip validation passes, use minimal delays
           CURRICULUM_DELAY_MS: '100'
-          # Balanced delay - 5x faster than old 500ms default,
+          # Balanced delay - much faster than code default (2000ms),
           # still polite to AISIS
           CURRICULUM_CONCURRENCY: '2'
           # Scrape 2 programs in parallel - 2x speedup,
@@ -47,6 +47,6 @@ jobs:
           # Optional: Uncomment to limit scraping to first N programs
           # for faster CI runs
           # CURRICULUM_LIMIT: '50'
-          # Scrape only first 50 programs (~2-3 minutes
+          # (Scrape only first 50 programs - ~2-3 minutes
           # instead of 25-30 minutes)
         run: npm run curriculum
