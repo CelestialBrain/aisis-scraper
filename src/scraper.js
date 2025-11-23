@@ -26,9 +26,10 @@ const RETRY_CONFIG = {
 };
 
 // Scrape behavior configuration for batched concurrent department scraping
+// Optimized for performance while remaining polite to AISIS server
 const SCRAPE_CONFIG = {
-  CONCURRENCY: 5,        // Number of departments to scrape in parallel per batch
-  BATCH_DELAY_MS: 750    // Delay in milliseconds between batches of concurrent scrapes
+  CONCURRENCY: 8,        // Number of departments to scrape in parallel per batch (increased from 5)
+  BATCH_DELAY_MS: 500    // Delay in milliseconds between batches (reduced from 750ms)
 };
 
 export class AISISScraper {
@@ -325,6 +326,74 @@ export class AISISScraper {
     }
   }
 
+  /**
+   * Get available departments from AISIS Schedule of Classes page
+   * 
+   * Fetches the list of department options from the deptCode dropdown
+   * on the Schedule of Classes page. This allows the scraper to adapt
+   * to changes in AISIS department codes while maintaining a stable
+   * canonical list for downstream consumers.
+   * 
+   * @returns {Promise<Array<{value: string, label: string}>>} Array of department options
+   */
+  async getAvailableDepartments() {
+    if (!this.loggedIn) {
+      throw new Error('Not logged in - cannot fetch available departments');
+    }
+
+    console.log('🔍 Fetching available departments from AISIS...');
+
+    try {
+      // GET the Schedule of Classes page
+      const response = await this._request(`${this.baseUrl}/j_aisis/J_VCSC.do`, {
+        method: 'GET',
+        headers: {
+          'Referer': `${this.baseUrl}/j_aisis/J_VMCS.do`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to load Schedule of Classes page: HTTP ${response.status}`);
+      }
+
+      const html = await response.text();
+
+      // Check for session expiry
+      if (LOGIN_FAILURE_MARKERS.some(marker => html.includes(marker))) {
+        throw new Error('Session expired while fetching departments');
+      }
+
+      // Parse HTML to find deptCode select
+      const $ = cheerio.load(html);
+      const select = $('select[name="deptCode"]');
+
+      if (select.length === 0) {
+        throw new Error('Could not find deptCode select element on page');
+      }
+
+      const departments = [];
+      select.find('option').each((_, option) => {
+        const value = $(option).attr('value');
+        const label = $(option).text().trim();
+        
+        // Skip empty options (like "ALL" or placeholder options)
+        if (value && value.trim() !== '' && value.toUpperCase() !== 'ALL') {
+          departments.push({
+            value: value.trim(),
+            label: label
+          });
+        }
+      });
+
+      console.log(`   ✅ Found ${departments.length} available departments in AISIS`);
+      return departments;
+
+    } catch (error) {
+      console.error(`   ❌ Failed to fetch available departments: ${error.message}`);
+      throw error;
+    }
+  }
+
   async scrapeSchedule(term = null) {
     if (!this.loggedIn) {
       throw new Error('Not logged in');
@@ -348,12 +417,39 @@ export class AISISScraper {
 
     console.log(`\n📅 Using applicablePeriod term: ${term}`);
     
+    // Fetch available departments from AISIS for flexible mapping
+    // This allows us to adapt to AISIS changes while maintaining stable canonical list
+    let availableDepartments = [];
+    try {
+      const deptFetchStart = Date.now();
+      availableDepartments = await this.getAvailableDepartments();
+      const deptFetchTime = Date.now() - deptFetchStart;
+      console.log(`   ⏱  Department discovery: ${formatTime(deptFetchTime)}`);
+    } catch (error) {
+      console.warn(`   ⚠️  Could not fetch available departments: ${error.message}`);
+      console.warn(`   Proceeding with canonical DEPARTMENTS list only`);
+    }
+    
+    // Build a map of available department codes for quick lookup
+    const availableDeptSet = new Set(availableDepartments.map(d => d.value));
+    
+    // Use canonical DEPARTMENTS list as the authoritative set to scrape
     const departments = DEPARTMENTS;
 
     const allCourses = [];
     
     // Track per-department status for summary report
     const departmentStatus = {};
+    
+    // Check which canonical departments are not in AISIS dropdown
+    if (availableDepartments.length > 0) {
+      const missingDepts = departments.filter(dept => !availableDeptSet.has(dept));
+      if (missingDepts.length > 0) {
+        console.log(`   ⚠️  ${missingDepts.length} canonical department(s) not found in AISIS dropdown for term ${term}:`);
+        console.log(`       ${missingDepts.join(', ')}`);
+        console.log(`   These will be attempted anyway and may return no results.`);
+      }
+    }
     
     // Test with just 1 department first to verify session and term
     console.log('   🧪 Testing with first department...');
@@ -384,6 +480,7 @@ export class AISISScraper {
           const batchNum = Math.floor(i / SCRAPE_CONFIG.CONCURRENCY) + 1;
           
           console.log(`   📦 Processing batch ${batchNum}/${totalBatches} (${batch.join(', ')})...`);
+          const batchStart = Date.now();
           
           // Scrape all departments in this batch concurrently with retry tracking
           const batchPromises = batch.map(async (dept) => {
@@ -445,6 +542,9 @@ export class AISISScraper {
           for (const courses of batchResults) {
             allCourses.push(...courses);
           }
+          
+          const batchTime = Date.now() - batchStart;
+          console.log(`   ⏱  Batch ${batchNum}: ${formatTime(batchTime)}`);
           
           // Add delay between batches (but not after the last batch)
           if (i + SCRAPE_CONFIG.CONCURRENCY < remainingDepts.length) {
@@ -535,6 +635,13 @@ export class AISISScraper {
       // Check for session expiry
       if (LOGIN_FAILURE_MARKERS.some(marker => html.includes(marker))) {
         throw new Error('Session expired');
+      }
+
+      // Check for explicit "no results" message from AISIS
+      // This sentinel indicates that AISIS has no offerings for this department/term
+      if (html.includes('Sorry. There are no results for your search criteria')) {
+        console.log(`   ℹ️  ${deptCode}: No courses found for term ${term} (explicit AISIS no-results page)`);
+        return [];
       }
 
       // Enhanced logging: count td.text02 cells before parsing
