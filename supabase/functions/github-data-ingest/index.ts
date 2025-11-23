@@ -82,17 +82,47 @@ interface ScheduleRecord {
 
 interface CurriculumRecord {
   degree_code: string;
+  program_label?: string;
+  program_title?: string;
   year_level?: number;
   semester?: number;
   course_code: string;
+  course_title?: string;
   course_description?: string;
   units?: number;
+  prerequisites?: string;
+  category?: string;
+}
+
+interface CurriculumVersionPayload {
+  program_code: string;
+  version_label: string;
+  version_year?: number;
+  version_sem?: number;
+  version_seq?: number;
+  track_name?: string;
+  is_active?: boolean;
+  requirement_groups?: RequirementGroup[];
+}
+
+interface RequirementGroup {
+  group_name: string;
+  year_level?: number;
+  semester?: number;
+  min_units?: number;
+  rules?: RequirementRule[];
+}
+
+interface RequirementRule {
+  course_code: string;
+  course_title?: string;
+  tag_pattern?: string;
   category?: string;
 }
 
 interface IngestPayload {
-  data_type: 'schedules' | 'curriculum';
-  records: ScheduleRecord[] | CurriculumRecord[];
+  data_type: 'schedules' | 'curriculum' | 'curriculum_version';
+  records: ScheduleRecord[] | CurriculumRecord[] | CurriculumVersionPayload[];
   metadata?: {
     term_code?: string;
     department?: string;
@@ -303,6 +333,267 @@ async function upsertCurriculum(
   return result;
 }
 
+// Helper: Upsert curriculum versions with requirement groups and rules
+async function upsertCurriculumVersions(
+  supabase: any,
+  versions: CurriculumVersionPayload[],
+  metadata: any
+): Promise<BatchResult> {
+  const result: BatchResult = {
+    inserted: 0,
+    errors: [],
+    filtered_headers: 0,
+    filtered_invalid: 0
+  };
+
+  console.log(`Processing ${versions.length} curriculum version(s)...`);
+
+  for (const versionPayload of versions) {
+    try {
+      const {
+        program_code,
+        version_label,
+        version_year,
+        version_sem,
+        version_seq,
+        track_name,
+        is_active,
+        requirement_groups
+      } = versionPayload;
+
+      // Log the key fields being used for curriculum version lookup
+      console.log(`Processing curriculum version: program_code=${program_code}, version_label=${version_label}, track=${track_name || 'null'}`);
+
+      // Step 1: Lookup program_id from programs table
+      const { data: programData, error: programLookupError } = await supabase
+        .from('programs')
+        .select('id')
+        .eq('code', program_code)
+        .single();
+
+      if (programLookupError || !programData) {
+        const errorMsg = `Program lookup failed for code=${program_code}: ${programLookupError?.message || 'not found'}`;
+        console.error(errorMsg);
+        result.errors.push(errorMsg);
+        continue;
+      }
+
+      const program_id = programData.id;
+      console.log(`  Found program_id=${program_id} for program_code=${program_code}`);
+
+      // Step 2: Lookup track_id if track_name is provided
+      let track_id: number | null = null;
+      if (track_name) {
+        const { data: trackData, error: trackLookupError } = await supabase
+          .from('tracks')
+          .select('id')
+          .eq('program_id', program_id)
+          .eq('name', track_name)
+          .single();
+
+        if (trackLookupError || !trackData) {
+          const errorMsg = `Track lookup failed for program_id=${program_id}, track_name=${track_name}: ${trackLookupError?.message || 'not found'}`;
+          console.error(errorMsg);
+          result.errors.push(errorMsg);
+          continue;
+        }
+
+        track_id = trackData.id;
+        console.log(`  Found track_id=${track_id} for track_name=${track_name}`);
+      }
+
+      // Step 3: Handle replace_existing logic
+      if (metadata?.replace_existing) {
+        // Lookup existing curriculum version using the same key columns as uq_curriculum_version
+        // Constraint is likely on: program_id, version_label, and track_id (if present)
+        let existingVersionQuery = supabase
+          .from('curriculum_versions')
+          .select('id')
+          .eq('program_id', program_id)
+          .eq('version_label', version_label);
+
+        if (track_id !== null) {
+          existingVersionQuery = existingVersionQuery.eq('track_id', track_id);
+        } else {
+          existingVersionQuery = existingVersionQuery.is('track_id', null);
+        }
+
+        const { data: existingVersionData, error: existingVersionError } = await existingVersionQuery.single();
+
+        if (existingVersionData && !existingVersionError) {
+          const existing_cv_id = existingVersionData.id;
+          console.log(`  Found existing curriculum version id=${existing_cv_id}, deleting cascading records...`);
+
+          // Delete requirement_rules for all requirement_groups in this curriculum version
+          const { data: groupsData, error: groupsError } = await supabase
+            .from('requirement_groups')
+            .select('id')
+            .eq('curriculum_version_id', existing_cv_id);
+
+          if (groupsData && groupsData.length > 0) {
+            const groupIds = groupsData.map((g: any) => g.id);
+            console.log(`  Deleting requirement_rules for ${groupIds.length} requirement_group(s)...`);
+
+            const { error: deleteRulesError } = await supabase
+              .from('requirement_rules')
+              .delete()
+              .in('requirement_group_id', groupIds);
+
+            if (deleteRulesError) {
+              console.error(`  Failed to delete requirement_rules: ${deleteRulesError.message}`);
+            } else {
+              console.log(`  Deleted requirement_rules for requirement_groups`);
+            }
+          }
+
+          // Delete requirement_groups for this curriculum version
+          console.log(`  Deleting requirement_groups for curriculum_version_id=${existing_cv_id}...`);
+          const { error: deleteGroupsError } = await supabase
+            .from('requirement_groups')
+            .delete()
+            .eq('curriculum_version_id', existing_cv_id);
+
+          if (deleteGroupsError) {
+            console.error(`  Failed to delete requirement_groups: ${deleteGroupsError.message}`);
+          } else {
+            console.log(`  Deleted requirement_groups`);
+          }
+
+          // Delete the curriculum version itself using exact matching key fields
+          console.log(`  Deleting curriculum version with program_id=${program_id}, version_label=${version_label}, track_id=${track_id}...`);
+          let deleteVersionQuery = supabase
+            .from('curriculum_versions')
+            .delete()
+            .eq('program_id', program_id)
+            .eq('version_label', version_label);
+
+          if (track_id !== null) {
+            deleteVersionQuery = deleteVersionQuery.eq('track_id', track_id);
+          } else {
+            deleteVersionQuery = deleteVersionQuery.is('track_id', null);
+          }
+
+          const { error: deleteVersionError } = await deleteVersionQuery;
+
+          if (deleteVersionError) {
+            const errorMsg = `Failed to delete curriculum version: ${deleteVersionError.message}`;
+            console.error(`  ${errorMsg}`);
+            result.errors.push(errorMsg);
+            continue;
+          } else {
+            console.log(`  Deleted existing curriculum version`);
+          }
+        } else if (existingVersionError && existingVersionError.code !== 'PGRST116') {
+          // PGRST116 = no rows returned (not an error, just doesn't exist)
+          console.warn(`  Lookup existing version returned error: ${existingVersionError.message}`);
+        } else {
+          console.log(`  No existing curriculum version found to delete`);
+        }
+      }
+
+      // Step 4: Insert new curriculum version
+      console.log(`  Inserting new curriculum version...`);
+      const newVersion: any = {
+        program_id,
+        version_label,
+        is_active: is_active ?? true
+      };
+
+      if (version_year !== undefined) newVersion.version_year = version_year;
+      if (version_sem !== undefined) newVersion.version_sem = version_sem;
+      if (version_seq !== undefined) newVersion.version_seq = version_seq;
+      if (track_id !== null) newVersion.track_id = track_id;
+
+      const { data: insertedVersion, error: insertVersionError } = await supabase
+        .from('curriculum_versions')
+        .insert(newVersion)
+        .select('id')
+        .single();
+
+      if (insertVersionError || !insertedVersion) {
+        const errorMsg = `Failed to create curriculum version: ${insertVersionError?.message || 'unknown error'}`;
+        console.error(`  ${errorMsg}`);
+        result.errors.push(errorMsg);
+        continue;
+      }
+
+      const curriculum_version_id = insertedVersion.id;
+      console.log(`  Created curriculum version id=${curriculum_version_id}`);
+
+      // Step 5: Insert requirement groups and rules
+      if (requirement_groups && requirement_groups.length > 0) {
+        console.log(`  Inserting ${requirement_groups.length} requirement group(s)...`);
+
+        for (const group of requirement_groups) {
+          const newGroup: any = {
+            curriculum_version_id,
+            group_name: group.group_name
+          };
+
+          if (group.year_level !== undefined) newGroup.year_level = group.year_level;
+          if (group.semester !== undefined) newGroup.semester = group.semester;
+          if (group.min_units !== undefined) newGroup.min_units = group.min_units;
+
+          const { data: insertedGroup, error: insertGroupError } = await supabase
+            .from('requirement_groups')
+            .insert(newGroup)
+            .select('id')
+            .single();
+
+          if (insertGroupError || !insertedGroup) {
+            const errorMsg = `Failed to create requirement group '${group.group_name}': ${insertGroupError?.message || 'unknown error'}`;
+            console.error(`    ${errorMsg}`);
+            result.errors.push(errorMsg);
+            continue;
+          }
+
+          const requirement_group_id = insertedGroup.id;
+          console.log(`    Created requirement group id=${requirement_group_id} (${group.group_name})`);
+
+          // Insert requirement rules for this group
+          if (group.rules && group.rules.length > 0) {
+            console.log(`    Inserting ${group.rules.length} requirement rule(s)...`);
+
+            for (const rule of group.rules) {
+              const newRule: any = {
+                requirement_group_id,
+                rule_type: 'by_course', // Changed from 'explicit_courses' to 'by_course'
+                course_code: rule.course_code,
+                tag_pattern: rule.tag_pattern || null, // Ensure null when empty
+                description: rule.course_title ? `${rule.course_code}: ${rule.course_title}` : rule.course_code
+              };
+
+              if (rule.category) newRule.category = rule.category;
+
+              const { error: insertRuleError } = await supabase
+                .from('requirement_rules')
+                .insert(newRule);
+
+              if (insertRuleError) {
+                const errorMsg = `Failed to create requirement rule for course ${rule.course_code}: ${insertRuleError.message}`;
+                console.error(`      ${errorMsg}`);
+                result.errors.push(errorMsg);
+              } else {
+                console.log(`      Created rule: ${rule.course_code}`);
+              }
+            }
+          }
+        }
+      }
+
+      result.inserted++;
+      console.log(`  ✅ Successfully processed curriculum version`);
+
+    } catch (err: any) {
+      const errorMsg = `Exception processing curriculum version: ${err.message}`;
+      console.error(errorMsg);
+      result.errors.push(errorMsg);
+    }
+  }
+
+  return result;
+}
+
 // Main handler
 serve(async (req) => {
   // CORS headers
@@ -377,6 +668,28 @@ serve(async (req) => {
       );
 
       console.log(`Curriculum sync completed: ${result.inserted}/${records.length} inserted`);
+
+      return new Response(
+        JSON.stringify({
+          success: result.errors.length === 0,
+          inserted: result.inserted,
+          total: records.length,
+          errors: result.errors
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: result.errors.length === 0 ? 200 : 500
+        }
+      );
+
+    } else if (data_type === 'curriculum_version') {
+      result = await upsertCurriculumVersions(
+        supabaseClient,
+        records as CurriculumVersionPayload[],
+        metadata
+      );
+
+      console.log(`Curriculum version sync completed: ${result.inserted}/${records.length} versions processed`);
 
       return new Response(
         JSON.stringify({

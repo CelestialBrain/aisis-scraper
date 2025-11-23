@@ -11,6 +11,9 @@ cookies.json
 # Data files (sent to Supabase, not stored in repo)
 data/
 
+# Debug output files
+debug/
+
 # Logs
 logs/
 *.log
