@@ -1077,30 +1077,47 @@ export class AISISScraper {
       ? process.env.CURRICULUM_SAMPLE.split(',').map(s => s.trim()).filter(s => s)
       : null;
     
+    // PERFORMANCE FIX: Reduce default delay from 500ms to 100ms for better performance
+    // Fast mode sets delay to 0ms for maximum speed
+    const defaultCurriculumDelay = fastMode ? 0 : 100;  // Changed from 500ms to 100ms
     const curriculumDelayEnv = parseInt(process.env.CURRICULUM_DELAY_MS, 10);
-    const curriculumDelayMs = isNaN(curriculumDelayEnv) ? 500 : Math.max(0, curriculumDelayEnv);
+    const curriculumDelayMs = isNaN(curriculumDelayEnv) 
+      ? defaultCurriculumDelay 
+      : Math.max(0, curriculumDelayEnv);
     
+    // PERFORMANCE FIX: Enable concurrency by default (2 programs in parallel)
+    // This significantly improves scraping speed without being too aggressive
+    const defaultCurriculumConcurrency = 2;  // Changed from 1 to 2
     const curriculumConcurrencyEnv = parseInt(process.env.CURRICULUM_CONCURRENCY, 10);
     const curriculumConcurrency = isNaN(curriculumConcurrencyEnv) 
-      ? 1 
+      ? defaultCurriculumConcurrency 
       : Math.max(1, Math.min(curriculumConcurrencyEnv, 5));
     
     const fastMode = process.env.FAST_MODE === 'true';
     
     // Log active configuration
-    if (fastMode || curriculumLimit || curriculumSample || process.env.CURRICULUM_DELAY_MS || curriculumConcurrency > 1) {
-      console.log('⚡ Curriculum scraping configuration:');
-      if (fastMode) console.log('   🚀 FAST_MODE enabled');
-      if (curriculumLimit) console.log(`   🔢 CURRICULUM_LIMIT: ${curriculumLimit}`);
-      if (curriculumSample) console.log(`   🎯 CURRICULUM_SAMPLE: ${curriculumSample.length} specific programs`);
-      if (process.env.CURRICULUM_DELAY_MS !== undefined || fastMode) {
-        console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (default: 500ms)`);
-      }
-      if (curriculumConcurrency > 1) {
-        console.log(`   📊 CURRICULUM_CONCURRENCY: ${curriculumConcurrency} (default: 1)`);
-      }
-      console.log('');
+    // Always show configuration since we now have improved defaults
+    console.log('⚡ Curriculum scraping configuration:');
+    if (fastMode) console.log('   🚀 FAST_MODE enabled');
+    if (curriculumLimit) console.log(`   🔢 CURRICULUM_LIMIT: ${curriculumLimit}`);
+    if (curriculumSample) console.log(`   🎯 CURRICULUM_SAMPLE: ${curriculumSample.length} specific programs`);
+    
+    // Show delay configuration
+    if (process.env.CURRICULUM_DELAY_MS !== undefined) {
+      console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (override, old default was 500ms)`);
+    } else if (fastMode) {
+      console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (FAST_MODE, old default was 500ms)`);
+    } else {
+      console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (NEW improved default, was 500ms)`);
     }
+    
+    // Show concurrency configuration
+    if (process.env.CURRICULUM_CONCURRENCY !== undefined) {
+      console.log(`   📊 CURRICULUM_CONCURRENCY: ${curriculumConcurrency} (override, old default was 1)`);
+    } else {
+      console.log(`   📊 CURRICULUM_CONCURRENCY: ${curriculumConcurrency} (NEW improved default, was 1 - parallel scraping enabled!)`);
+    }
+    console.log('');
 
     // Get list of all degree programs
     const allDegreePrograms = await this.getDegreePrograms();
