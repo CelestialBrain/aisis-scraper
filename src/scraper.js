@@ -35,13 +35,11 @@ const DEFAULT_SCRAPE_CONFIG = {
 
 // Get scrape configuration from environment variables or defaults
 function getScrapeConfig() {
-  const concurrency = process.env.AISIS_CONCURRENCY 
-    ? parseInt(process.env.AISIS_CONCURRENCY, 10) 
-    : DEFAULT_SCRAPE_CONFIG.CONCURRENCY;
+  const concurrencyEnv = parseInt(process.env.AISIS_CONCURRENCY, 10);
+  const concurrency = isNaN(concurrencyEnv) ? DEFAULT_SCRAPE_CONFIG.CONCURRENCY : concurrencyEnv;
   
-  const batchDelayMs = process.env.AISIS_BATCH_DELAY_MS 
-    ? parseInt(process.env.AISIS_BATCH_DELAY_MS, 10) 
-    : DEFAULT_SCRAPE_CONFIG.BATCH_DELAY_MS;
+  const batchDelayEnv = parseInt(process.env.AISIS_BATCH_DELAY_MS, 10);
+  const batchDelayMs = isNaN(batchDelayEnv) ? DEFAULT_SCRAPE_CONFIG.BATCH_DELAY_MS : batchDelayEnv;
   
   return {
     CONCURRENCY: Math.max(1, Math.min(concurrency, 20)), // Clamp between 1 and 20
@@ -604,119 +602,119 @@ export class AISISScraper {
       const testDeptStart = Date.now();
       const testDept = departments[0];
     
-    try {
-      const testCourses = await this._scrapeDepartment(term, testDept);
-      const testDeptTime = Date.now() - testDeptStart;
-      console.log(`   ⏱  Test department: ${formatTime(testDeptTime)}`);
-      
-      if (testCourses && testCourses.length > 0) {
-        console.log(`   ✅ Test successful: ${testCourses.length} courses found in ${testDept}`);
-        allCourses.push(...testCourses);
-        departmentStatus[testDept] = {
-          status: 'success',
-          row_count: testCourses.length,
-          error: null
-        };
-      } else {
-        // 0 courses is valid (no offerings or explicit no-results)
-        // Detailed logging already happened in _scrapeDepartment
-        console.log(`   ✅ Test successful: ${testDept} has no courses for this term`);
-        departmentStatus[testDept] = {
-          status: 'success_empty',
-          row_count: 0,
-          error: null
-        };
-      }
-      
-      // Continue with remaining departments using batched concurrent scraping
-      const remainingDepts = departments.slice(1);
-      const totalBatches = Math.ceil(remainingDepts.length / SCRAPE_CONFIG.CONCURRENCY);
-      
-      // Split remaining departments into batches for concurrent processing
-      for (let i = 0; i < remainingDepts.length; i += SCRAPE_CONFIG.CONCURRENCY) {
-        const batch = remainingDepts.slice(i, i + SCRAPE_CONFIG.CONCURRENCY);
-        const batchNum = Math.floor(i / SCRAPE_CONFIG.CONCURRENCY) + 1;
+      try {
+        const testCourses = await this._scrapeDepartment(term, testDept);
+        const testDeptTime = Date.now() - testDeptStart;
+        console.log(`   ⏱  Test department: ${formatTime(testDeptTime)}`);
         
-        console.log(`   📦 Processing batch ${batchNum}/${totalBatches} (${batch.join(', ')})...`);
-        const batchStart = Date.now();
+        if (testCourses && testCourses.length > 0) {
+          console.log(`   ✅ Test successful: ${testCourses.length} courses found in ${testDept}`);
+          allCourses.push(...testCourses);
+          departmentStatus[testDept] = {
+            status: 'success',
+            row_count: testCourses.length,
+            error: null
+          };
+        } else {
+          // 0 courses is valid (no offerings or explicit no-results)
+          // Detailed logging already happened in _scrapeDepartment
+          console.log(`   ✅ Test successful: ${testDept} has no courses for this term`);
+          departmentStatus[testDept] = {
+            status: 'success_empty',
+            row_count: 0,
+            error: null
+          };
+        }
         
-        // Scrape all departments in this batch concurrently with retry tracking
-        const batchPromises = batch.map(async (dept) => {
-          console.log(`   📚 Scraping ${dept}...`);
+        // Continue with remaining departments using batched concurrent scraping
+        const remainingDepts = departments.slice(1);
+        const totalBatches = Math.ceil(remainingDepts.length / SCRAPE_CONFIG.CONCURRENCY);
+        
+        // Split remaining departments into batches for concurrent processing
+        for (let i = 0; i < remainingDepts.length; i += SCRAPE_CONFIG.CONCURRENCY) {
+          const batch = remainingDepts.slice(i, i + SCRAPE_CONFIG.CONCURRENCY);
+          const batchNum = Math.floor(i / SCRAPE_CONFIG.CONCURRENCY) + 1;
           
-          // Retry failed departments up to MAX_DEPT_RETRIES times
-          const MAX_DEPT_RETRIES = 2;
-          let lastError = null;
+          console.log(`   📦 Processing batch ${batchNum}/${totalBatches} (${batch.join(', ')})...`);
+          const batchStart = Date.now();
           
-          for (let attempt = 0; attempt <= MAX_DEPT_RETRIES; attempt++) {
-            try {
-              const courses = await this._scrapeDepartment(term, dept);
-              
-              if (courses && courses.length > 0) {
-                console.log(`   ✅ ${dept}: ${courses.length} courses`);
-                departmentStatus[dept] = {
-                  status: 'success',
-                  row_count: courses.length,
-                  error: null,
-                  attempts: attempt + 1
-                };
-                return courses;
-              } else {
-                // 0 courses returned - this is valid (no offerings or explicit no-results)
-                // Detailed logging already happened in _scrapeDepartment
-                departmentStatus[dept] = {
-                  status: 'success_empty',
-                  row_count: 0,
-                  error: null,
-                  attempts: attempt + 1
-                };
-                return [];
-              }
-            } catch (error) {
-              lastError = error;
-              if (attempt < MAX_DEPT_RETRIES) {
-                const backoffMs = 1000 * Math.pow(2, attempt);
-                console.log(`   ⚠️  ${dept}: Retry ${attempt + 1}/${MAX_DEPT_RETRIES} after ${backoffMs}ms - ${error.message}`);
-                await this._delay(backoffMs);
-              } else {
-                console.error(`   ❌ ${dept}: Failed after ${MAX_DEPT_RETRIES + 1} attempts - ${error.message}`);
-                departmentStatus[dept] = {
-                  status: 'failed',
-                  row_count: 0,
-                  error: error.message,
-                  attempts: attempt + 1
-                };
+          // Scrape all departments in this batch concurrently with retry tracking
+          const batchPromises = batch.map(async (dept) => {
+            console.log(`   📚 Scraping ${dept}...`);
+            
+            // Retry failed departments up to MAX_DEPT_RETRIES times
+            const MAX_DEPT_RETRIES = 2;
+            let lastError = null;
+            
+            for (let attempt = 0; attempt <= MAX_DEPT_RETRIES; attempt++) {
+              try {
+                const courses = await this._scrapeDepartment(term, dept);
+                
+                if (courses && courses.length > 0) {
+                  console.log(`   ✅ ${dept}: ${courses.length} courses`);
+                  departmentStatus[dept] = {
+                    status: 'success',
+                    row_count: courses.length,
+                    error: null,
+                    attempts: attempt + 1
+                  };
+                  return courses;
+                } else {
+                  // 0 courses returned - this is valid (no offerings or explicit no-results)
+                  // Detailed logging already happened in _scrapeDepartment
+                  departmentStatus[dept] = {
+                    status: 'success_empty',
+                    row_count: 0,
+                    error: null,
+                    attempts: attempt + 1
+                  };
+                  return [];
+                }
+              } catch (error) {
+                lastError = error;
+                if (attempt < MAX_DEPT_RETRIES) {
+                  const backoffMs = 1000 * Math.pow(2, attempt);
+                  console.log(`   ⚠️  ${dept}: Retry ${attempt + 1}/${MAX_DEPT_RETRIES} after ${backoffMs}ms - ${error.message}`);
+                  await this._delay(backoffMs);
+                } else {
+                  console.error(`   ❌ ${dept}: Failed after ${MAX_DEPT_RETRIES + 1} attempts - ${error.message}`);
+                  departmentStatus[dept] = {
+                    status: 'failed',
+                    row_count: 0,
+                    error: error.message,
+                    attempts: attempt + 1
+                  };
+                }
               }
             }
+            
+            return [];
+          });
+          
+          // Wait for all departments in this batch to complete
+          const batchResults = await Promise.all(batchPromises);
+          
+          // Flatten and add all courses from this batch
+          for (const courses of batchResults) {
+            allCourses.push(...courses);
           }
           
-          return [];
-        });
-        
-        // Wait for all departments in this batch to complete
-        const batchResults = await Promise.all(batchPromises);
-        
-        // Flatten and add all courses from this batch
-        for (const courses of batchResults) {
-          allCourses.push(...courses);
+          const batchTime = Date.now() - batchStart;
+          console.log(`   ⏱  Batch ${batchNum}: ${formatTime(batchTime)}`);
+          
+          // Add delay between batches (but not after the last batch)
+          if (i + SCRAPE_CONFIG.CONCURRENCY < remainingDepts.length && SCRAPE_CONFIG.BATCH_DELAY_MS > 0) {
+            await this._delay(SCRAPE_CONFIG.BATCH_DELAY_MS);
+          }
         }
-        
-        const batchTime = Date.now() - batchStart;
-        console.log(`   ⏱  Batch ${batchNum}: ${formatTime(batchTime)}`);
-        
-        // Add delay between batches (but not after the last batch)
-        if (i + SCRAPE_CONFIG.CONCURRENCY < remainingDepts.length && SCRAPE_CONFIG.BATCH_DELAY_MS > 0) {
-          await this._delay(SCRAPE_CONFIG.BATCH_DELAY_MS);
-        }
+      } catch (error) {
+        console.error(`   💥 Test failed for ${testDept}:`, error.message);
+        departmentStatus[testDept] = {
+          status: 'failed',
+          row_count: 0,
+          error: error.message
+        };
       }
-    } catch (error) {
-      console.error(`   💥 Test failed for ${testDept}:`, error.message);
-      departmentStatus[testDept] = {
-        status: 'failed',
-        row_count: 0,
-        error: error.message
-      };
-    }
     }
 
     // Generate summary and save to logs
@@ -1072,16 +1070,20 @@ export class AISISScraper {
     console.log('   This feature may break if AISIS changes the J_VOFC.do page structure.\n');
 
     // Parse environment variables for curriculum scraping control
-    const curriculumLimit = process.env.CURRICULUM_LIMIT ? parseInt(process.env.CURRICULUM_LIMIT, 10) : null;
+    const curriculumLimitEnv = parseInt(process.env.CURRICULUM_LIMIT, 10);
+    const curriculumLimit = isNaN(curriculumLimitEnv) ? null : curriculumLimitEnv;
+    
     const curriculumSample = process.env.CURRICULUM_SAMPLE 
       ? process.env.CURRICULUM_SAMPLE.split(',').map(s => s.trim()).filter(s => s)
       : null;
-    const curriculumDelayMs = process.env.CURRICULUM_DELAY_MS 
-      ? Math.max(0, parseInt(process.env.CURRICULUM_DELAY_MS, 10))
-      : 500; // Default 500ms for backwards compatibility
-    const curriculumConcurrency = process.env.CURRICULUM_CONCURRENCY
-      ? Math.max(1, Math.min(parseInt(process.env.CURRICULUM_CONCURRENCY, 10), 5))
-      : 1; // Default: sequential (1 at a time)
+    
+    const curriculumDelayEnv = parseInt(process.env.CURRICULUM_DELAY_MS, 10);
+    const curriculumDelayMs = isNaN(curriculumDelayEnv) ? 500 : Math.max(0, curriculumDelayEnv);
+    
+    const curriculumConcurrencyEnv = parseInt(process.env.CURRICULUM_CONCURRENCY, 10);
+    const curriculumConcurrency = isNaN(curriculumConcurrencyEnv) 
+      ? 1 
+      : Math.max(1, Math.min(curriculumConcurrencyEnv, 5));
     
     const fastMode = process.env.FAST_MODE === 'true';
     
