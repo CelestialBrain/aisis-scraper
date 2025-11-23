@@ -34,7 +34,9 @@ This is the raw data format directly from `scraper.js` before transformation:
   "language": "ENGLISH",
   "level": "U",
   "freeSlots": "0",
-  "remarks": ""
+  "remarks": "",
+  "s": "N",
+  "p": "N"
 }
 ```
 

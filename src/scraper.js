@@ -571,6 +571,9 @@ export class AISISScraper {
     const $ = cheerio.load(html);
     const courses = [];
     
+    // Define the number of cells per row (EN schedule table has 14 columns)
+    const CELLS_PER_ROW = 14;
+    
     // Look for course cells with class 'text02' (same as Python)
     const courseCells = $('td.text02');
     
@@ -579,19 +582,19 @@ export class AISISScraper {
     }
 
     const totalCells = courseCells.length;
-    const expectedRows = Math.floor(totalCells / 14);
-    const remainder = totalCells % 14;
+    const expectedRows = Math.floor(totalCells / CELLS_PER_ROW);
+    const remainder = totalCells % CELLS_PER_ROW;
     
-    // Defensive logging: warn if cells don't align to 14-cell chunks
+    // Defensive logging: warn if cells don't align to CELLS_PER_ROW chunks
     if (remainder !== 0) {
-      console.log(`   ⚠️  ${deptCode}: ${totalCells} cells found (expected multiple of 14). Remainder: ${remainder} cells.`);
+      console.log(`   ⚠️  ${deptCode}: ${totalCells} cells found (expected multiple of ${CELLS_PER_ROW}). Remainder: ${remainder} cells.`);
       console.log(`   ℹ️  ${deptCode}: Processing ${expectedRows} complete rows, ${remainder} cells will be skipped.`);
     }
 
-    // Process in chunks of 14 cells per course
+    // Process in chunks of CELLS_PER_ROW cells per course
     let skippedRows = 0;
-    for (let i = 0; i < courseCells.length; i += 14) {
-      if (i + 13 >= courseCells.length) {
+    for (let i = 0; i < courseCells.length; i += CELLS_PER_ROW) {
+      if (i + CELLS_PER_ROW - 1 >= courseCells.length) {
         // Not enough cells for a complete row - log and skip
         const remainingCells = courseCells.length - i;
         if (remainingCells > 0) {
@@ -601,15 +604,29 @@ export class AISISScraper {
         break;
       }
       
-      const cells = courseCells.slice(i, i + 14);
-      const cellTexts = cells.map((_, cell) => $(cell).text().trim()).get();
+      const cells = courseCells.slice(i, i + CELLS_PER_ROW);
+      // Extract text from each cell, handling <br> tags by replacing them with spaces
+      const cellTexts = cells.map((_, cell) => {
+        const rawHtml = $(cell).html() || '';
+        // First normalize <br> tags to spaces to preserve line breaks
+        let text = rawHtml.replace(/<br\s*\/?>/gi, ' ');
+        // Then strip all remaining HTML tags completely
+        // Using a more comprehensive approach to handle nested and malformed tags
+        while (/<[^>]+>/.test(text)) {
+          text = text.replace(/<[^>]+>/g, '');
+        }
+        // Finally normalize whitespace
+        text = text.replace(/\s+/g, ' ').trim();
+        return text;
+      }).get();
       
       // Enhanced time parsing to preserve TBA and special markers
-      let timeField = this._cleanText(cellTexts[4]);
+      // Note: <br> tags already normalized above, now just clean up modality markers
+      let timeField = cellTexts[4];
       // Remove modality markers but preserve TBA and (~) for special courses
       timeField = timeField.replace(/\(FULLY ONSITE\)|\(FULLY ONLINE\)/g, '').trim();
       // Preserve (~) marker for special courses but remove empty ()
-      timeField = timeField.replace(/\(\)$/g, '').trim();
+      timeField = timeField.replace(/\(\)\s*$/g, '').trim();
       
       const course = {
         department: deptCode,
@@ -624,7 +641,9 @@ export class AISISScraper {
         language: this._cleanText(cellTexts[8] || ''),
         level: this._cleanText(cellTexts[9] || ''),
         freeSlots: this._cleanText(cellTexts[10] || ''),
-        remarks: this._cleanText(cellTexts[11] || '')
+        remarks: this._cleanText(cellTexts[11] || ''),
+        s: this._cleanText(cellTexts[12] || ''),
+        p: this._cleanText(cellTexts[13] || '')
       };
 
       // Validate required fields before adding
