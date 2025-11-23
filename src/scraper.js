@@ -26,10 +26,20 @@ const RETRY_CONFIG = {
 };
 
 // Scrape behavior configuration for batched concurrent department scraping
+// Optimized for performance while remaining polite to AISIS server
 const SCRAPE_CONFIG = {
-  CONCURRENCY: 5,        // Number of departments to scrape in parallel per batch
-  BATCH_DELAY_MS: 750    // Delay in milliseconds between batches of concurrent scrapes
+  CONCURRENCY: 8,        // Number of departments to scrape in parallel per batch (increased from 5)
+  BATCH_DELAY_MS: 500    // Delay in milliseconds between batches (reduced from 750ms)
 };
+
+// Department codes to exclude when parsing available departments from AISIS
+// These are placeholder/special values that should not be scraped as departments
+const EXCLUDED_DEPT_CODES = [
+  'ALL',      // Special value for "All Departments" option in dropdown
+  '',         // Empty values
+  'NONE',     // Possible placeholder value
+  'SELECT'    // Possible placeholder text
+];
 
 export class AISISScraper {
   constructor(username, password) {
@@ -325,6 +335,78 @@ export class AISISScraper {
     }
   }
 
+  /**
+   * Get available departments from AISIS Schedule of Classes page
+   * 
+   * Fetches the list of department options from the deptCode dropdown
+   * on the Schedule of Classes page. This allows the scraper to adapt
+   * to changes in AISIS department codes while maintaining a stable
+   * canonical list for downstream consumers.
+   * 
+   * @returns {Promise<Array<{value: string, label: string}>>} Array of department options
+   */
+  async getAvailableDepartments() {
+    if (!this.loggedIn) {
+      throw new Error('Not logged in - cannot fetch available departments');
+    }
+
+    console.log('🔍 Fetching available departments from AISIS...');
+
+    try {
+      // GET the Schedule of Classes page
+      const response = await this._request(`${this.baseUrl}/j_aisis/J_VCSC.do`, {
+        method: 'GET',
+        headers: {
+          'Referer': `${this.baseUrl}/j_aisis/J_VMCS.do`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to load Schedule of Classes page: HTTP ${response.status}`);
+      }
+
+      const html = await response.text();
+
+      // Check for session expiry
+      if (LOGIN_FAILURE_MARKERS.some(marker => html.includes(marker))) {
+        throw new Error('Session expired while fetching departments');
+      }
+
+      // Parse HTML to find deptCode select
+      const $ = cheerio.load(html);
+      const select = $('select[name="deptCode"]');
+
+      if (select.length === 0) {
+        throw new Error('Could not find deptCode select element on page');
+      }
+
+      const departments = [];
+      select.find('option').each((_, option) => {
+        const value = $(option).attr('value');
+        const label = $(option).text().trim();
+        
+        // Skip excluded department codes (placeholders and special values)
+        // See EXCLUDED_DEPT_CODES constant for the list of excluded values
+        if (value && value.trim() !== '') {
+          const upperValue = value.trim().toUpperCase();
+          if (!EXCLUDED_DEPT_CODES.some(excluded => upperValue === excluded.toUpperCase())) {
+            departments.push({
+              value: value.trim(),
+              label: label
+            });
+          }
+        }
+      });
+
+      console.log(`   ✅ Found ${departments.length} available departments in AISIS`);
+      return departments;
+
+    } catch (error) {
+      console.error(`   ❌ Failed to fetch available departments: ${error.message}`);
+      throw error;
+    }
+  }
+
   async scrapeSchedule(term = null) {
     if (!this.loggedIn) {
       throw new Error('Not logged in');
@@ -348,12 +430,39 @@ export class AISISScraper {
 
     console.log(`\n📅 Using applicablePeriod term: ${term}`);
     
+    // Fetch available departments from AISIS for flexible mapping
+    // This allows us to adapt to AISIS changes while maintaining stable canonical list
+    let availableDepartments = [];
+    try {
+      const deptFetchStart = Date.now();
+      availableDepartments = await this.getAvailableDepartments();
+      const deptFetchTime = Date.now() - deptFetchStart;
+      console.log(`   ⏱  Department discovery: ${formatTime(deptFetchTime)}`);
+    } catch (error) {
+      console.warn(`   ⚠️  Could not fetch available departments: ${error.message}`);
+      console.warn(`   Proceeding with canonical DEPARTMENTS list only`);
+    }
+    
+    // Build a map of available department codes for quick lookup
+    const availableDeptSet = new Set(availableDepartments.map(d => d.value));
+    
+    // Use canonical DEPARTMENTS list as the authoritative set to scrape
     const departments = DEPARTMENTS;
 
     const allCourses = [];
     
     // Track per-department status for summary report
     const departmentStatus = {};
+    
+    // Check which canonical departments are not in AISIS dropdown
+    if (availableDepartments.length > 0) {
+      const missingDepts = departments.filter(dept => !availableDeptSet.has(dept));
+      if (missingDepts.length > 0) {
+        console.log(`   ⚠️  ${missingDepts.length} canonical department(s) not found in AISIS dropdown for term ${term}:`);
+        console.log(`       ${missingDepts.join(', ')}`);
+        console.log(`   These will be attempted anyway and may return no results.`);
+      }
+    }
     
     // Test with just 1 department first to verify session and term
     console.log('   🧪 Testing with first department...');
@@ -373,91 +482,97 @@ export class AISISScraper {
           row_count: testCourses.length,
           error: null
         };
-        
-        // Continue with remaining departments using batched concurrent scraping
-        const remainingDepts = departments.slice(1);
-        const totalBatches = Math.ceil(remainingDepts.length / SCRAPE_CONFIG.CONCURRENCY);
-        
-        // Split remaining departments into batches for concurrent processing
-        for (let i = 0; i < remainingDepts.length; i += SCRAPE_CONFIG.CONCURRENCY) {
-          const batch = remainingDepts.slice(i, i + SCRAPE_CONFIG.CONCURRENCY);
-          const batchNum = Math.floor(i / SCRAPE_CONFIG.CONCURRENCY) + 1;
-          
-          console.log(`   📦 Processing batch ${batchNum}/${totalBatches} (${batch.join(', ')})...`);
-          
-          // Scrape all departments in this batch concurrently with retry tracking
-          const batchPromises = batch.map(async (dept) => {
-            console.log(`   📚 Scraping ${dept}...`);
-            
-            // Retry failed departments up to MAX_DEPT_RETRIES times
-            const MAX_DEPT_RETRIES = 2;
-            let lastError = null;
-            
-            for (let attempt = 0; attempt <= MAX_DEPT_RETRIES; attempt++) {
-              try {
-                const courses = await this._scrapeDepartment(term, dept);
-                
-                if (courses && courses.length > 0) {
-                  console.log(`   ✅ ${dept}: ${courses.length} courses`);
-                  departmentStatus[dept] = {
-                    status: 'success',
-                    row_count: courses.length,
-                    error: null,
-                    attempts: attempt + 1
-                  };
-                  return courses;
-                } else {
-                  // 0 courses - could be valid (no offerings) or error
-                  console.log(`   ⚠️  ${dept}: No courses found`);
-                  departmentStatus[dept] = {
-                    status: 'success_empty',
-                    row_count: 0,
-                    error: null,
-                    attempts: attempt + 1
-                  };
-                  return [];
-                }
-              } catch (error) {
-                lastError = error;
-                if (attempt < MAX_DEPT_RETRIES) {
-                  const backoffMs = 1000 * Math.pow(2, attempt);
-                  console.log(`   ⚠️  ${dept}: Retry ${attempt + 1}/${MAX_DEPT_RETRIES} after ${backoffMs}ms - ${error.message}`);
-                  await this._delay(backoffMs);
-                } else {
-                  console.error(`   ❌ ${dept}: Failed after ${MAX_DEPT_RETRIES + 1} attempts - ${error.message}`);
-                  departmentStatus[dept] = {
-                    status: 'failed',
-                    row_count: 0,
-                    error: error.message,
-                    attempts: attempt + 1
-                  };
-                }
-              }
-            }
-            
-            return [];
-          });
-          
-          // Wait for all departments in this batch to complete
-          const batchResults = await Promise.all(batchPromises);
-          
-          // Flatten and add all courses from this batch
-          for (const courses of batchResults) {
-            allCourses.push(...courses);
-          }
-          
-          // Add delay between batches (but not after the last batch)
-          if (i + SCRAPE_CONFIG.CONCURRENCY < remainingDepts.length) {
-            await this._delay(SCRAPE_CONFIG.BATCH_DELAY_MS);
-          }
-        }
       } else {
-        console.log('   ❌ Test failed - no courses found in first department');
+        // 0 courses is valid (no offerings or explicit no-results)
+        // Detailed logging already happened in _scrapeDepartment
+        console.log(`   ✅ Test successful: ${testDept} has no courses for this term`);
         departmentStatus[testDept] = {
           status: 'success_empty',
           row_count: 0,
           error: null
         };
+      }
+      
+      // Continue with remaining departments using batched concurrent scraping
+      const remainingDepts = departments.slice(1);
+      const totalBatches = Math.ceil(remainingDepts.length / SCRAPE_CONFIG.CONCURRENCY);
+      
+      // Split remaining departments into batches for concurrent processing
+      for (let i = 0; i < remainingDepts.length; i += SCRAPE_CONFIG.CONCURRENCY) {
+        const batch = remainingDepts.slice(i, i + SCRAPE_CONFIG.CONCURRENCY);
+        const batchNum = Math.floor(i / SCRAPE_CONFIG.CONCURRENCY) + 1;
+        
+        console.log(`   📦 Processing batch ${batchNum}/${totalBatches} (${batch.join(', ')})...`);
+        const batchStart = Date.now();
+        
+        // Scrape all departments in this batch concurrently with retry tracking
+        const batchPromises = batch.map(async (dept) => {
+          console.log(`   📚 Scraping ${dept}...`);
+          
+          // Retry failed departments up to MAX_DEPT_RETRIES times
+          const MAX_DEPT_RETRIES = 2;
+          let lastError = null;
+          
+          for (let attempt = 0; attempt <= MAX_DEPT_RETRIES; attempt++) {
+            try {
+              const courses = await this._scrapeDepartment(term, dept);
+              
+              if (courses && courses.length > 0) {
+                console.log(`   ✅ ${dept}: ${courses.length} courses`);
+                departmentStatus[dept] = {
+                  status: 'success',
+                  row_count: courses.length,
+                  error: null,
+                  attempts: attempt + 1
+                };
+                return courses;
+              } else {
+                // 0 courses returned - this is valid (no offerings or explicit no-results)
+                // Detailed logging already happened in _scrapeDepartment
+                departmentStatus[dept] = {
+                  status: 'success_empty',
+                  row_count: 0,
+                  error: null,
+                  attempts: attempt + 1
+                };
+                return [];
+              }
+            } catch (error) {
+              lastError = error;
+              if (attempt < MAX_DEPT_RETRIES) {
+                const backoffMs = 1000 * Math.pow(2, attempt);
+                console.log(`   ⚠️  ${dept}: Retry ${attempt + 1}/${MAX_DEPT_RETRIES} after ${backoffMs}ms - ${error.message}`);
+                await this._delay(backoffMs);
+              } else {
+                console.error(`   ❌ ${dept}: Failed after ${MAX_DEPT_RETRIES + 1} attempts - ${error.message}`);
+                departmentStatus[dept] = {
+                  status: 'failed',
+                  row_count: 0,
+                  error: error.message,
+                  attempts: attempt + 1
+                };
+              }
+            }
+          }
+          
+          return [];
+        });
+        
+        // Wait for all departments in this batch to complete
+        const batchResults = await Promise.all(batchPromises);
+        
+        // Flatten and add all courses from this batch
+        for (const courses of batchResults) {
+          allCourses.push(...courses);
+        }
+        
+        const batchTime = Date.now() - batchStart;
+        console.log(`   ⏱  Batch ${batchNum}: ${formatTime(batchTime)}`);
+        
+        // Add delay between batches (but not after the last batch)
+        if (i + SCRAPE_CONFIG.CONCURRENCY < remainingDepts.length) {
+          await this._delay(SCRAPE_CONFIG.BATCH_DELAY_MS);
+        }
       }
     } catch (error) {
       console.error(`   💥 Test failed for ${testDept}:`, error.message);
@@ -535,6 +650,13 @@ export class AISISScraper {
       // Check for session expiry
       if (LOGIN_FAILURE_MARKERS.some(marker => html.includes(marker))) {
         throw new Error('Session expired');
+      }
+
+      // Check for explicit "no results" message from AISIS
+      // This sentinel indicates that AISIS has no offerings for this department/term
+      if (html.includes('Sorry. There are no results for your search criteria')) {
+        console.log(`   ℹ️  ${deptCode}: No courses found for term ${term} (explicit AISIS no-results page)`);
+        return [];
       }
 
       // Enhanced logging: count td.text02 cells before parsing
