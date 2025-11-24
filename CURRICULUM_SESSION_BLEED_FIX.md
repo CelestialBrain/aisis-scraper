@@ -26,6 +26,14 @@ AISIS J_VOFC.do endpoint maintains server-side session state for "currently sele
 **Purpose:** Validate that HTML program title matches the requested `degCode` and `label`
 
 **Logic:**
+
+**STEP 1: Version Consistency Validation (NEW)**
+- Extract version from `degCode` (e.g., "BS MGT_2025_1" → year=2025, sem=1)
+- Extract version from `programTitle` using patterns like "Ver Sem 1, Ver Year 2018"
+- If BOTH have version info and they DISAGREE, reject immediately (session bleed detected)
+- If `programTitle` has NO version info, continue to program name validation (backward compatible)
+
+**STEP 2: Program Name Validation (EXISTING)**
 - Normalize strings (uppercase, collapse whitespace)
 - Extract base program code (e.g., "BS ME" from "BS ME_2025_1")
 - Check multiple match conditions:
@@ -36,11 +44,25 @@ AISIS J_VOFC.do endpoint maintains server-side session state for "currently sele
 
 **Examples:**
 ```javascript
-isProgramMatch('BS ME_2025_1', 'BS Mechanical Engineering (2025-1)', 'BS Mechanical Engineering') 
+// Version match - accepted
+isProgramMatch('BS MGT_2020_1', 'BS Management (2020-1)', 
+  'BACHELOR OF SCIENCE IN MANAGEMENT (Ver Sem 1, Ver Year 2020)')
 // → true
 
-isProgramMatch('BS ME_2025_1', 'BS Mechanical Engineering (2025-1)', 'BS Management (Honors)') 
-// → false (MISMATCH - session bleed detected)
+// Version mismatch - REJECTED (NEW behavior)
+isProgramMatch('BS MGT_2025_1', 'BS Management (2025-1)', 
+  'BACHELOR OF SCIENCE IN MANAGEMENT (Ver Sem 1, Ver Year 2018)')
+// → false (VERSION MISMATCH - session bleed detected)
+
+// No version in title - accepted based on program name
+isProgramMatch('BS ME_2025_1', 'BS Mechanical Engineering (2025-1)', 
+  'BS Mechanical Engineering')
+// → true
+
+// Different program - rejected
+isProgramMatch('BS ME_2025_1', 'BS Mechanical Engineering (2025-1)', 
+  'BS Management (Honors)')
+// → false (PROGRAM MISMATCH - session bleed detected)
 ```
 
 ### 2. **Circuit Breaker in Parser**
@@ -148,6 +170,26 @@ FAST_MODE=true
 
 ## Debugging
 
+### Version Validation Details (NEW)
+
+The enhanced version validation helps debug session bleed by showing:
+```
+🚨 Version mismatch detected!
+   Expected: Year=2025, Sem=1 (from degCode: BS MGT_2025_1)
+   Found in title: Year=2018, Sem=1 (from programTitle: "BACHELOR OF SCIENCE IN MANAGEMENT (Ver Sem 1, Ver Year 2018)")
+```
+
+This immediately identifies when AISIS returns HTML from an old curriculum version (e.g., 2018) when a new version (e.g., 2025) was requested.
+
+**Version Patterns Detected:**
+- `"Ver Sem 1, Ver Year 2025"` (standard AISIS format)
+- `"Ver. Sem 1, Ver. Year 2025"` (with periods)
+- `"Ver Year 2025, Ver Sem 1"` (alternate order)
+
+**Version Extraction Functions:**
+- `extractVersionFromDegCode(degCode)` → `{ year, sem }`
+- `extractVersionFromProgramTitle(programTitle)` → `{ year, sem }`
+
 ### Inspect specific program:
 ```bash
 DEBUG_DEGCODE="BS ME_2025_1" npm run curriculum
@@ -168,16 +210,31 @@ This creates in `debug/`:
 
 ### Run validation tests:
 ```bash
+# Original validation tests (program name matching)
 node tests/test-curriculum-validation.js
+
+# NEW: Version validation tests
+node tests/test-curriculum-version-validation.js
 ```
 
 **Test coverage:**
-- 26 test cases covering:
-  - `isProgramMatch` with various scenarios
-  - `parseCurriculumHtml` circuit breaker
-  - `parseAllCurricula` error handling
-  - Edge cases (null HTML, empty HTML)
-  - Real-world session bleed scenarios
+
+**Original tests (26 test cases):**
+- `isProgramMatch` with various scenarios
+- `parseCurriculumHtml` circuit breaker
+- `parseAllCurricula` error handling
+- Edge cases (null HTML, empty HTML)
+- Real-world session bleed scenarios
+
+**NEW: Version validation tests (30 test cases):**
+- `extractVersionFromDegCode` - parsing degCode versions (6 tests)
+- `extractVersionFromProgramTitle` - parsing title versions (7 tests)
+- `isProgramMatch` with matching versions (5 tests)
+- `isProgramMatch` with mismatched versions (4 tests)
+- Integration with `parseCurriculumHtml` (3 tests)
+- Real-world BS MGT 2025 vs 2018 bleed scenario (2 tests)
+
+**Total: 56 test cases - all passing**
 
 ### Run existing tests:
 ```bash
