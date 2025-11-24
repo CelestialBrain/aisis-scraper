@@ -77,3 +77,54 @@ export function validateScheduleRecord(record) {
     department && department.trim() !== ''
   );
 }
+
+/**
+ * Normalize course code to canonical format
+ * 
+ * Normalizes inconsistent course code formats to a canonical form:
+ * - Removes extra whitespace
+ * - Standardizes spacing between department and number
+ * - Converts to uppercase
+ * - Handles common variations (e.g., "CS11", "CS 11", "CS-11" -> "CS 11")
+ * 
+ * @param {string} rawCode - Raw course code
+ * @returns {string} Normalized course code
+ */
+export function normalizeCourseCode(rawCode) {
+  if (!rawCode || typeof rawCode !== 'string') {
+    return '';
+  }
+
+  // Trim and convert to uppercase
+  let normalized = rawCode.trim().toUpperCase();
+
+  // Replace multiple spaces with single space
+  normalized = normalized.replace(/\s+/g, ' ');
+
+  // Replace hyphens with spaces (e.g., "CS-11" -> "CS 11")
+  // But preserve hyphens within course numbers (e.g., "MGT-H" stays "MGT-H")
+  // Strategy: only replace hyphen if it separates letters from numbers
+  normalized = normalized.replace(/([A-Z]+)-(\d)/g, '$1 $2');
+
+  // Add space between letters and numbers if missing (e.g., "CS11" -> "CS 11")
+  // But preserve existing format if already spaced
+  normalized = normalized.replace(/([A-Z]+)(\d)/g, '$1 $2');
+
+  // Clean up any double spaces that might have been introduced
+  normalized = normalized.replace(/\s+/g, ' ');
+
+  return normalized.trim();
+}
+
+/**
+ * Known course code mappings for common variations
+ * Maps non-standard course codes to their canonical forms
+ * 
+ * This is useful for handling cases where the same course appears
+ * with different codes in different contexts
+ */
+export const COURSE_CODE_MAP = {
+  // Add specific mappings here as needed
+  // Example: 'NSTP (ADAST)': 'NSTP ADAST',
+  // Example: 'NSTP (OSCI)': 'NSTP OSCI'
+};

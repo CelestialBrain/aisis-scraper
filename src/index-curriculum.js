@@ -2,6 +2,13 @@ import { AISISScraper } from './scraper.js';
 import { SupabaseManager } from './supabase.js';
 import { GoogleSheetsManager } from './sheets.js';
 import { parseAllCurricula } from './curriculum-parser.js';
+import { 
+  dedupeCourses, 
+  filterValidCourses, 
+  groupByProgramVersion,
+  buildBatchMetadata 
+} from './curriculum-utils.js';
+import { normalizeCourseCode } from './constants.js';
 import fs from 'fs';
 import 'dotenv/config';
 
@@ -18,8 +25,11 @@ import 'dotenv/config';
  * 1. Logs into AISIS
  * 2. GETs J_VOFC.do to retrieve available curriculum versions (degCode dropdown)
  * 3. POSTs to J_VOFC.do with each degCode to fetch curriculum HTML
- * 4. Flattens curriculum HTML to text format
- * 5. Saves to data/curriculum.json and syncs to Supabase/Google Sheets
+ * 4. Parses curriculum HTML into structured course rows
+ * 5. Normalizes course codes, deduplicates, and validates data
+ * 6. Groups courses by program/version
+ * 7. Sends exactly ONE HTTP request per program/version to Supabase with rich metadata
+ * 8. Syncs to Google Sheets (optional)
  * 
  * See README.md and docs/CURRICULUM_LIMITATION.md for details and alternative solutions.
  */
@@ -135,51 +145,127 @@ async function main() {
         console.log(`   ✅ Debug: Saved ${debugDegCode} parsed rows to debug/`);
       }
       
+      // ========================================================================
+      // NEW REFACTORED PIPELINE: Normalize, Deduplicate, Validate, and Batch
+      // ========================================================================
+      
+      console.log('\n📊 Processing curriculum data pipeline...');
+      
+      // Step 1: Normalize course codes
+      console.log('   1️⃣  Normalizing course codes...');
+      const normalizedRows = allRows.map(row => ({
+        ...row,
+        course_code: normalizeCourseCode(row.course_code)
+      }));
+      console.log(`      ✅ Normalized ${normalizedRows.length} course codes`);
+      
+      // Step 2: Deduplicate courses
+      console.log('   2️⃣  Deduplicating courses...');
+      const beforeDedupeCount = normalizedRows.length;
+      const dedupedRows = dedupeCourses(normalizedRows);
+      const duplicatesRemoved = beforeDedupeCount - dedupedRows.length;
+      console.log(`      ✅ Removed ${duplicatesRemoved} duplicate courses (${beforeDedupeCount} → ${dedupedRows.length})`);
+      
+      // Step 3: Validate and filter courses
+      console.log('   3️⃣  Validating courses...');
+      const { valid: validRows, invalid: invalidRows } = filterValidCourses(dedupedRows);
+      console.log(`      ✅ Validated ${validRows.length} courses, filtered ${invalidRows.length} invalid`);
+      
+      if (invalidRows.length > 0) {
+        console.log(`      ⚠️  Sample invalid courses (showing up to 5):`);
+        invalidRows.slice(0, 5).forEach(({ course, errors }) => {
+          console.log(`         - ${course.deg_code} / ${course.course_code || '(missing)'}: ${errors.join(', ')}`);
+        });
+      }
+      
+      // Step 4: Group by program/version
+      console.log('   4️⃣  Grouping by program/version...');
+      const groupedByProgram = groupByProgramVersion(validRows);
+      console.log(`      ✅ Grouped into ${groupedByProgram.size} program/version groups`);
+      
+      // Log summary stats per program
+      console.log('\n   📋 Per-Program Summary:');
+      for (const [degCode, courses] of groupedByProgram) {
+        console.log(`      ${degCode}: ${courses.length} courses`);
+      }
+      
       // 1. Local backup - save both detailed programs and flattened rows
       const curriculumOutput = {
-        programs,      // Detailed view with programs and their rows
-        allRows,       // Flattened view for easy querying
+        programs,      // Detailed view with programs and their rows (original format)
+        allRows: validRows,       // Flattened view for easy querying (deduplicated & validated)
         metadata: {
           totalPrograms: programs.length,
           totalCourses: allRows.length,
+          totalCoursesAfterProcessing: validRows.length,
+          duplicatesRemoved: duplicatesRemoved,
+          invalidCoursesRemoved: invalidRows.length,
           scrapedAt: new Date().toISOString()
         }
       };
       
       fs.writeFileSync('data/curriculum.json', JSON.stringify(curriculumOutput, null, 2));
-      console.log(`   ✅ Saved ${programs.length} programs (${allRows.length} courses) to data/curriculum.json`);
+      console.log(`\n   💾 Saved ${programs.length} programs (${validRows.length} valid courses) to data/curriculum.json`);
 
-      // 2. Supabase Sync - use flattened rows
-      if (supabase && allRows.length > 0) {
-        console.log('   🚀 Starting Supabase Sync...');
+      // 2. Supabase Sync - NEW BATCHING APPROACH
+      if (supabase && validRows.length > 0) {
+        console.log('\n   🚀 Starting Supabase Sync (New Batching Approach)...');
+        console.log(`      Sending ${groupedByProgram.size} batch(es), one per program/version\n`);
         
-        // Transform the structured rows to match Supabase schema
-        // The allRows already have the correct field names from the parser
-        const transformedRows = allRows.map(row => ({
-          degree_code: row.deg_code,
-          program_label: row.program_label,
-          program_title: row.program_title,
-          year_level: row.year_level,
-          semester: row.semester,
-          course_code: row.course_code,
-          course_title: row.course_title,
-          units: row.units,
-          prerequisites: row.prerequisites,
-          category: row.category
-        }));
+        let successCount = 0;
+        let failureCount = 0;
         
-        try {
-          const success = await supabase.syncToSupabase('curriculum', transformedRows, null, null);
+        // Send one request per program/version
+        for (const [degCode, courses] of groupedByProgram) {
+          // Find original scraped courses for this program (before deduplication/validation)
+          // for accurate metadata counts
+          const originalCoursesForProgram = allRows.filter(r => r.deg_code === degCode);
+          const dedupedCoursesForProgram = dedupedRows.filter(r => r.deg_code === degCode);
+          const duplicatesForThisProgram = originalCoursesForProgram.length - dedupedCoursesForProgram.length;
+          const invalidForThisProgram = dedupedCoursesForProgram.length - courses.length;
+          
+          // Build metadata for this program
+          const metadata = buildBatchMetadata(
+            degCode,
+            originalCoursesForProgram,
+            courses,
+            duplicatesForThisProgram,
+            invalidForThisProgram
+          );
+          
+          // Send batch
+          const batch = {
+            deg_code: degCode,
+            program_code: metadata.program_code,
+            curriculum_version: metadata.curriculum_version,
+            courses: courses,
+            metadata: metadata
+          };
+          
+          const success = await supabase.sendCurriculumBatch(batch);
+          
           if (success) {
-            console.log('   ✅ Supabase sync completed successfully');
+            successCount++;
           } else {
-            console.log('   ⚠️ Supabase sync had some failures');
+            failureCount++;
           }
-        } catch (error) {
-          console.error('   ❌ Supabase sync failed:', error.message);
+        }
+        
+        // Summary
+        console.log(`\n   📊 Supabase Sync Summary:`);
+        console.log(`      Total batches: ${groupedByProgram.size}`);
+        console.log(`      ✅ Successful: ${successCount}`);
+        console.log(`      ❌ Failed: ${failureCount}`);
+        console.log(`      Total courses synced: ${validRows.length}`);
+        
+        if (failureCount === 0) {
+          console.log(`\n   ✅ All batches synced successfully!`);
+        } else if (successCount > 0) {
+          console.log(`\n   ⚠️  Partial success - some batches failed`);
+        } else {
+          console.log(`\n   ❌ All batches failed`);
         }
       } else {
-        console.log('   ⚠️ Supabase sync skipped (no DATA_INGEST_TOKEN or no rows)');
+        console.log('\n   ⚠️ Supabase sync skipped (no DATA_INGEST_TOKEN or no rows)');
       }
 
       // 3. Google Sheets Sync - use flattened rows (like schedules)
