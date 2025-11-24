@@ -233,11 +233,18 @@ async function upsertSchedulesInBatches(
     console.log(`Replacing existing records for term=${metadata.term_code}, department=${metadata.department}`);
     try {
       // First, count how many records will be deleted for telemetry
-      const { count: countToDelete, error: countError } = await supabase
+      // Build count query - handle department='ALL' specially to count all departments
+      let countQuery = supabase
         .from('aisis_schedules')
         .select('*', { count: 'exact', head: true })
-        .eq('term_code', metadata.term_code)
-        .eq('department', metadata.department);
+        .eq('term_code', metadata.term_code);
+      
+      // Only filter by department if it's not 'ALL' (which means all departments)
+      if (metadata.department !== 'ALL') {
+        countQuery = countQuery.eq('department', metadata.department);
+      }
+      
+      const { count: countToDelete, error: countError } = await countQuery;
       
       if (countError) {
         console.warn(`Warning: Could not count existing records before delete: ${countError.message}`);
@@ -257,11 +264,18 @@ async function upsertSchedulesInBatches(
         }
       }
       
-      const { error: deleteError } = await supabase
+      // Build delete query - handle department='ALL' specially to delete all departments
+      let deleteQuery = supabase
         .from('aisis_schedules')
         .delete()
-        .eq('term_code', metadata.term_code)
-        .eq('department', metadata.department);
+        .eq('term_code', metadata.term_code);
+      
+      // Only filter by department if it's not 'ALL' (which means all departments)
+      if (metadata.department !== 'ALL') {
+        deleteQuery = deleteQuery.eq('department', metadata.department);
+      }
+      
+      const { error: deleteError } = await deleteQuery;
       
       if (deleteError) {
         console.error(`Failed to delete existing records: ${deleteError.message}`);

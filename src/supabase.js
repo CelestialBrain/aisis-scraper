@@ -74,7 +74,8 @@ export class SupabaseManager {
       
       // For schedules data type, control replace_existing behavior per batch
       // Only first batch deletes old data, subsequent batches append
-      const replaceExisting = (dataType === 'schedules') ? isFirstBatchForTerm : undefined;
+      // For other data types, pass null to omit replace_existing from metadata
+      const replaceExisting = (dataType === 'schedules') ? isFirstBatchForTerm : null;
       
       if (dataType === 'schedules' && isFirstBatchForTerm) {
         console.log(`   🔄 First batch for term ${termCode}: replace_existing=true (will clear old data)`);
@@ -163,7 +164,8 @@ export class SupabaseManager {
     if (department) metadata.department = department;
     if (programCode) metadata.program_code = programCode;
     if (recordCount !== null) metadata.record_count = recordCount;
-    if (replaceExisting !== null && replaceExisting !== undefined) {
+    // Only add replace_existing if explicitly set (null means omit from metadata)
+    if (replaceExisting != null) {
       metadata.replace_existing = replaceExisting;
     }
     
