@@ -146,6 +146,66 @@ function extractBaseProgramCode(degCode) {
 }
 
 /**
+ * Extract version year and semester from degCode
+ * Examples: "BS ME_2025_1" -> { year: 2025, sem: 1 }
+ *           "AB DS_2024_2" -> { year: 2024, sem: 2 }
+ * @param {string} degCode - Full degree code with version suffix
+ * @returns {{ year: number|null, sem: number|null }} Version information
+ */
+export function extractVersionFromDegCode(degCode) {
+  if (!degCode) return { year: null, sem: null };
+  
+  // Split by underscore: "BS ME_2025_1" -> ["BS ME", "2025", "1"]
+  const parts = degCode.split('_');
+  
+  if (parts.length >= 3) {
+    const year = parseInt(parts[1], 10);
+    const sem = parseInt(parts[2], 10);
+    
+    return {
+      year: isNaN(year) ? null : year,
+      sem: isNaN(sem) ? null : sem
+    };
+  }
+  
+  return { year: null, sem: null };
+}
+
+/**
+ * Extract version year and semester from program title
+ * Handles patterns like:
+ * - "Ver Sem 1, Ver Year 2025"
+ * - "Ver Year 2025, Ver Sem 1" (alternate order)
+ * - "BACHELOR OF SCIENCE IN MANAGEMENT (Ver Sem 1, Ver Year 2018)"
+ * - Plain year patterns like "2025" or "2025-1" when not part of Ver pattern
+ * 
+ * @param {string} programTitle - Program title from HTML
+ * @returns {{ year: number|null, sem: number|null }} Version information
+ */
+export function extractVersionFromProgramTitle(programTitle) {
+  if (!programTitle) return { year: null, sem: null };
+  
+  const normalized = programTitle.toUpperCase();
+  
+  let year = null;
+  let sem = null;
+  
+  // Pattern 1: "Ver Year YYYY" or "Ver. Year YYYY"
+  const yearMatch = normalized.match(/VER\.?\s+YEAR\s+(\d{4})/);
+  if (yearMatch) {
+    year = parseInt(yearMatch[1], 10);
+  }
+  
+  // Pattern 2: "Ver Sem N" or "Ver. Sem N"
+  const semMatch = normalized.match(/VER\.?\s+SEM\s+(\d+)/);
+  if (semMatch) {
+    sem = parseInt(semMatch[1], 10);
+  }
+  
+  return { year, sem };
+}
+
+/**
  * Check if program title matches the requested degCode and label
  * 
  * This function validates that AISIS returned HTML for the correct program
@@ -155,12 +215,41 @@ function extractBaseProgramCode(degCode) {
  * - BS ME vs BS MGT-H
  * - Development Studies vs Applied Mathematics
  * 
+ * NEW: Also validates version consistency when both degCode and programTitle
+ * contain version information. If versions disagree, this is treated as a mismatch
+ * (likely AISIS session bleed).
+ * 
  * @param {string} degCode - Requested degree code (e.g., 'BS ME_2025_1')
  * @param {string} label - Requested program label (e.g., 'BS Mechanical Engineering (2025-1)')
  * @param {string} programTitle - Program title extracted from HTML
  * @returns {boolean} True if match, false if obvious mismatch
  */
 export function isProgramMatch(degCode, label, programTitle) {
+  // FIRST: Validate version consistency (NEW)
+  // Extract version from degCode and programTitle
+  const degCodeVersion = extractVersionFromDegCode(degCode);
+  const titleVersion = extractVersionFromProgramTitle(programTitle);
+  
+  // If BOTH degCode and programTitle have version info, they must match
+  // If either is missing version info, we skip this check (rely on program name matching only)
+  const hasExpectedVersion = degCodeVersion.year !== null && degCodeVersion.sem !== null;
+  const hasTitleVersion = titleVersion.year !== null || titleVersion.sem !== null;
+  
+  if (hasExpectedVersion && hasTitleVersion) {
+    // Both have version info - check for disagreement
+    const yearMismatch = titleVersion.year !== null && titleVersion.year !== degCodeVersion.year;
+    const semMismatch = titleVersion.sem !== null && titleVersion.sem !== degCodeVersion.sem;
+    
+    if (yearMismatch || semMismatch) {
+      // VERSION MISMATCH DETECTED - this is session bleed
+      console.error(`   🚨 Version mismatch detected!`);
+      console.error(`      Expected: Year=${degCodeVersion.year}, Sem=${degCodeVersion.sem} (from degCode: ${degCode})`);
+      console.error(`      Found in title: Year=${titleVersion.year}, Sem=${titleVersion.sem} (from programTitle: "${programTitle}")`);
+      return false;  // Reject immediately
+    }
+  }
+  
+  // SECOND: Continue with existing program name validation
   // Normalize all inputs for comparison
   const normDegCode = normalizeForComparison(degCode);
   const normLabel = normalizeForComparison(label);
