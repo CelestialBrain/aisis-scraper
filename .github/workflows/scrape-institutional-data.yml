@@ -24,6 +24,8 @@ jobs:
         run: npm install
 
       - name: Download previous baselines
+        # See README.md "Baseline Tracking and Regression Detection" section
+        # Downloads baseline-{term}.json files from previous runs for comparison
         uses: actions/download-artifact@v4
         with:
           name: baselines
@@ -48,6 +50,8 @@ jobs:
         run: npm start
       
       - name: Upload baselines for next run
+        # See README.md "Baseline Tracking and Regression Detection" section
+        # Saves baseline-{term}.json files for comparison in future runs
         uses: actions/upload-artifact@v4
         if: always()  # Upload even if scraper fails
         with:
