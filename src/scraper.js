@@ -517,6 +517,15 @@ export class AISISScraper {
       }
     }
     
+    // Log structured START message with finalized configuration
+    console.log('\n📥 SCHEDULE SCRAPE START', {
+      term,
+      department_count: departments.length,
+      mode: fastMode ? 'FAST_MODE' : 'STANDARD',
+      concurrency: SCRAPE_CONFIG.CONCURRENCY,
+      batch_delay_ms: SCRAPE_CONFIG.BATCH_DELAY_MS
+    });
+    
     // In FAST_MODE, skip the test department pass and go straight to batched scraping
     if (fastMode) {
       console.log('   ⚡ FAST_MODE: Skipping test department pass, proceeding directly to batch scraping');
@@ -744,6 +753,15 @@ export class AISISScraper {
       }
     };
     
+    // Print textual summary block (similar to curriculum)
+    console.log(`\n   📊 Schedule Scraping Summary:`);
+    console.log(`      Term: ${summary.term}`);
+    console.log(`      Departments: ${summary.statistics.total_departments}`);
+    console.log(`      Successful: ${summary.statistics.successful}`);
+    console.log(`      Empty: ${summary.statistics.empty}`);
+    console.log(`      Failed: ${summary.statistics.failed}`);
+    console.log(`      Total courses: ${summary.total_courses}`);
+    
     // Save summary to logs directory
     if (!fs.existsSync('logs')) fs.mkdirSync('logs');
     const summaryPath = `logs/schedule_summary-${term}.json`;
@@ -758,6 +776,17 @@ export class AISISScraper {
     console.log(`   ❌ Failed: ${summary.statistics.failed}`);
 
     console.log(`\n📚 Total courses: ${allCourses.length}`);
+    
+    // Structured completion log for easier grepping and alignment with curriculum
+    console.log('✅ SCHEDULE SCRAPE COMPLETE', {
+      term: summary.term,
+      total_departments: summary.statistics.total_departments,
+      successful_departments: summary.statistics.successful,
+      empty_departments: summary.statistics.empty,
+      failed_departments: summary.statistics.failed,
+      total_courses: summary.total_courses
+    });
+    
     return allCourses;
   }
 
@@ -1281,6 +1310,15 @@ export class AISISScraper {
       return [];
     }
 
+    // Log structured START message with finalized configuration
+    console.log('\n📥 CURRICULUM SCRAPE START', {
+      total_available: allDegreePrograms.length,
+      requested: degreePrograms.length,
+      fast_mode: fastMode,
+      concurrency: curriculumConcurrency,
+      delay_ms: curriculumDelayMs
+    });
+
     // Initialize indexed accumulator for deterministic ordering
     const allCurricula = new Array(degreePrograms.length).fill(null);
     let successCount = 0;
@@ -1453,6 +1491,16 @@ export class AISISScraper {
     const totalTime = Date.now() - startTime;
     console.log(`      Total time: ${(totalTime / 1000).toFixed(1)}s`);
     console.log(`   📚 Total curriculum versions scraped: ${orderedCurricula.length}\n`);
+
+    // Structured completion log for easier grepping and alignment with schedules
+    console.log('✅ CURRICULUM SCRAPE COMPLETE', {
+      total_available: allDegreePrograms.length,
+      requested: degreePrograms.length,
+      successful: successCount,
+      failed: failureCount,
+      total_scraped: orderedCurricula.length,
+      duration_ms: totalTime
+    });
 
     return orderedCurricula;
   }

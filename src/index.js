@@ -216,7 +216,7 @@ async function main() {
       console.log(`   - Try setting APPLICABLE_PERIOD env variable to override term`);
     }
 
-    console.log('\n✅ Scraping completed!');
+    console.log('\n✅ Schedule scraping completed!');
     process.exit(0);
 
   } catch (error) {

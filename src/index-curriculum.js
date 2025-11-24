@@ -313,6 +313,25 @@ async function main() {
         }
       }
 
+      // 4. Save curriculum summary to logs (similar to schedule summaries)
+      if (!fs.existsSync('logs')) fs.mkdirSync('logs');
+      
+      // Count unique programs from validRows
+      const uniquePrograms = new Set(validRows.map(row => row.deg_code));
+      
+      const curriculumSummary = {
+        timestamp: new Date().toISOString(),
+        program_count: uniquePrograms.size,
+        row_count: validRows.length,
+        total_programs_scraped: programs.length,
+        duplicates_removed: duplicatesRemoved,
+        invalid_courses_removed: invalidRows.length
+      };
+      
+      const summaryPath = `logs/curriculum_summary-${Date.now()}.json`;
+      fs.writeFileSync(summaryPath, JSON.stringify(curriculumSummary, null, 2));
+      console.log(`\n📋 Curriculum summary saved to ${summaryPath}`);
+
     } else {
       console.warn('\n⚠️ No curriculum data scraped.');
       console.log("   Possible reasons:");
