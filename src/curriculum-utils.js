@@ -202,7 +202,7 @@ export function buildBatchMetadata(degCode, allCoursesForProgram, validCourses, 
   const { programCode, curriculumVersion } = extractProgramInfo(degCode);
 
   // Extract program name from the first course row (all rows have same program_title)
-  const programName = allCoursesForProgram.length > 0 ? allCoursesForProgram[0].program_title : null;
+  const programName = allCoursesForProgram.length > 0 ? (allCoursesForProgram[0].program_title || null) : null;
 
   return {
     program_code: programCode,
