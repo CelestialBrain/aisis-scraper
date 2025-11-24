@@ -201,8 +201,12 @@ export function extractProgramInfo(degCode) {
 export function buildBatchMetadata(degCode, allCoursesForProgram, validCourses, duplicatesRemoved, invalidCount) {
   const { programCode, curriculumVersion } = extractProgramInfo(degCode);
 
+  // Extract program name from the first course row (all rows have same program_title)
+  const programName = allCoursesForProgram.length > 0 ? allCoursesForProgram[0].program_title : null;
+
   return {
     program_code: programCode,
+    program_name: programName,  // Full descriptive program name for school detection
     curriculum_version: curriculumVersion,
     total_courses_scraped: allCoursesForProgram.length,
     raw_courses_count: allCoursesForProgram.length,
