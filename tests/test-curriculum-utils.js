@@ -349,9 +349,9 @@ assertEquals(
 console.log('\n📋 Test Suite 7: Build Batch Metadata\n');
 
 const rawCourses = [
-  { deg_code: 'BS CS_2024_1', course_code: 'CS 11', course_title: 'Intro', units: 3 },
-  { deg_code: 'BS CS_2024_1', course_code: 'CS11', course_title: 'Intro', units: 3 }, // duplicate
-  { deg_code: 'BS CS_2024_1', course_code: '', course_title: 'Invalid', units: 3 } // invalid
+  { deg_code: 'BS CS_2024_1', program_title: 'Bachelor of Science in Computer Science', course_code: 'CS 11', course_title: 'Intro', units: 3 },
+  { deg_code: 'BS CS_2024_1', program_title: 'Bachelor of Science in Computer Science', course_code: 'CS11', course_title: 'Intro', units: 3 }, // duplicate
+  { deg_code: 'BS CS_2024_1', program_title: 'Bachelor of Science in Computer Science', course_code: '', course_title: 'Invalid', units: 3 } // invalid
 ];
 
 const metadata = buildBatchMetadata('BS CS_2024_1', rawCourses, [rawCourses[0]], 1, 1);
@@ -386,6 +386,10 @@ assert(
 assert(
   metadata.source_url === 'https://aisis.ateneo.edu/J_VOFC.do',
   'Test 7.8: Metadata includes source URL'
+);
+assert(
+  metadata.program_name === 'Bachelor of Science in Computer Science',
+  'Test 7.9: Metadata includes full program name for school detection'
 );
 
 // Test Suite 8: Integration test - full pipeline
