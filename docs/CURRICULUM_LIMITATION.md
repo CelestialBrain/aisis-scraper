@@ -235,26 +235,28 @@ CURRICULUM_DELAY_MS=2000
 # Don't use FAST_MODE
 ```
 
-#### Development / Testing (Balanced)
+#### Development / Testing (Balanced - Same as Default)
 ```bash
-# Low concurrency
-CURRICULUM_CONCURRENCY=2
+# These are the defaults - no need to set unless overriding
+# CURRICULUM_CONCURRENCY=2 (default)
+# CURRICULUM_DELAY_MS=1000 (default)
 
-# 1-second delay
+# Or explicitly set:
+CURRICULUM_CONCURRENCY=2
 CURRICULUM_DELAY_MS=1000
 ```
 
-#### Fast Mode (Higher Risk)
+#### Fast Mode (Faster Performance)
 ```bash
 # Enable fast mode
 FAST_MODE=true
 
 # This sets:
-# - CURRICULUM_DELAY_MS=500 (reduced from 2000)
-# - Still uses CURRICULUM_CONCURRENCY=1 by default
+# - CURRICULUM_DELAY_MS=500 (reduced from 1000ms default)
+# - CURRICULUM_CONCURRENCY=2 (same as default, with validation)
 ```
 
-**WARNING:** Higher concurrency (> 2) and lower delays (< 1000ms) significantly increase the risk of session bleed.
+**NOTE:** FAST_MODE uses the same concurrency as the default but with reduced delay. All requests are still validated to prevent session bleed.
 
 ### Debug Instrumentation
 

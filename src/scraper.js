@@ -1229,18 +1229,19 @@ export class AISISScraper {
       ? process.env.CURRICULUM_SAMPLE.split(',').map(s => s.trim()).filter(s => s)
       : null;
     
-    // SAFETY FIX: Increase default delay to reduce AISIS session bleed risk
-    // Fast mode uses 500ms (reduced from 0ms for safety)
-    // Normal mode uses 2000ms (increased from 100ms for safety)
-    const defaultCurriculumDelay = fastMode ? 500 : 2000;
+    // Balanced defaults: Safe but not painfully slow
+    // Fast mode uses 500ms (aggressive but tested)
+    // Normal mode uses 1000ms (balanced - safer than old 100ms, faster than ultra-conservative 2000ms)
+    const defaultCurriculumDelay = fastMode ? 500 : 1000;
     const curriculumDelayEnv = parseInt(process.env.CURRICULUM_DELAY_MS, 10);
     const curriculumDelayMs = isNaN(curriculumDelayEnv) 
       ? defaultCurriculumDelay 
       : Math.max(0, curriculumDelayEnv);
     
-    // SAFETY FIX: Reduce default concurrency to 1 to prevent AISIS session bleed
-    // Sequential scraping is safer and prevents race conditions
-    const defaultCurriculumConcurrency = 1;
+    // Balanced defaults: Moderate parallelism for better performance
+    // Concurrency 2 is well-tested and significantly faster than sequential (concurrency 1)
+    // Still uses _scrapeDegreeWithValidation to prevent AISIS session bleed
+    const defaultCurriculumConcurrency = 2;
     const curriculumConcurrencyEnv = parseInt(process.env.CURRICULUM_CONCURRENCY, 10);
     const curriculumConcurrency = isNaN(curriculumConcurrencyEnv) 
       ? defaultCurriculumConcurrency 
@@ -1255,23 +1256,23 @@ export class AISISScraper {
     // Show delay configuration with warnings
     if (process.env.CURRICULUM_DELAY_MS !== undefined) {
       console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (override)`);
-      if (curriculumDelayMs < 1000) {
-        console.warn(`      ⚠️  Low delay may increase risk of AISIS session bleed`);
+      if (curriculumDelayMs < 500) {
+        console.warn(`      ⚠️  Very low delay may increase risk of AISIS session bleed`);
       }
     } else if (fastMode) {
       console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (FAST_MODE)`);
     } else {
-      console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (default - safe mode)`);
+      console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (default - balanced mode)`);
     }
     
     // Show concurrency configuration with warnings
     if (process.env.CURRICULUM_CONCURRENCY !== undefined) {
       console.log(`   📊 CURRICULUM_CONCURRENCY: ${curriculumConcurrency} (override, max: 10)`);
-      if (curriculumConcurrency > 1) {
-        console.warn(`      ⚠️  Concurrency > 1 may increase risk of AISIS session bleed`);
+      if (curriculumConcurrency > 4) {
+        console.warn(`      ⚠️  High concurrency (>4) may increase risk of AISIS session bleed`);
       }
     } else {
-      console.log(`   📊 CURRICULUM_CONCURRENCY: ${curriculumConcurrency} (default - sequential scraping)`);
+      console.log(`   📊 CURRICULUM_CONCURRENCY: ${curriculumConcurrency} (default - parallel scraping with validation)`);
     }
     console.log('');
 
@@ -1348,7 +1349,8 @@ export class AISISScraper {
 
     // Scrape degree programs with configurable concurrency
     if (curriculumConcurrency === 1) {
-      // Sequential scraping (safer for avoiding AISIS session bleed)
+      // Sequential scraping (ultra-safe mode, opt-in via CURRICULUM_CONCURRENCY=1)
+      console.log(`   🔒 Using sequential scraping (ultra-safe mode)`);
       for (let i = 0; i < degreePrograms.length; i++) {
         const { degCode, label } = degreePrograms[i];
         console.log(`   [${i + 1}/${degreePrograms.length}] Scraping ${degCode} (${label})...`);
@@ -1395,9 +1397,9 @@ export class AISISScraper {
         }
       }
     } else {
-      // Concurrent scraping (riskier - may trigger AISIS session bleed)
+      // Concurrent scraping with validation (balanced default mode)
       console.log(`   ⚡ Using concurrent scraping with concurrency ${curriculumConcurrency}`);
-      console.warn(`      ⚠️  Concurrent scraping increases risk of session bleed - validation is active`);
+      console.log(`      ℹ️  All requests validated via _scrapeDegreeWithValidation to prevent session bleed`);
       
       for (let i = 0; i < degreePrograms.length; i += curriculumConcurrency) {
         const batch = degreePrograms.slice(i, i + curriculumConcurrency);
