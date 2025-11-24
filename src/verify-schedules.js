@@ -7,6 +7,26 @@ import 'dotenv/config';
 /**
  * Verification script to ensure all AISIS schedules are captured in Supabase
  * 
+ * IMPORTANT: Expected Schedule Ingestion Pattern
+ * ============================================
+ * The scraper uses a batching strategy to sync schedules to Supabase:
+ * 
+ * 1. First Batch (replace_existing=true):
+ *    - Sent with metadata: { replace_existing: true, department: 'ALL', term_code: '2025-1' }
+ *    - Edge function deletes ALL existing schedules for the term_code before inserting
+ *    - This ensures old data is cleared at the start of each scrape run
+ * 
+ * 2. Subsequent Batches (replace_existing=false):
+ *    - Sent with metadata: { replace_existing: false, department: 'ALL', term_code: '2025-1' }
+ *    - Edge function performs upsert (ON CONFLICT ... DO UPDATE) without deleting
+ *    - Records are appended/updated, preserving all previously inserted batches
+ * 
+ * This pattern prevents data loss that would occur if every batch deleted all existing
+ * records before inserting, which would result in only the last batch surviving.
+ * 
+ * The logic is scoped per term_code and only applies to 'schedules' data_type.
+ * Curriculum and other data types may use different strategies.
+ * 
  * Usage:
  *   node src/verify-schedules.js [term] [department]
  *   

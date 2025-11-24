@@ -60,6 +60,11 @@ export class SupabaseManager {
     let successCount = 0;
     let failureCount = 0;
 
+    // Track first batch for term-based replace_existing logic
+    // For schedules: only the first batch should delete existing records (replace_existing=true)
+    // Subsequent batches should append/upsert (replace_existing=false) to avoid data loss
+    let isFirstBatchForTerm = true;
+
     // Process each batch
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
       const batch = batches[batchIndex];
@@ -67,11 +72,26 @@ export class SupabaseManager {
       
       console.log(`   📤 Sending batch ${batchNum}/${batches.length} (${batch.length} records) to Supabase...`);
       
-      const success = await this.sendRequest(dataType, batch, termCode, department, programCode);
+      // For schedules data type, control replace_existing behavior per batch
+      // Only first batch deletes old data, subsequent batches append
+      const replaceExisting = (dataType === 'schedules') ? isFirstBatchForTerm : undefined;
+      
+      if (dataType === 'schedules' && isFirstBatchForTerm) {
+        console.log(`   🔄 First batch for term ${termCode}: replace_existing=true (will clear old data)`);
+      } else if (dataType === 'schedules' && !isFirstBatchForTerm) {
+        console.log(`   ➕ Subsequent batch: replace_existing=false (append mode)`);
+      }
+      
+      const success = await this.sendRequest(dataType, batch, termCode, department, programCode, replaceExisting);
       
       if (success) {
         successCount += batch.length;
         console.log(`   ✅ Batch ${batchNum}/${batches.length}: Successfully synced ${batch.length} records`);
+        
+        // After first successful batch, disable replace_existing for remaining batches
+        if (isFirstBatchForTerm) {
+          isFirstBatchForTerm = false;
+        }
       } else {
         failureCount += batch.length;
         console.error(`   ⚠️ Batch ${batchNum}/${batches.length}: Failed to sync ${batch.length} records`);
@@ -132,9 +152,10 @@ export class SupabaseManager {
    * @param {string|null} department - Department code
    * @param {string|null} programCode - Program code for curriculum
    * @param {number|null} recordCount - Number of records in the payload
+   * @param {boolean|null} replaceExisting - Whether to replace existing records (schedules only)
    * @returns {Object} Metadata object with all available context
    */
-  buildMetadata(termCode = null, department = null, programCode = null, recordCount = null) {
+  buildMetadata(termCode = null, department = null, programCode = null, recordCount = null, replaceExisting = null) {
     const metadata = {};
     
     // Add context-specific metadata
@@ -142,6 +163,9 @@ export class SupabaseManager {
     if (department) metadata.department = department;
     if (programCode) metadata.program_code = programCode;
     if (recordCount !== null) metadata.record_count = recordCount;
+    if (replaceExisting !== null && replaceExisting !== undefined) {
+      metadata.replace_existing = replaceExisting;
+    }
     
     // Add GitHub Actions context if available
     if (process.env.GITHUB_WORKFLOW) {
@@ -189,11 +213,12 @@ export class SupabaseManager {
    * @param {string|null} termCode - Term code for schedules
    * @param {string|null} department - Department code
    * @param {string|null} programCode - Program code for curriculum
+   * @param {boolean|null} replaceExisting - Whether to replace existing records (schedules only)
    * @returns {Promise<boolean>} True if successful, false if all retries failed
    */
-  async sendRequest(dataType, records, termCode = null, department = null, programCode = null) {
-    // Build metadata with GitHub Actions context and record count
-    const metadata = this.buildMetadata(termCode, department, programCode, records.length);
+  async sendRequest(dataType, records, termCode = null, department = null, programCode = null, replaceExisting = null) {
+    // Build metadata with GitHub Actions context, record count, and replace_existing flag
+    const metadata = this.buildMetadata(termCode, department, programCode, records.length, replaceExisting);
 
     const payload = {
       data_type: dataType,

@@ -232,6 +232,31 @@ async function upsertSchedulesInBatches(
   if (metadata?.replace_existing && metadata?.term_code && metadata?.department) {
     console.log(`Replacing existing records for term=${metadata.term_code}, department=${metadata.department}`);
     try {
+      // First, count how many records will be deleted for telemetry
+      const { count: countToDelete, error: countError } = await supabase
+        .from('aisis_schedules')
+        .select('*', { count: 'exact', head: true })
+        .eq('term_code', metadata.term_code)
+        .eq('department', metadata.department);
+      
+      if (countError) {
+        console.warn(`Warning: Could not count existing records before delete: ${countError.message}`);
+      } else if (countToDelete !== null) {
+        console.log(`Found ${countToDelete} existing records to delete`);
+        
+        // Log warning for large deletions with department='ALL'
+        const LARGE_DELETION_THRESHOLD = 1000;
+        if (countToDelete > LARGE_DELETION_THRESHOLD && metadata.department === 'ALL') {
+          console.warn('⚠️ LARGE SCHEDULE DELETION DETECTED', {
+            term_code: metadata.term_code,
+            department: metadata.department,
+            deleted_count: countToDelete,
+            threshold: LARGE_DELETION_THRESHOLD,
+            message: `Deleting ${countToDelete} schedules for entire term - ensure this is intentional`
+          });
+        }
+      }
+      
       const { error: deleteError } = await supabase
         .from('aisis_schedules')
         .delete()
@@ -243,6 +268,11 @@ async function upsertSchedulesInBatches(
         result.errors.push(`Delete failed: ${deleteError.message}`);
       } else {
         console.log(`Deleted existing records for term=${metadata.term_code}, department=${metadata.department}`);
+        
+        // Log deletion telemetry in response if count was available
+        if (countToDelete !== null && countToDelete > 0) {
+          console.log(`Deletion completed: ${countToDelete} records removed`);
+        }
       }
     } catch (err) {
       console.error(`Exception during delete: ${err.message}`);
