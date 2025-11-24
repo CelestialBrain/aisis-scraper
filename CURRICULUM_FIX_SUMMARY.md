@@ -6,8 +6,35 @@ This PR fixes issues in the AISIS curriculum scraping and ingestion pipeline, ad
 - Database constraint violations in Supabase Edge Function
 - Incorrect program titles in Google Sheets
 - Missing debug instrumentation for troubleshooting
+- **NEW:** Curriculum version bleed prevention (version consistency validation)
 
 ## Changes Made
+
+### 0. Version Consistency Validation (NEW)
+
+**Added curriculum version validation** to prevent session bleed where AISIS returns HTML from an older curriculum version (e.g., 2018) when a newer version (e.g., 2025) was requested.
+
+See [CURRICULUM_VERSION_VALIDATION.md](CURRICULUM_VERSION_VALIDATION.md) for complete documentation.
+
+**Key changes:**
+- Added `extractVersionFromDegCode()` - extracts year/semester from degCode
+- Added `extractVersionFromProgramTitle()` - parses "Ver Sem X, Ver Year YYYY" patterns
+- Enhanced `isProgramMatch()` with version consistency check
+- Added 30 comprehensive test cases in `tests/test-curriculum-version-validation.js`
+
+**Impact:**
+- ✅ Detects and rejects version mismatches (e.g., degCode=2025 but title=2018)
+- ✅ Backward compatible (titles without version still work)
+- ✅ All 56 tests passing (26 original + 30 new)
+
+**Example rejection:**
+```
+Request: BS MGT_2025_1
+HTML: "BACHELOR OF SCIENCE IN MANAGEMENT (Ver Sem 1, Ver Year 2018)"
+Result: ❌ REJECTED - Version mismatch detected
+```
+
+
 
 ### 1. Supabase Edge Function (`supabase/functions/github-data-ingest/index.ts`)
 
