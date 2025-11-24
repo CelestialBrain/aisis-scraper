@@ -6,21 +6,23 @@
  * - Validating course records for completeness
  * - Grouping courses by program and version
  * 
+ * Note: All functions assume course codes have already been normalized
+ * and mapped to canonical forms before being passed in.
+ * 
  * @module curriculum-utils
  */
-
-import { normalizeCourseCode, applyCourseMappings } from './constants.js';
 
 /**
  * Deduplicate courses based on canonical course code and other unique keys
  * 
  * Deduplication strategy:
- * - Primary key: normalized + mapped course code + program code + curriculum version
+ * - Assumes course codes are already normalized and mapped to canonical forms
+ * - Primary key: course code + program code + curriculum version
  * - Additional factors: year level, semester (if present)
  * - Curriculum data does NOT have sections (unlike schedules)
  * - Last occurrence wins (assumes later entries are more recent/correct)
  * 
- * @param {Array<Object>} courses - Array of course objects
+ * @param {Array<Object>} courses - Array of course objects with normalized course_code
  * @returns {Array<Object>} Deduplicated array of courses
  */
 export function dedupeCourses(courses) {
@@ -29,21 +31,19 @@ export function dedupeCourses(courses) {
   }
 
   // Use a Map to track unique courses
-  // Key format: "deg_code|canonical_course_code|year_level|semester"
+  // Key format: "deg_code|course_code|year_level|semester"
   // Note: No section in curriculum data (unlike schedules)
+  // Note: Assumes course_code is already normalized
   const courseMap = new Map();
 
   for (const course of courses) {
-    // Normalize and apply canonical mappings
-    const normalizedCode = normalizeCourseCode(course.course_code || '');
-    const canonicalCode = applyCourseMappings(normalizedCode);
-    
+    const courseCode = course.course_code || '';
     const degCode = course.deg_code || '';
     const yearLevel = course.year_level || 'null';
     const semester = course.semester || 'null';
     
     // Build unique key (no section for curriculum)
-    const key = `${degCode}|${canonicalCode}|${yearLevel}|${semester}`;
+    const key = `${degCode}|${courseCode}|${yearLevel}|${semester}`;
     
     // Last occurrence wins - this overwrites any previous entry with same key
     courseMap.set(key, course);

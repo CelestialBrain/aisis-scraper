@@ -99,10 +99,12 @@ assert(
 // Test Suite 2: dedupeCourses
 console.log('\n📋 Test Suite 2: Course Deduplication\n');
 
+// Note: dedupeCourses now expects pre-normalized course codes
+// The normalization should happen in the pipeline before calling dedupeCourses
 const duplicateCourses = [
   {
     deg_code: 'BS CS_2024_1',
-    course_code: 'CS 11',
+    course_code: 'CS 11',  // Already normalized
     course_title: 'Introduction to Computing',
     units: 3,
     year_level: 1,
@@ -110,7 +112,7 @@ const duplicateCourses = [
   },
   {
     deg_code: 'BS CS_2024_1',
-    course_code: 'CS11', // Different format, same course
+    course_code: 'CS 11', // Same normalized form
     course_title: 'Introduction to Computing',
     units: 3,
     year_level: 1,
@@ -118,7 +120,7 @@ const duplicateCourses = [
   },
   {
     deg_code: 'BS CS_2024_1',
-    course_code: 'MA 18a',
+    course_code: 'MA 18A',  // Already normalized
     course_title: 'Calculus I',
     units: 5,
     year_level: 1,
@@ -133,8 +135,8 @@ assert(
 );
 
 assert(
-  deduped.some(c => c.course_code === 'CS11'), // Last one wins
-  'Test 2.2: Last occurrence wins for duplicates'
+  deduped.some(c => c.course_code === 'CS 11'), // Last one wins
+  'Test 2.2: Last occurrence wins for duplicates (CS 11 kept)'
 );
 
 // Test with different year levels (should NOT be deduplicated)
@@ -389,15 +391,17 @@ assert(
 // Test Suite 8: Integration test - full pipeline
 console.log('\n📋 Test Suite 8: Full Pipeline Integration\n');
 
+// Note: This test now assumes courses have been pre-normalized in the pipeline
+// before being passed to dedupeCourses
 const pipelineInput = [
   { deg_code: 'BS CS_2024_1', course_code: 'CS 11', course_title: 'Intro to Computing', units: 3, year_level: 1, semester: 1 },
-  { deg_code: 'BS CS_2024_1', course_code: 'CS11', course_title: 'Intro to Computing', units: 3, year_level: 1, semester: 1 }, // dup
-  { deg_code: 'BS CS_2024_1', course_code: 'MA 18a', course_title: 'Calculus I', units: 5, year_level: 1, semester: 1 },
+  { deg_code: 'BS CS_2024_1', course_code: 'CS 11', course_title: 'Intro to Computing', units: 3, year_level: 1, semester: 1 }, // exact dup
+  { deg_code: 'BS CS_2024_1', course_code: 'MA 18A', course_title: 'Calculus I', units: 5, year_level: 1, semester: 1 },
   { deg_code: 'BS CS_2024_1', course_code: '', course_title: 'Invalid', units: 3, year_level: 1, semester: 1 }, // invalid
   { deg_code: 'BS ME_2025_1', course_code: 'ME 11', course_title: 'Statics', units: 3, year_level: 1, semester: 1 }
 ];
 
-// Step 1: Deduplicate
+// Step 1: Deduplicate (expects pre-normalized codes)
 const dedupedPipeline = dedupeCourses(pipelineInput);
 assert(
   dedupedPipeline.length === 4,
