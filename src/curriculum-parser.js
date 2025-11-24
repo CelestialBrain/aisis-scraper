@@ -177,7 +177,9 @@ export function extractVersionFromDegCode(degCode) {
  * - "Ver Sem 1, Ver Year 2025"
  * - "Ver Year 2025, Ver Sem 1" (alternate order)
  * - "BACHELOR OF SCIENCE IN MANAGEMENT (Ver Sem 1, Ver Year 2018)"
- * - Plain year patterns like "2025" or "2025-1" when not part of Ver pattern
+ * 
+ * Note: Currently only detects explicit "Ver Year" and "Ver Sem" patterns.
+ * Does NOT extract standalone year patterns (e.g., "2025") to avoid false matches.
  * 
  * @param {string} programTitle - Program title from HTML
  * @returns {{ year: number|null, sem: number|null }} Version information
