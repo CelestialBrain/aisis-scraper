@@ -8,7 +8,7 @@ import {
   groupByProgramVersion,
   buildBatchMetadata 
 } from './curriculum-utils.js';
-import { normalizeCourseCode } from './constants.js';
+import { normalizeCourseCode, applyCourseMappings } from './constants.js';
 import fs from 'fs';
 import 'dotenv/config';
 
@@ -151,12 +151,16 @@ async function main() {
       
       console.log('\n📊 Processing curriculum data pipeline...');
       
-      // Step 1: Normalize course codes
-      console.log('   1️⃣  Normalizing course codes...');
-      const normalizedRows = allRows.map(row => ({
-        ...row,
-        course_code: normalizeCourseCode(row.course_code)
-      }));
+      // Step 1: Normalize course codes and apply canonical mappings
+      console.log('   1️⃣  Normalizing course codes and applying canonical mappings...');
+      const normalizedRows = allRows.map(row => {
+        const normalized = normalizeCourseCode(row.course_code);
+        const canonical = applyCourseMappings(normalized);
+        return {
+          ...row,
+          course_code: canonical
+        };
+      });
       console.log(`      ✅ Normalized ${normalizedRows.length} course codes`);
       
       // Step 2: Deduplicate courses
@@ -165,6 +169,31 @@ async function main() {
       const dedupedRows = dedupeCourses(normalizedRows);
       const duplicatesRemoved = beforeDedupeCount - dedupedRows.length;
       console.log(`      ✅ Removed ${duplicatesRemoved} duplicate courses (${beforeDedupeCount} → ${dedupedRows.length})`);
+      
+      if (duplicatesRemoved > 0) {
+        console.log(`      ℹ️  Duplicates removed per program:`);
+        // Count duplicates per program
+        const dupsByProgram = {};
+        const normalizedByProgram = {};
+        normalizedRows.forEach(r => {
+          const deg = r.deg_code;
+          normalizedByProgram[deg] = (normalizedByProgram[deg] || 0) + 1;
+        });
+        dedupedRows.forEach(r => {
+          const deg = r.deg_code;
+          const before = normalizedByProgram[deg] || 0;
+          const after = dedupedRows.filter(dr => dr.deg_code === deg).length;
+          if (before > after) {
+            dupsByProgram[deg] = before - after;
+          }
+        });
+        Object.entries(dupsByProgram).slice(0, 5).forEach(([deg, count]) => {
+          console.log(`         ${deg}: ${count} duplicates`);
+        });
+        if (Object.keys(dupsByProgram).length > 5) {
+          console.log(`         ... and ${Object.keys(dupsByProgram).length - 5} more programs`);
+        }
+      }
       
       // Step 3: Validate and filter courses
       console.log('   3️⃣  Validating courses...');
@@ -185,8 +214,12 @@ async function main() {
       
       // Log summary stats per program
       console.log('\n   📋 Per-Program Summary:');
-      for (const [degCode, courses] of groupedByProgram) {
+      const summaryEntries = Array.from(groupedByProgram.entries());
+      summaryEntries.slice(0, 10).forEach(([degCode, courses]) => {
         console.log(`      ${degCode}: ${courses.length} courses`);
+      });
+      if (summaryEntries.length > 10) {
+        console.log(`      ... and ${summaryEntries.length - 10} more programs`);
       }
       
       // 1. Local backup - save both detailed programs and flattened rows

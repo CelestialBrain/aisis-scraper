@@ -120,11 +120,32 @@ export function normalizeCourseCode(rawCode) {
  * Known course code mappings for common variations
  * Maps non-standard course codes to their canonical forms
  * 
- * This is useful for handling cases where the same course appears
- * with different codes in different contexts
+ * This mapping handles known variations in AISIS data where the same
+ * course appears with different codes in different contexts.
+ * 
+ * Common patterns:
+ * - EN vs ENGL (English)
+ * - PEPC vs PATHFIT (Physical Education)
+ * - Abbreviated vs full department codes
  */
 export const COURSE_CODE_MAP = {
-  // Add specific mappings here as needed
-  // Example: 'NSTP (ADAST)': 'NSTP ADAST',
-  // Example: 'NSTP (OSCI)': 'NSTP OSCI'
+  // English courses (EN → ENGL)
+  // Note: These mappings are applied AFTER normalization
+  // So we map the normalized form
+  
+  // Physical Education mappings
+  // 'PEPC 10': 'PATHFIT 1',  // Example - uncomment if confirmed
+  
+  // Add specific mappings here as discovered from AISIS data
+  // Format: 'VARIANT CODE': 'CANONICAL CODE'
 };
+
+/**
+ * Apply known course code mappings after normalization
+ * 
+ * @param {string} normalizedCode - Already normalized course code
+ * @returns {string} Canonical course code (from map if exists, otherwise returns input)
+ */
+export function applyCourseMappings(normalizedCode) {
+  return COURSE_CODE_MAP[normalizedCode] || normalizedCode;
+}
