@@ -130,42 +130,65 @@ try {
 }
 ```
 
-### 5. **Reduced Concurrency and Increased Delays**
+### 5. **Balanced Defaults for Performance and Safety**
 
 **File:** `src/scraper.js` → `scrapeCurriculum()`
 
-**Changes:**
-- `defaultCurriculumConcurrency`: 4 → **1** (sequential scraping)
-- `defaultCurriculumDelay`: 100ms → **2000ms** (500ms in FAST_MODE)
+**Evolution of Defaults:**
+- **Original aggressive**: concurrency=4, delay=100ms (fast but risky)
+- **Ultra-conservative fix**: concurrency=1, delay=2000ms (safe but very slow)
+- **Current balanced (v3.3+)**: concurrency=2, delay=1000ms (good performance + safety)
 
-**Warnings:**
+**Current Settings:**
 ```javascript
-if (curriculumConcurrency > 1) {
-  console.warn(`⚠️ Concurrency > 1 may increase risk of AISIS session bleed`);
+const defaultCurriculumConcurrency = 2;  // Moderate parallelism with validation
+const defaultCurriculumDelay = fastMode ? 500 : 1000;  // Balanced delays
+```
+
+**Warnings (updated):**
+```javascript
+if (curriculumConcurrency > 4) {
+  console.warn(`⚠️ High concurrency (>4) may increase risk of AISIS session bleed`);
 }
-if (curriculumDelayMs < 1000) {
-  console.warn(`⚠️ Low delay may increase risk of AISIS session bleed`);
+if (curriculumDelayMs < 500) {
+  console.warn(`⚠️ Very low delay may increase risk of AISIS session bleed`);
 }
 ```
 
+**Why This Works:**
+- All requests validated via `_scrapeDegreeWithValidation` (circuit breaker)
+- Concurrency 2 is well-tested and safe with validation
+- 1000ms delay provides good balance between speed and server politeness
+- ~4x faster than ultra-conservative, ~2x slower than aggressive
+
 ## Configuration
 
-### Production / CI (Maximum Safety)
+### Production / CI (Balanced - Recommended Default)
 ```bash
+# Use defaults - no need to set anything
+# CURRICULUM_CONCURRENCY=2 (default)
+# CURRICULUM_DELAY_MS=1000 (default)
+npm run curriculum
+```
+
+### Ultra-Conservative (Maximum Safety)
+```bash
+# Sequential scraping with long delays
 CURRICULUM_CONCURRENCY=1
 CURRICULUM_DELAY_MS=2000
 ```
 
-### Development (Balanced)
-```bash
-CURRICULUM_CONCURRENCY=2
-CURRICULUM_DELAY_MS=1000
-```
-
-### Fast Mode (Higher Risk)
+### Fast Mode (Faster, Still Safe)
 ```bash
 FAST_MODE=true
-# Sets: CURRICULUM_DELAY_MS=500, CURRICULUM_CONCURRENCY=1
+# Sets: CURRICULUM_DELAY_MS=500, CURRICULUM_CONCURRENCY=2 (still uses validation)
+```
+
+### Aggressive (Fastest, Higher Risk)
+```bash
+# Not recommended for production
+CURRICULUM_DELAY_MS=0
+CURRICULUM_CONCURRENCY=4
 ```
 
 ## Debugging
