@@ -35,9 +35,11 @@ CURRICULUM_CONCURRENCY: 2 (parallel)
 
 | Programs | Old Time (conservative) | New Time (balanced) | Speedup |
 |----------|------------------------|---------------------|---------|
-| 50 | ~3 minutes | ~1 minute | 3x |
-| 100 | ~6 minutes | ~2 minutes | 3x |
-| 459 | ~35-40 minutes | ~10-15 minutes | ~4x |
+| 50 | ~3-4 minutes | ~1 minute | ~3-4x |
+| 100 | ~6-7 minutes | ~2 minutes | ~3-3.5x |
+| 459 | ~35-40 minutes | ~10-15 minutes | ~2.5-4x |
+
+*Note: Actual speedup depends on network conditions and AISIS server response times. The 4x combined theoretical speedup (2x from concurrency + 2x from delay reduction) is achieved in optimal conditions.*
 
 ## Safety Features (Unchanged)
 

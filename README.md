@@ -384,9 +384,9 @@ The curriculum scraper has been optimized with improved default settings that ba
 - **Safety maintained**: All requests validated via `_scrapeDegreeWithValidation`, AISIS_ERROR_PAGE detection, and retry logic
 
 **Previous ultra-conservative performance** (2000ms delay, sequential):
-- 459 programs × 2000ms = 918 seconds in delays alone (~15 minutes)
-- Plus ~2 seconds per request = ~918 seconds total (~15 minutes)
-- With network overhead: ~35-40 minutes for 459 programs
+- 459 programs × 2000ms = 918 seconds in delays (~15 minutes)
+- 459 programs × ~2 seconds per request = ~918 seconds in request time (~15 minutes)
+- Total: ~1836 seconds (~30.6 minutes) minimum, with network overhead: ~35-40 minutes
 
 **New balanced performance** (1000ms delay, concurrency 2):
 - 459 programs ÷ 2 = 230 parallel pairs

@@ -1193,10 +1193,10 @@ export class AISISScraper {
    * Supports filtering and limiting via environment variables:
    * - CURRICULUM_LIMIT: Take first N degree codes (e.g., "10" for first 10 programs)
    * - CURRICULUM_SAMPLE: Select specific degree codes (e.g., "BS CS_2024_1,BS ME_2023_1")
-   * - CURRICULUM_DELAY_MS: Delay between requests (default: 2000ms, 500ms in FAST_MODE)
-   *   ⚠️ WARNING: Lower delays increase risk of AISIS session bleed
-   * - CURRICULUM_CONCURRENCY: Number of programs to scrape in parallel (default: 1, max: 10)
-   *   ⚠️ WARNING: Higher concurrency increases risk of AISIS session bleed
+   * - CURRICULUM_DELAY_MS: Delay between requests (default: 1000ms, 500ms in FAST_MODE)
+   *   ⚠️ WARNING: Very low delays (<500ms) increase risk of AISIS session bleed
+   * - CURRICULUM_CONCURRENCY: Number of programs to scrape in parallel (default: 2, max: 10)
+   *   ⚠️ WARNING: Very high concurrency (>4) increases risk of AISIS session bleed
    * 
    * Workflow:
    * 1. GET J_VOFC.do to retrieve list of curriculum versions (degCode dropdown)
@@ -1231,7 +1231,7 @@ export class AISISScraper {
     
     // Balanced defaults: Safe but not painfully slow
     // Fast mode uses 500ms (aggressive but tested)
-    // Normal mode uses 1000ms (balanced - safer than old 100ms, faster than ultra-conservative 2000ms)
+    // Normal mode uses 1000ms (balanced - safer than aggressive, faster than ultra-conservative 2000ms)
     const defaultCurriculumDelay = fastMode ? 500 : 1000;
     const curriculumDelayEnv = parseInt(process.env.CURRICULUM_DELAY_MS, 10);
     const curriculumDelayMs = isNaN(curriculumDelayEnv) 
