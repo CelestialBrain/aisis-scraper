@@ -106,8 +106,97 @@ try {
   process.exit(1);
 }
 
-// Restore original request method
+// Test 4: Login page detection triggers re-auth and retry (success case)
+console.log('\nTest 4: Login page detection triggers re-auth and retry (success case)');
+
+// Track request count to return different responses
+let requestCount = 0;
+const loginPageHtml = fs.readFileSync('tests/fixtures/aisis-login-page.html', 'utf8');
+const validScheduleHtml = fs.readFileSync('tests/fixtures/aisis-schedule-edge-cases.html', 'utf8');
+
+scraper._request = async (url, options) => {
+  requestCount++;
+  // First request returns login page, second returns valid schedule
+  if (requestCount === 1) {
+    return {
+      ok: true,
+      text: async () => loginPageHtml
+    };
+  } else {
+    return {
+      ok: true,
+      text: async () => validScheduleHtml
+    };
+  }
+};
+
+// Mock the login method to simulate successful re-authentication
+let loginCalled = false;
+const originalLogin = scraper.login;
+scraper.login = async () => {
+  loginCalled = true;
+  scraper.loggedIn = true;
+  return true;
+};
+
+requestCount = 0;
+loginCalled = false;
+scraper.loggedIn = true;
+
+try {
+  courses = await scraper._scrapeDepartment('2025-1', 'INTAC');
+  if (courses.length === 6 && loginCalled) {
+    console.log('   ✅ Test 4 passed: Re-auth triggered and retry succeeded');
+    console.log(`      - Login was called: ${loginCalled}`);
+    console.log(`      - Total requests: ${requestCount}`);
+    console.log(`      - Courses returned: ${courses.length}`);
+  } else if (!loginCalled) {
+    console.log('   ❌ Test 4 failed: Re-auth was not triggered');
+    process.exit(1);
+  } else {
+    console.log(`   ❌ Test 4 failed: Expected 6 courses, got ${courses.length}`);
+    process.exit(1);
+  }
+} catch (error) {
+  console.log(`   ❌ Test 4 failed with error: ${error.message}`);
+  process.exit(1);
+}
+
+// Test 5: Login page detection throws after max retries (failure case)
+console.log('\nTest 5: Login page detection throws after max retries (failure case)');
+
+requestCount = 0;
+loginCalled = false;
+scraper.loggedIn = true;
+
+// Both requests return login page (simulating persistent auth failure)
+scraper._request = async (url, options) => {
+  requestCount++;
+  return {
+    ok: true,
+    text: async () => loginPageHtml
+  };
+};
+
+try {
+  courses = await scraper._scrapeDepartment('2025-1', 'INTAC');
+  console.log('   ❌ Test 5 failed: Expected error but got success');
+  process.exit(1);
+} catch (error) {
+  if (error.message.includes('INTAC') && error.message.includes('login page')) {
+    console.log('   ✅ Test 5 passed: Error thrown after persistent login page');
+    console.log(`      - Error message: "${error.message}"`);
+    console.log(`      - Login was called: ${loginCalled}`);
+    console.log(`      - Total requests: ${requestCount}`);
+  } else {
+    console.log(`   ❌ Test 5 failed: Unexpected error message: ${error.message}`);
+    process.exit(1);
+  }
+}
+
+// Restore original methods
 scraper._request = originalRequest;
+scraper.login = originalLogin;
 
 console.log('\n✅ All integration tests passed!');
 console.log('\nNote: These are unit tests with mocked responses.');
