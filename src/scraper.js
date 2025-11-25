@@ -37,6 +37,10 @@ const LOGIN_PAGE_MARKERS = {
   ]
 };
 
+// Minimum number of primary markers required for medium-confidence login page detection
+// (when no secondary markers are present)
+const MIN_PRIMARY_MARKERS_FOR_DETECTION = 2;
+
 /**
  * Detect if HTML content is the AISIS login page instead of actual schedule data
  * 
@@ -47,7 +51,8 @@ const LOGIN_PAGE_MARKERS = {
  * The detection logic:
  * 1. If any primary marker is found AND at least one secondary marker is also found,
  *    the page is considered a login page (high confidence)
- * 2. If multiple primary markers are found (2+), the page is likely a login page
+ * 2. If multiple primary markers are found (MIN_PRIMARY_MARKERS_FOR_DETECTION+), 
+ *    the page is likely a login page
  * 
  * @param {string} html - HTML content to check
  * @returns {boolean} True if the HTML appears to be a login page
@@ -76,7 +81,7 @@ export function isLoginPage(html) {
   }
   
   // Medium confidence: multiple primary markers
-  if (primaryMatches.length >= 2) {
+  if (primaryMatches.length >= MIN_PRIMARY_MARKERS_FOR_DETECTION) {
     return true;
   }
   
@@ -915,8 +920,24 @@ export class AISISScraper {
       
       // Legacy check for session expiry (kept for backwards compatibility)
       // This catches simpler cases that might not be caught by isLoginPage
+      // Note: This check is largely redundant now but kept for safety
       if (LOGIN_FAILURE_MARKERS.some(marker => html.includes(marker))) {
-        throw new Error('Session expired');
+        console.error(`   🔒 [${deptCode}] Session expiry detected via legacy markers`);
+        
+        // Apply same retry logic as isLoginPage detection for consistency
+        if (retryCount < RETRY_CONFIG.MAX_RETRIES) {
+          console.log(`   🔄 [${deptCode}] Attempting re-authentication (attempt ${retryCount + 1}/${RETRY_CONFIG.MAX_RETRIES + 1})...`);
+          this.loggedIn = false;
+          const loginSuccess = await this.login();
+          
+          if (loginSuccess) {
+            console.log(`   ✅ [${deptCode}] Re-authentication successful, retrying department scrape...`);
+            await this._delay(RETRY_CONFIG.RETRY_DELAY_MS);
+            return this._scrapeDepartment(term, deptCode, retryCount + 1);
+          }
+        }
+        
+        throw new Error(`${deptCode} scrape failed: session expired`);
       }
 
       // Check for explicit "no results" message from AISIS
