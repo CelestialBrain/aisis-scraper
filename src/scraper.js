@@ -19,6 +19,75 @@ const LOGIN_FAILURE_MARKERS = [
   'login.do'
 ];
 
+// Login page detection markers
+// These are characteristic patterns found in AISIS login page HTML
+const LOGIN_PAGE_MARKERS = {
+  // Primary markers - strong indicators of login page
+  primary: [
+    'Sign in',                    // Login button/header text
+    'login.do',                   // Login form action URL
+    'displayLogin.do'             // Login page URL
+  ],
+  // Secondary markers - found together with primary markers on login page
+  secondary: [
+    'Username:',                  // Username field label
+    'Password:',                  // Password field label
+    'Forgot your password?',      // Password reset link text
+    'itsupport@ateneo.edu'        // IT support email on login page
+  ]
+};
+
+// Minimum number of primary markers required for medium-confidence login page detection
+// (when no secondary markers are present)
+const MIN_PRIMARY_MARKERS_FOR_DETECTION = 2;
+
+/**
+ * Detect if HTML content is the AISIS login page instead of actual schedule data
+ * 
+ * This function checks for characteristic markers found on the AISIS login page.
+ * It uses a combination of primary and secondary markers to reliably detect
+ * when the scraper has been redirected to the login page due to session expiry.
+ * 
+ * The detection logic:
+ * 1. If any primary marker is found AND at least one secondary marker is also found,
+ *    the page is considered a login page (high confidence)
+ * 2. If multiple primary markers are found (MIN_PRIMARY_MARKERS_FOR_DETECTION+), 
+ *    the page is likely a login page
+ * 
+ * @param {string} html - HTML content to check
+ * @returns {boolean} True if the HTML appears to be a login page
+ */
+export function isLoginPage(html) {
+  if (!html || typeof html !== 'string') {
+    return false;
+  }
+  
+  // Convert to lowercase for case-insensitive matching
+  const lowerHtml = html.toLowerCase();
+  
+  // Count matches for primary markers
+  const primaryMatches = LOGIN_PAGE_MARKERS.primary.filter(
+    marker => lowerHtml.includes(marker.toLowerCase())
+  );
+  
+  // Count matches for secondary markers
+  const secondaryMatches = LOGIN_PAGE_MARKERS.secondary.filter(
+    marker => lowerHtml.includes(marker.toLowerCase())
+  );
+  
+  // High confidence: primary + secondary marker
+  if (primaryMatches.length > 0 && secondaryMatches.length > 0) {
+    return true;
+  }
+  
+  // Medium confidence: multiple primary markers
+  if (primaryMatches.length >= MIN_PRIMARY_MARKERS_FOR_DETECTION) {
+    return true;
+  }
+  
+  return false;
+}
+
 // AISIS system error page marker
 const AISIS_ERROR_PAGE_MARKER = 'Your Request Cannot Be Processed At This Time';
 
@@ -823,9 +892,52 @@ export class AISISScraper {
 
       const html = await response.text();
       
-      // Check for session expiry
+      // Check for login page detection (session expired or not authenticated)
+      // This is more robust than the simple marker check - detects full login page HTML
+      if (isLoginPage(html)) {
+        console.error(`   🔒 [${deptCode}] Received AISIS login page HTML; session expired or not authenticated`);
+        
+        // Attempt re-authentication if we haven't retried yet
+        if (retryCount < RETRY_CONFIG.MAX_RETRIES) {
+          console.log(`   🔄 [${deptCode}] Attempting re-authentication (attempt ${retryCount + 1}/${RETRY_CONFIG.MAX_RETRIES + 1})...`);
+          
+          // Mark as logged out and try to re-login
+          this.loggedIn = false;
+          const loginSuccess = await this.login();
+          
+          if (loginSuccess) {
+            console.log(`   ✅ [${deptCode}] Re-authentication successful, retrying department scrape...`);
+            await this._delay(RETRY_CONFIG.RETRY_DELAY_MS);
+            return this._scrapeDepartment(term, deptCode, retryCount + 1);
+          } else {
+            throw new Error(`${deptCode} scrape failed: received AISIS login page instead of schedule; re-authentication failed`);
+          }
+        }
+        
+        // Max retries exceeded - fail fast with clear error
+        throw new Error(`${deptCode} scrape failed: received AISIS login page instead of schedule after ${retryCount + 1} attempts`);
+      }
+      
+      // Legacy check for session expiry (kept for backwards compatibility)
+      // This catches simpler cases that might not be caught by isLoginPage
+      // Note: This check is largely redundant now but kept for safety
       if (LOGIN_FAILURE_MARKERS.some(marker => html.includes(marker))) {
-        throw new Error('Session expired');
+        console.error(`   🔒 [${deptCode}] Session expiry detected via legacy markers`);
+        
+        // Apply same retry logic as isLoginPage detection for consistency
+        if (retryCount < RETRY_CONFIG.MAX_RETRIES) {
+          console.log(`   🔄 [${deptCode}] Attempting re-authentication (attempt ${retryCount + 1}/${RETRY_CONFIG.MAX_RETRIES + 1})...`);
+          this.loggedIn = false;
+          const loginSuccess = await this.login();
+          
+          if (loginSuccess) {
+            console.log(`   ✅ [${deptCode}] Re-authentication successful, retrying department scrape...`);
+            await this._delay(RETRY_CONFIG.RETRY_DELAY_MS);
+            return this._scrapeDepartment(term, deptCode, retryCount + 1);
+          }
+        }
+        
+        throw new Error(`${deptCode} scrape failed: session expired`);
       }
 
       // Check for explicit "no results" message from AISIS
