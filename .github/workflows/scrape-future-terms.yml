@@ -1,4 +1,4 @@
-name: AISIS Schedule Scrape
+name: AISIS Future Terms Scrape
 
 on:
   workflow_dispatch:
@@ -6,14 +6,15 @@ on:
       scrape_mode:
         description: 'Scrape mode'
         required: false
-        default: 'current'
+        default: 'future'
         type: choice
         options:
           - current
           - future
           - all
   schedule:
-    - cron: '0 */6 * * *'
+    # Run weekly on Sundays at 2 AM UTC
+    - cron: '0 2 * * 0'
 
 jobs:
   scrape:
@@ -42,7 +43,7 @@ jobs:
           path: logs/baselines/
         continue-on-error: true  # Don't fail if no previous baseline exists
 
-      - name: Run scraper
+      - name: Run scraper (future terms)
         env:
           AISIS_USERNAME: ${{ secrets.AISIS_USERNAME }}
           AISIS_PASSWORD: ${{ secrets.AISIS_PASSWORD }}
@@ -50,11 +51,8 @@ jobs:
           DATA_INGEST_TOKEN: ${{ secrets.DATA_INGEST_TOKEN }}
           GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
-          # Scrape mode: 'current' (default), 'future', or 'all'
-          # Uses workflow input if provided, otherwise defaults to 'current'
-          AISIS_SCRAPE_MODE: ${{ github.event.inputs.scrape_mode || 'current' }}
-          # Optional: Override term to skip auto-detection (speeds up startup)
-          # AISIS_TERM: '2025-1'
+          # Scrape mode: 'future' by default, can be overridden via workflow input
+          AISIS_SCRAPE_MODE: ${{ github.event.inputs.scrape_mode || 'future' }}
           # Optional: Performance tuning (default: 2000)
           # SUPABASE_CLIENT_BATCH_SIZE: '2000'
           # Optional: Regression detection (defaults: 5.0, true)

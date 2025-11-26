@@ -5,6 +5,7 @@ This project contains a Node.js-based web scraper that automatically logs into A
 ## Features
 
 - **Automated Scraping**: Runs on a scheduled basis via GitHub Actions.
+- **Multi-Term Support**: Can scrape current term, future terms, or all available terms in one run. See [MULTI_TERM_SCRAPING.md](MULTI_TERM_SCRAPING.md).
 - **Institutional Data Focus**: Scrapes class schedules and official curriculum data.
 - **Supabase Integration**: Automatically syncs data to Supabase via Edge Functions.
 - **Batched Sync Architecture**: Two-layer batching prevents 504 timeouts when syncing thousands of records.
@@ -14,7 +15,7 @@ This project contains a Node.js-based web scraper that automatically logs into A
 
 ## Data Categories Scraped
 
-1. **Schedule of Classes**: All available class schedules for all departments (runs every 6 hours). ✅ **Working**
+1. **Schedule of Classes**: All available class schedules for all departments (runs every 6 hours). Supports multi-term scraping. ✅ **Working**
 2. **Official Curriculum**: ⚠️ **EXPERIMENTAL** - Curriculum scraping now supported via the `J_VOFC.do` endpoint. See [Curriculum Scraping Status](#curriculum-scraping-status) below for details.
 
 ## Curriculum Scraping Status

@@ -1,6 +1,16 @@
 // Edge Function: github-data-ingest
 // Receives scraped data from the AISIS scraper and syncs it to the database
 // Implements batched upsert logic to prevent 504 timeouts
+//
+// MULTI-TERM SCRAPING SAFETY:
+// This edge function is inherently safe for multi-term scraping because:
+// 1. Delete operations are scoped by term_code (see line ~232-276)
+// 2. Upsert operations use (term_code, subject_code, section, department) as unique key
+// 3. Each term is processed independently with its own term_code
+// 4. No cross-term data contamination can occur
+//
+// The scraper can safely call this function multiple times with different term_codes
+// in a single run without risk of data corruption or cross-term interference.
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
