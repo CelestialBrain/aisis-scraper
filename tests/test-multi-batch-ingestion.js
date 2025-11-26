@@ -91,8 +91,9 @@ async function testDataLossPrevention() {
   // Add other department courses to reach 3,886 total
   const otherDepts = ['ENGG', 'MATH', 'PHY', 'CHEM', 'BIO'];
   for (let i = 104; i < 3886; i++) {
-    const dept = otherDepts[i % otherDepts.length];
-    const courseNum = i - 104 + 1; // Start from 1 for each dept's course numbering
+    const dept = otherDepts[(i - 104) % otherDepts.length];
+    // Use modulo to keep course numbers within realistic range (1-999)
+    const courseNum = ((i - 104) % 999) + 1;
     allSchedules.push({
       term_code: '2025-1',
       subject_code: `${dept}${String(courseNum).padStart(3, '0')}`,
