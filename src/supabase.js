@@ -308,38 +308,6 @@ export class SupabaseManager {
     return isNaN(parsed) ? 0.0 : parsed;
   }
 
-  parseTimePattern(timePattern) {
-    if (!timePattern) return { start: null, end: null, days: null };
-    try {
-      const timeMatch = timePattern.match(/(\d{1,2}:\d{2})-(\d{1,2}:\d{2})/);
-      if (!timeMatch) return { start: null, end: null, days: null };
-      
-      const [_, startTime, endTime] = timeMatch;
-      const formatTime = (time) => {
-        const [hours, minutes] = time.split(':');
-        return `${hours.padStart(2, '0')}:${minutes}:00`;
-      };
-      
-      const dayPattern = timePattern.split(' ')[0].toUpperCase();
-      const days = [];
-      if (dayPattern.includes('TH')) days.push(4);
-      else if (dayPattern.includes('T')) days.push(2);
-      if (dayPattern.includes('M')) days.push(1);
-      if (dayPattern.includes('W')) days.push(3);
-      if (dayPattern.includes('F')) days.push(5);
-      if (dayPattern.includes('S') && !dayPattern.includes('U')) days.push(6);
-      if (dayPattern.includes('SU')) days.push(0);
-
-      return {
-        start: formatTime(startTime),
-        end: formatTime(endTime),
-        days: days.length > 0 ? days : null
-      };
-    } catch (error) {
-      return { start: null, end: null, days: null };
-    }
-  }
-
   transformScheduleData(scheduleItems) {
     const transformed = [];
     const invalidRecordSamples = [];
@@ -348,9 +316,9 @@ export class SupabaseManager {
     let totalInvalidFiltered = 0;
     
     for (const item of scheduleItems) {
-      // Transform first
-      const parsedTime = this.parseTimePattern(item.time);
-      
+      // Transform schedule item, excluding unused time/delivery fields
+      // Note: start_time, end_time, days_of_week, and delivery_mode are not meaningfully
+      // populated by the scraper (always defaults/empty) so we exclude them from the export
       const record = {
         subject_code: item.subjectCode,
         section: item.section,
@@ -364,11 +332,6 @@ export class SupabaseManager {
         level: item.level,
         remarks: item.remarks,
         max_capacity: this.safeInt(item.maxSlots),
-        
-        start_time: parsedTime.start || '00:00:00', 
-        end_time: parsedTime.end || '23:59:59',     
-        days_of_week: parsedTime.days ? JSON.stringify(parsedTime.days) : '[]', 
-        delivery_mode: null,
         term_code: item.term_code  // Preserve term_code from enriched record
       };
       

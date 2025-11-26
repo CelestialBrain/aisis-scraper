@@ -78,12 +78,15 @@ async function main() {
 
     console.log('📥 Scraping schedule data...');
     const scrapeStart = Date.now();
-    const scheduleData = await scraper.scrapeSchedule(termOverride);
+    const scrapeResult = await scraper.scrapeSchedule(termOverride);
     phaseTimings.scraping = Date.now() - scrapeStart;
     console.log(`   ⏱  AISIS scraping: ${formatTime(phaseTimings.scraping)}`);
     
+    // Extract structured results from new return shape
+    const { term: resolvedTerm, courses: scheduleData, departments: deptResults } = scrapeResult;
+    
     // Get the actual term that was used (either override or auto-detected)
-    const usedTerm = scraper.lastUsedTerm;
+    const usedTerm = resolvedTerm;
     
     // Initialize baseline manager for regression detection
     const baselineManager = new BaselineManager();
@@ -108,6 +111,18 @@ async function main() {
       // 1. Local backup
       fs.writeFileSync('data/courses.json', JSON.stringify(cleanSchedule, null, 2));
       console.log(`   ✅ Saved ${scheduleData.length} courses to data/courses.json`);
+      
+      // Save per-department structure for debugging and analysis
+      const perDeptArtifact = {
+        term: usedTerm,
+        departments: deptResults.map(({ department, courses }) => ({
+          department,
+          course_count: courses.length,
+          courses: courses.map(c => ({ ...c, term_code: usedTerm }))
+        }))
+      };
+      fs.writeFileSync('data/schedules-per-department.json', JSON.stringify(perDeptArtifact, null, 2));
+      console.log(`   ✅ Saved per-department structure to data/schedules-per-department.json`);
 
       // 2. Baseline comparison and regression detection
       // NOTE: We check for regression BEFORE syncing to Supabase
@@ -144,26 +159,51 @@ async function main() {
         regressionFailed = true;
       }
 
-      // 3. Supabase Sync
+      // 3. Supabase Sync - Per-Department Batching (mirroring curriculum per-program approach)
       if (supabase) {
-        console.log('   🚀 Starting Supabase Sync...');
-        const supabaseStart = Date.now();
+        console.log('\n🚀 Starting Supabase Sync (Per-Department Batching)...');
+        console.log(`   Sending ${deptResults.length} batch(es), one per department\n`);
         
-        // Sync all data at once instead of by department
-        try {
-          const success = await supabase.syncToSupabase('schedules', cleanSchedule, usedTerm, 'ALL');
-          phaseTimings.supabase = Date.now() - supabaseStart;
-          console.log(`   ⏱  Supabase sync: ${formatTime(phaseTimings.supabase)}`);
+        const supabaseStart = Date.now();
+        let successCount = 0;
+        let failureCount = 0;
+        
+        // Process each department separately
+        for (const { department, courses } of deptResults) {
+          console.log(`   📤 Sending batch for ${department}...`);
+          console.log(`      Department: ${department}`);
+          console.log(`      Courses: ${courses.length}`);
           
-          if (success) {
-            console.log('   ✅ Supabase sync completed successfully');
-          } else {
-            console.log('   ⚠️ Supabase sync had some failures');
+          try {
+            // Enrich and transform this department's courses
+            const enrichedCourses = courses.map(c => ({ ...c, term_code: usedTerm }));
+            const cleanCourses = supabase.transformScheduleData(enrichedCourses);
+            
+            // Sync this department's courses
+            await supabase.syncToSupabase('schedules', cleanCourses, usedTerm, department);
+            successCount++;
+            console.log(`   ✅ ${department}: Batch sent successfully`);
+          } catch (err) {
+            failureCount++;
+            console.error(`   ❌ ${department}: Failed to send batch`);
+            console.error(`      Error: ${err.message}`);
+            if (process.env.DEBUG_SCRAPER === 'true') {
+              console.error(`      Stack: ${err.stack}`);
+            }
           }
-        } catch (error) {
-          phaseTimings.supabase = Date.now() - supabaseStart;
-          console.error('   ❌ Supabase sync failed:', error.message);
         }
+        
+        phaseTimings.supabase = Date.now() - supabaseStart;
+        
+        // Final summary log
+        console.log('\n✅ SCHEDULE SUPABASE SYNC COMPLETE', {
+          term: usedTerm,
+          departments_total: deptResults.length,
+          successful: successCount,
+          failed: failureCount,
+          duration_ms: phaseTimings.supabase
+        });
+        console.log(`   ⏱  Supabase sync: ${formatTime(phaseTimings.supabase)}`);
       } else {
         console.log('   ⚠️ Supabase sync skipped (no DATA_INGEST_TOKEN)');
         phaseTimings.supabase = 0;
