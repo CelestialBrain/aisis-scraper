@@ -25,18 +25,18 @@ export function chunkArray(items, size) {
  */
 export async function processWithConcurrency(items, concurrency, fn) {
   const results = [];
-  const executing = [];
+  const executing = new Set();
   
   for (const [index, item] of items.entries()) {
     const promise = fn(item, index).then(result => {
-      executing.splice(executing.indexOf(promise), 1);
+      executing.delete(promise);
       return result;
     });
     
     results.push(promise);
-    executing.push(promise);
+    executing.add(promise);
     
-    if (executing.length >= concurrency) {
+    if (executing.size >= concurrency) {
       await Promise.race(executing);
     }
   }
