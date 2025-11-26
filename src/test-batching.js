@@ -57,7 +57,7 @@ const largeDataset = [];
 for (let i = 0; i < 4500; i++) {
   largeDataset.push({
     term_code: '2025-1',
-    subject_code: `TEST ${String(i).padStart(4, '0')}`,
+    subject_code: `TEST${String(i + 1).padStart(4, '0')}`, // e.g., TEST0001, TEST0002, ..., TEST4500
     section: 'A',
     department: 'TEST',
     course_title: `Test Course ${i}`,

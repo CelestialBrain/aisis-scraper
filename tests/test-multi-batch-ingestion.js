@@ -69,7 +69,7 @@ async function testDataLossPrevention() {
   for (let i = 0; i < 104; i++) {
     allSchedules.push({
       term_code: '2025-1',
-      subject_code: `INTAC ${String(i + 1).padStart(3, '0')}`,
+      subject_code: `INTAC${String(i + 1).padStart(3, '0')}`,
       section: 'A',
       department: 'INTAC',
       course_title: `Interdisciplinary Course ${i + 1}`,
@@ -92,9 +92,10 @@ async function testDataLossPrevention() {
   const otherDepts = ['ENGG', 'MATH', 'PHY', 'CHEM', 'BIO'];
   for (let i = 104; i < 3886; i++) {
     const dept = otherDepts[i % otherDepts.length];
+    const courseNum = i - 104 + 1; // Start from 1 for each dept's course numbering
     allSchedules.push({
       term_code: '2025-1',
-      subject_code: `${dept} ${String(i).padStart(3, '0')}`,
+      subject_code: `${dept}${String(courseNum).padStart(3, '0')}`,
       section: 'A',
       department: dept,
       course_title: `Course ${i}`,
