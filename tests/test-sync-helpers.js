@@ -106,9 +106,7 @@ try {
 // Test 7: processWithConcurrency basic functionality
 console.log('\nTest 7: processWithConcurrency basic functionality');
 const items7 = [1, 2, 3, 4, 5];
-const processOrder = [];
 const results7 = await processWithConcurrency(items7, 2, async (item) => {
-  processOrder.push(item);
   await new Promise(resolve => setTimeout(resolve, 10)); // Small delay
   return item * 2;
 });

@@ -607,6 +607,8 @@ export class SupabaseManager {
       
       programCodes.push(deg_code);
       totalCourses += courses.length;
+      // Fallback to courses.length if metadata is missing (e.g., old batch format)
+      // This is safe because courses.length represents the final validated count
       totalCoursesScraped += metadata.total_courses_scraped || courses.length;
       totalDeduplicationRemoved += metadata.deduplication_removed || 0;
       totalInvalidCourses += metadata.invalid_courses_count || 0;
