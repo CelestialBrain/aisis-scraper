@@ -13,6 +13,13 @@ const ALL_DEPARTMENTS_LABEL = 'ALL';
  * @returns {Array<Array>} Array of chunks
  */
 export function chunkArray(items, size) {
+  if (!Array.isArray(items)) {
+    throw new TypeError('items must be an array');
+  }
+  if (!Number.isInteger(size) || size <= 0) {
+    throw new RangeError('size must be a positive integer');
+  }
+  
   const chunks = [];
   for (let i = 0; i < items.length; i += size) {
     chunks.push(items.slice(i, i + size));
@@ -28,6 +35,16 @@ export function chunkArray(items, size) {
  * @returns {Promise<Array>} Array of results
  */
 export async function processWithConcurrency(items, concurrency, fn) {
+  if (!Array.isArray(items)) {
+    throw new TypeError('items must be an array');
+  }
+  if (!Number.isInteger(concurrency) || concurrency <= 0) {
+    throw new RangeError('concurrency must be a positive integer');
+  }
+  if (typeof fn !== 'function') {
+    throw new TypeError('fn must be a function');
+  }
+  
   const results = [];
   const executing = new Set();
   

@@ -71,32 +71,64 @@ if (JSON.stringify(chunks4) === JSON.stringify(expected4)) {
   failed++;
 }
 
-// Test 5: processWithConcurrency basic functionality
-console.log('\nTest 5: processWithConcurrency basic functionality');
-const items5 = [1, 2, 3, 4, 5];
+// Test 5: chunkArray validation - invalid array
+console.log('\nTest 5: chunkArray validation - invalid array');
+try {
+  chunkArray('not an array', 2);
+  console.log('❌ FAIL: Should throw TypeError for non-array');
+  failed++;
+} catch (e) {
+  if (e instanceof TypeError) {
+    console.log('✅ PASS: Correctly throws TypeError for non-array');
+    passed++;
+  } else {
+    console.log('❌ FAIL: Wrong error type:', e.constructor.name);
+    failed++;
+  }
+}
+
+// Test 6: chunkArray validation - invalid size
+console.log('\nTest 6: chunkArray validation - invalid size');
+try {
+  chunkArray([1, 2, 3], 0);
+  console.log('❌ FAIL: Should throw RangeError for size <= 0');
+  failed++;
+} catch (e) {
+  if (e instanceof RangeError) {
+    console.log('✅ PASS: Correctly throws RangeError for size <= 0');
+    passed++;
+  } else {
+    console.log('❌ FAIL: Wrong error type:', e.constructor.name);
+    failed++;
+  }
+}
+
+// Test 7: processWithConcurrency basic functionality
+console.log('\nTest 7: processWithConcurrency basic functionality');
+const items7 = [1, 2, 3, 4, 5];
 const processOrder = [];
-const results5 = await processWithConcurrency(items5, 2, async (item) => {
+const results7 = await processWithConcurrency(items7, 2, async (item) => {
   processOrder.push(item);
   await new Promise(resolve => setTimeout(resolve, 10)); // Small delay
   return item * 2;
 });
-const expected5 = [2, 4, 6, 8, 10];
-if (JSON.stringify(results5) === JSON.stringify(expected5)) {
+const expected7 = [2, 4, 6, 8, 10];
+if (JSON.stringify(results7) === JSON.stringify(expected7)) {
   console.log('✅ PASS: processWithConcurrency returns correct results');
   passed++;
 } else {
   console.log('❌ FAIL: processWithConcurrency results incorrect');
-  console.log('   Expected:', expected5);
-  console.log('   Got:', results5);
+  console.log('   Expected:', expected7);
+  console.log('   Got:', results7);
   failed++;
 }
 
-// Test 6: processWithConcurrency respects concurrency limit
-console.log('\nTest 6: processWithConcurrency respects concurrency limit');
+// Test 8: processWithConcurrency respects concurrency limit
+console.log('\nTest 8: processWithConcurrency respects concurrency limit');
 let maxConcurrent = 0;
 let currentConcurrent = 0;
-const items6 = [1, 2, 3, 4, 5, 6, 7, 8];
-await processWithConcurrency(items6, 3, async (item) => {
+const items8 = [1, 2, 3, 4, 5, 6, 7, 8];
+await processWithConcurrency(items8, 3, async (item) => {
   currentConcurrent++;
   if (currentConcurrent > maxConcurrent) {
     maxConcurrent = currentConcurrent;
@@ -111,6 +143,54 @@ if (maxConcurrent <= 3) {
 } else {
   console.log(`❌ FAIL: Concurrency limit violated (max concurrent: ${maxConcurrent}, limit: 3)`);
   failed++;
+}
+
+// Test 9: processWithConcurrency validation - invalid array
+console.log('\nTest 9: processWithConcurrency validation - invalid array');
+try {
+  await processWithConcurrency('not an array', 2, async () => {});
+  console.log('❌ FAIL: Should throw TypeError for non-array');
+  failed++;
+} catch (e) {
+  if (e instanceof TypeError) {
+    console.log('✅ PASS: Correctly throws TypeError for non-array');
+    passed++;
+  } else {
+    console.log('❌ FAIL: Wrong error type:', e.constructor.name);
+    failed++;
+  }
+}
+
+// Test 10: processWithConcurrency validation - invalid concurrency
+console.log('\nTest 10: processWithConcurrency validation - invalid concurrency');
+try {
+  await processWithConcurrency([1, 2, 3], 0, async () => {});
+  console.log('❌ FAIL: Should throw RangeError for concurrency <= 0');
+  failed++;
+} catch (e) {
+  if (e instanceof RangeError) {
+    console.log('✅ PASS: Correctly throws RangeError for concurrency <= 0');
+    passed++;
+  } else {
+    console.log('❌ FAIL: Wrong error type:', e.constructor.name);
+    failed++;
+  }
+}
+
+// Test 11: processWithConcurrency validation - invalid function
+console.log('\nTest 11: processWithConcurrency validation - invalid function');
+try {
+  await processWithConcurrency([1, 2, 3], 2, 'not a function');
+  console.log('❌ FAIL: Should throw TypeError for non-function');
+  failed++;
+} catch (e) {
+  if (e instanceof TypeError) {
+    console.log('✅ PASS: Correctly throws TypeError for non-function');
+    passed++;
+  } else {
+    console.log('❌ FAIL: Wrong error type:', e.constructor.name);
+    failed++;
+  }
 }
 
 // Summary
