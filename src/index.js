@@ -168,17 +168,29 @@ async function main() {
         let successCount = 0;
         let failureCount = 0;
         
+        // Pre-transform all courses once to avoid repeated processing in the loop
+        const allEnrichedCourses = scheduleData.map(c => ({ ...c, term_code: usedTerm }));
+        const allCleanCourses = supabase.transformScheduleData(allEnrichedCourses);
+        
+        // Build department-to-courses map for efficient lookup
+        const deptCoursesMap = new Map();
+        for (const course of allCleanCourses) {
+          const dept = course.department;
+          if (!deptCoursesMap.has(dept)) {
+            deptCoursesMap.set(dept, []);
+          }
+          deptCoursesMap.get(dept).push(course);
+        }
+        
         // Process each department separately
-        for (const { department, courses } of deptResults) {
+        for (const { department } of deptResults) {
+          const cleanCourses = deptCoursesMap.get(department) || [];
+          
           console.log(`   📤 Sending batch for ${department}...`);
           console.log(`      Department: ${department}`);
-          console.log(`      Courses: ${courses.length}`);
+          console.log(`      Courses: ${cleanCourses.length}`);
           
           try {
-            // Enrich courses with term_code and transform
-            const enrichedCourses = courses.map(c => ({ ...c, term_code: usedTerm }));
-            const cleanCourses = supabase.transformScheduleData(enrichedCourses);
-            
             // Sync this department's courses
             await supabase.syncToSupabase('schedules', cleanCourses, usedTerm, department);
             successCount++;

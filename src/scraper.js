@@ -864,7 +864,7 @@ export class AISISScraper {
     
     // Return structured object with both flat courses (backward compat) and per-department grouping
     return {
-      term: term,
+      term: summary.term,
       courses: allCourses,
       departments: departmentsArray
     };
