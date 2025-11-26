@@ -128,6 +128,62 @@ const EXCLUDED_DEPT_CODES = [
   'SELECT'    // Possible placeholder text
 ];
 
+/**
+ * Compare two AISIS term codes for sorting and filtering
+ * 
+ * Term codes follow the format YYYY-S where:
+ * - YYYY is the academic year (e.g., 2024, 2025)
+ * - S is the semester: 0 (Intersession), 1 (First Semester), 2 (Second Semester)
+ * 
+ * Comparison logic:
+ * - Compare year first (numerically)
+ * - If years are equal, compare semester (numerically)
+ * 
+ * @param {string} a - First term code (e.g., '2024-1')
+ * @param {string} b - Second term code (e.g., '2025-0')
+ * @returns {number} Negative if a<b, 0 if a==b, positive if a>b
+ * 
+ * @example
+ * compareTermCodes('2024-1', '2024-2')  // returns -1 (2024-1 < 2024-2)
+ * compareTermCodes('2024-2', '2025-0')  // returns -1 (2024-2 < 2025-0)
+ * compareTermCodes('2025-1', '2025-1')  // returns 0  (equal)
+ * compareTermCodes('2025-2', '2025-1')  // returns 1  (2025-2 > 2025-1)
+ */
+export function compareTermCodes(a, b) {
+  // Parse term codes
+  const parseTermCode = (termCode) => {
+    const parts = termCode.split('-');
+    if (parts.length !== 2) {
+      throw new Error(`Invalid term code format: ${termCode}. Expected format: YYYY-S`);
+    }
+    const year = parseInt(parts[0], 10);
+    const semester = parseInt(parts[1], 10);
+    
+    if (isNaN(year) || isNaN(semester)) {
+      throw new Error(`Invalid term code: ${termCode}. Year and semester must be numbers`);
+    }
+    
+    return { year, semester };
+  };
+  
+  try {
+    const termA = parseTermCode(a);
+    const termB = parseTermCode(b);
+    
+    // Compare year first
+    if (termA.year !== termB.year) {
+      return termA.year - termB.year;
+    }
+    
+    // If years are equal, compare semester
+    return termA.semester - termB.semester;
+  } catch (error) {
+    console.warn(`Term comparison error: ${error.message}`);
+    // Fallback to string comparison if parsing fails
+    return a.localeCompare(b);
+  }
+}
+
 export class AISISScraper {
   constructor(username, password) {
     this.username = username;
@@ -492,6 +548,143 @@ export class AISISScraper {
       console.error(`   ❌ Failed to fetch available departments: ${error.message}`);
       throw error;
     }
+  }
+
+  /**
+   * Get available terms from AISIS Schedule of Classes page
+   * 
+   * Fetches the list of term options from the applicablePeriod dropdown
+   * on the Schedule of Classes page. Terms are in format YYYY-S where
+   * S = 0 (Intersession), 1 (First Semester), 2 (Second Semester).
+   * 
+   * Note: Options can appear multiple times in the dropdown, so we deduplicate by value.
+   * 
+   * @returns {Promise<Array<{value: string, label: string, selected: boolean}>>} Array of unique term options
+   */
+  async getAvailableTerms() {
+    if (!this.loggedIn) {
+      throw new Error('Not logged in - cannot fetch available terms');
+    }
+
+    console.log('🔍 Fetching available terms from AISIS...');
+
+    try {
+      // GET the Schedule of Classes page
+      const response = await this._request(`${this.baseUrl}/j_aisis/J_VCSC.do`, {
+        method: 'GET',
+        headers: {
+          'Referer': `${this.baseUrl}/j_aisis/J_VMCS.do`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to load Schedule of Classes page: HTTP ${response.status}`);
+      }
+
+      const html = await response.text();
+
+      // Check for session expiry
+      if (LOGIN_FAILURE_MARKERS.some(marker => html.includes(marker))) {
+        throw new Error('Session expired while fetching terms');
+      }
+
+      // Parse HTML to find applicablePeriod select
+      const $ = cheerio.load(html);
+      const select = $('select[name="applicablePeriod"]');
+
+      if (select.length === 0) {
+        throw new Error('Could not find applicablePeriod select element on page');
+      }
+
+      // Use a Map to deduplicate by value while preserving order
+      const termsMap = new Map();
+      
+      select.find('option').each((_, option) => {
+        const value = $(option).attr('value');
+        const label = $(option).text().trim();
+        const selected = $(option).attr('selected') !== undefined;
+        
+        if (value && value.trim() !== '') {
+          const trimmedValue = value.trim();
+          // Only add if not already in map, or update if this one is selected
+          if (!termsMap.has(trimmedValue) || selected) {
+            termsMap.set(trimmedValue, {
+              value: trimmedValue,
+              label: label,
+              selected: selected
+            });
+          }
+        }
+      });
+
+      const terms = Array.from(termsMap.values());
+      
+      console.log(`   ✅ Found ${terms.length} unique terms in AISIS`);
+      const selectedTerm = terms.find(t => t.selected);
+      if (selectedTerm) {
+        console.log(`   📌 Current term: ${selectedTerm.value} (${selectedTerm.label})`);
+      }
+      
+      return terms;
+
+    } catch (error) {
+      console.error(`   ❌ Failed to fetch available terms: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Scrape schedules for multiple terms
+   * 
+   * Calls scrapeSchedule for each term and aggregates results.
+   * Preserves per-term metadata for downstream processing.
+   * 
+   * @param {Array<string>} terms - Array of term codes (e.g., ['2024-2', '2025-0', '2025-1'])
+   * @returns {Promise<Array<{term: string, courses: Array, departments: Array}>>} Array of results per term
+   */
+  async scrapeMultipleTerms(terms) {
+    if (!this.loggedIn) {
+      throw new Error('Not logged in');
+    }
+
+    if (!Array.isArray(terms) || terms.length === 0) {
+      throw new Error('Terms must be a non-empty array');
+    }
+
+    console.log(`\n📅 Scraping ${terms.length} term(s): ${terms.join(', ')}`);
+    
+    const results = [];
+    
+    for (let i = 0; i < terms.length; i++) {
+      const term = terms[i];
+      console.log(`\n${'='.repeat(60)}`);
+      console.log(`📅 Scraping term ${i + 1}/${terms.length}: ${term}`);
+      console.log(`${'='.repeat(60)}`);
+      
+      try {
+        const scrapeResult = await this.scrapeSchedule(term);
+        results.push({
+          term: term,
+          ...scrapeResult
+        });
+        
+        console.log(`   ✅ Completed scraping for term ${term}: ${scrapeResult.courses.length} courses`);
+      } catch (error) {
+        console.error(`   ❌ Failed to scrape term ${term}: ${error.message}`);
+        // Continue with other terms even if one fails
+        results.push({
+          term: term,
+          courses: [],
+          departments: [],
+          error: error.message
+        });
+      }
+    }
+    
+    const totalCourses = results.reduce((sum, r) => sum + r.courses.length, 0);
+    console.log(`\n✅ Multi-term scraping complete: ${totalCourses} total courses across ${terms.length} terms`);
+    
+    return results;
   }
 
   async scrapeSchedule(term = null) {
