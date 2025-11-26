@@ -197,7 +197,11 @@ async function main() {
             console.log(`   ✅ ${department}: Batch sent successfully`);
           } catch (err) {
             failureCount++;
-            console.error(`   ❌ ${department}: Failed to send batch`, { error: err.message });
+            console.error(`   ❌ ${department}: Failed to send batch`);
+            console.error(`      Error: ${err.message}`);
+            if (process.env.DEBUG_SCRAPER === 'true') {
+              console.error(`      Stack: ${err.stack}`);
+            }
           }
         }
         
