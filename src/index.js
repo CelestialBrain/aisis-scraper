@@ -1,5 +1,5 @@
 import { AISISScraper } from './scraper.js';
-import { SupabaseManager, chunkArray, processWithConcurrency } from './supabase.js';
+import { SupabaseManager, chunkArray, processWithConcurrency, ALL_DEPARTMENTS_LABEL } from './supabase.js';
 import { GoogleSheetsManager } from './sheets.js';
 import { BaselineManager } from './baseline.js';
 import fs from 'fs';
@@ -196,7 +196,7 @@ async function main() {
             
             try {
               // Send batch using syncToSupabase which handles the HTTP request and metadata
-              await supabase.syncToSupabase('schedules', batch, usedTerm, 'ALL');
+              await supabase.syncToSupabase('schedules', batch, usedTerm, ALL_DEPARTMENTS_LABEL);
               successCount += batch.length;
               console.log(`   ✅ [${totalBatchIndex}/${scheduleBatches.length}]: Batch sent successfully`);
               return true;

@@ -2,6 +2,10 @@
 import fetch from 'node-fetch';
 import { validateScheduleRecord, isHeaderLikeRecord, SAMPLE_INVALID_RECORDS_COUNT } from './constants.js';
 
+// Constants for sync operations
+const MULTI_PROGRAM_LABEL = 'MULTI_PROGRAM';
+const ALL_DEPARTMENTS_LABEL = 'ALL';
+
 /**
  * Split an array into chunks of specified size
  * @param {Array} items - Array to chunk
@@ -43,6 +47,8 @@ export async function processWithConcurrency(items, concurrency, fn) {
   
   return Promise.all(results);
 }
+
+export { ALL_DEPARTMENTS_LABEL };
 
 export class SupabaseManager {
   constructor(ingestToken, supabaseUrl = null) {
@@ -565,7 +571,7 @@ export class SupabaseManager {
     const programCodes = [];
     
     for (const batch of batches) {
-      const { deg_code, program_code, courses, metadata } = batch;
+      const { deg_code, courses, metadata } = batch;
       
       if (!deg_code || !courses || courses.length === 0) {
         console.warn(`   ⚠️ Skipping empty batch for ${deg_code || 'unknown program'} in group`);
@@ -613,7 +619,7 @@ export class SupabaseManager {
       invalid_courses_count: totalInvalidCourses,
       program_codes: programCodes,
       // Add GitHub Actions context with synthetic label
-      ...this.buildMetadata(null, null, 'MULTI_PROGRAM', totalCourses)
+      ...this.buildMetadata(null, null, MULTI_PROGRAM_LABEL, totalCourses)
     };
     
     // Build the payload
