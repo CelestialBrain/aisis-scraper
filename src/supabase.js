@@ -2,6 +2,48 @@
 import fetch from 'node-fetch';
 import { validateScheduleRecord, isHeaderLikeRecord, SAMPLE_INVALID_RECORDS_COUNT } from './constants.js';
 
+/**
+ * Split an array into chunks of specified size
+ * @param {Array} items - Array to chunk
+ * @param {number} size - Chunk size
+ * @returns {Array<Array>} Array of chunks
+ */
+export function chunkArray(items, size) {
+  const chunks = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
+/**
+ * Process items with limited concurrency
+ * @param {Array} items - Items to process
+ * @param {number} concurrency - Maximum concurrent operations
+ * @param {Function} fn - Async function to call for each item
+ * @returns {Promise<Array>} Array of results
+ */
+export async function processWithConcurrency(items, concurrency, fn) {
+  const results = [];
+  const executing = [];
+  
+  for (const [index, item] of items.entries()) {
+    const promise = fn(item, index).then(result => {
+      executing.splice(executing.indexOf(promise), 1);
+      return result;
+    });
+    
+    results.push(promise);
+    executing.push(promise);
+    
+    if (executing.length >= concurrency) {
+      await Promise.race(executing);
+    }
+  }
+  
+  return Promise.all(results);
+}
+
 export class SupabaseManager {
   constructor(ingestToken, supabaseUrl = null) {
     this.ingestToken = ingestToken;
@@ -417,57 +459,170 @@ export class SupabaseManager {
   }
 
   /**
-   * Send a single curriculum batch for a specific program/version
+   * Send curriculum batch(es) to Supabase
    * 
-   * This is the new batching API that sends exactly one request per program/version
-   * with all courses and rich metadata for observability.
+   * Supports two modes:
+   * 1. Single batch: Send one program/version (original behavior)
+   * 2. Grouped batches: Send multiple programs in one HTTP request (new behavior)
    * 
-   * @param {Object} batch - Curriculum batch object
-   * @param {string} batch.deg_code - Degree code (e.g., "BS CS_2024_1")
-   * @param {string} batch.program_code - Program code (e.g., "BS CS")
-   * @param {string} batch.curriculum_version - Curriculum version (e.g., "2024_1")
-   * @param {Array<Object>} batch.courses - Array of course objects
-   * @param {Object} batch.metadata - Metadata object with counts and observability info
+   * @param {Object|Array<Object>} batchOrBatches - Single batch object or array of batch objects
+   * @param {string} batchOrBatches.deg_code - Degree code (e.g., "BS CS_2024_1")
+   * @param {string} batchOrBatches.program_code - Program code (e.g., "BS CS")
+   * @param {string} batchOrBatches.curriculum_version - Curriculum version (e.g., "2024_1")
+   * @param {Array<Object>} batchOrBatches.courses - Array of course objects
+   * @param {Object} batchOrBatches.metadata - Metadata object with counts and observability info
    * @returns {Promise<boolean>} True if successful, false otherwise
    */
-  async sendCurriculumBatch(batch) {
-    const { deg_code, program_code, curriculum_version, courses, metadata } = batch;
-
-    if (!deg_code || !courses || courses.length === 0) {
-      console.warn(`   ⚠️ Skipping empty batch for ${deg_code || 'unknown program'}`);
+  async sendCurriculumBatch(batchOrBatches) {
+    // Handle both single batch and array of batches
+    const batches = Array.isArray(batchOrBatches) ? batchOrBatches : [batchOrBatches];
+    
+    if (batches.length === 0) {
+      console.warn(`   ⚠️ Skipping empty batch array`);
       return false;
     }
+    
+    // Single batch mode (original behavior)
+    if (batches.length === 1) {
+      const { deg_code, program_code, curriculum_version, courses, metadata } = batches[0];
 
-    console.log(`   📤 Sending batch for ${deg_code}...`);
-    console.log(`      Program: ${program_code}, Version: ${curriculum_version}`);
-    console.log(`      Courses: ${courses.length}`);
-    console.log(`      Metadata: scraped=${metadata.total_courses_scraped}, deduped=${metadata.deduplication_removed}, invalid=${metadata.invalid_courses_count}`);
+      if (!deg_code || !courses || courses.length === 0) {
+        console.warn(`   ⚠️ Skipping empty batch for ${deg_code || 'unknown program'}`);
+        return false;
+      }
 
-    // Transform courses to match the Supabase schema (same as before)
-    const transformedCourses = courses.map(row => ({
-      degree_code: row.deg_code,
-      program_label: row.program_label,
-      program_title: row.program_title,
-      year_level: row.year_level,
-      semester: row.semester,
-      course_code: row.course_code,
-      course_title: row.course_title,
-      units: row.units,
-      prerequisites: row.prerequisites,
-      category: row.category
-    }));
+      console.log(`   📤 Sending batch for ${deg_code}...`);
+      console.log(`      Program: ${program_code}, Version: ${curriculum_version}`);
+      console.log(`      Courses: ${courses.length}`);
+      console.log(`      Metadata: scraped=${metadata.total_courses_scraped}, deduped=${metadata.deduplication_removed}, invalid=${metadata.invalid_courses_count}`);
 
-    // Build the payload with program-level grouping
+      // Transform courses to match the Supabase schema
+      const transformedCourses = courses.map(row => ({
+        degree_code: row.deg_code,
+        program_label: row.program_label,
+        program_title: row.program_title,
+        year_level: row.year_level,
+        semester: row.semester,
+        course_code: row.course_code,
+        course_title: row.course_title,
+        units: row.units,
+        prerequisites: row.prerequisites,
+        category: row.category
+      }));
+
+      // Build the payload with program-level grouping
+      const payload = {
+        data_type: 'curriculum',
+        records: transformedCourses,
+        metadata: {
+          ...metadata,
+          // Add GitHub Actions context
+          ...this.buildMetadata(null, null, program_code, courses.length)
+        }
+      };
+
+      try {
+        const response = await fetch(this.url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.ingestToken}`
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (response.ok) {
+          try {
+            const responseData = await response.json();
+            if (responseData.inserted !== undefined) {
+              console.log(`   ✅ ${deg_code}: ${responseData.inserted}/${responseData.total || courses.length} records upserted`);
+            } else {
+              console.log(`   ✅ ${deg_code}: Batch sent successfully`);
+            }
+          } catch (e) {
+            // Response might not be JSON, that's ok
+            console.log(`   ✅ ${deg_code}: Batch sent successfully`);
+          }
+          return true;
+        } else {
+          const text = await response.text();
+          console.error(`   ❌ ${deg_code}: Supabase Error: ${response.status} - ${text.substring(0, 200)}`);
+          return false;
+        }
+      } catch (error) {
+        console.error(`   ❌ ${deg_code}: Network error: ${error.message}`);
+        return false;
+      }
+    }
+    
+    // Grouped batches mode (new behavior)
+    // Aggregate all courses and metadata from multiple programs into a single request
+    let totalCoursesScraped = 0;
+    let totalDeduplicationRemoved = 0;
+    let totalInvalidCourses = 0;
+    let totalCourses = 0;
+    const allTransformedCourses = [];
+    const programCodes = [];
+    
+    for (const batch of batches) {
+      const { deg_code, program_code, courses, metadata } = batch;
+      
+      if (!deg_code || !courses || courses.length === 0) {
+        console.warn(`   ⚠️ Skipping empty batch for ${deg_code || 'unknown program'} in group`);
+        continue;
+      }
+      
+      programCodes.push(deg_code);
+      totalCourses += courses.length;
+      totalCoursesScraped += metadata.total_courses_scraped || courses.length;
+      totalDeduplicationRemoved += metadata.deduplication_removed || 0;
+      totalInvalidCourses += metadata.invalid_courses_count || 0;
+      
+      // Transform and collect courses
+      const transformedCourses = courses.map(row => ({
+        degree_code: row.deg_code,
+        program_label: row.program_label,
+        program_title: row.program_title,
+        year_level: row.year_level,
+        semester: row.semester,
+        course_code: row.course_code,
+        course_title: row.course_title,
+        units: row.units,
+        prerequisites: row.prerequisites,
+        category: row.category
+      }));
+      
+      allTransformedCourses.push(...transformedCourses);
+    }
+    
+    if (allTransformedCourses.length === 0) {
+      console.warn(`   ⚠️ No valid courses in grouped batch`);
+      return false;
+    }
+    
+    console.log(`   📤 Sending grouped batch...`);
+    console.log(`      Programs: ${batches.length}`);
+    console.log(`      Total courses: ${totalCourses}`);
+    console.log(`      Metadata: scraped=${totalCoursesScraped}, deduped=${totalDeduplicationRemoved}, invalid=${totalInvalidCourses}`);
+    
+    // Build aggregated metadata
+    const aggregatedMetadata = {
+      total_programs: batches.length,
+      total_courses_scraped: totalCoursesScraped,
+      deduplication_removed: totalDeduplicationRemoved,
+      invalid_courses_count: totalInvalidCourses,
+      program_codes: programCodes,
+      // Add GitHub Actions context with synthetic label
+      ...this.buildMetadata(null, null, 'MULTI_PROGRAM', totalCourses)
+    };
+    
+    // Build the payload
     const payload = {
       data_type: 'curriculum',
-      records: transformedCourses,
-      metadata: {
-        ...metadata,
-        // Add GitHub Actions context
-        ...this.buildMetadata(null, null, program_code, courses.length)
-      }
+      records: allTransformedCourses,
+      metadata: aggregatedMetadata
     };
-
+    
     try {
       const response = await fetch(this.url, {
         method: 'POST',
@@ -482,22 +637,22 @@ export class SupabaseManager {
         try {
           const responseData = await response.json();
           if (responseData.inserted !== undefined) {
-            console.log(`   ✅ ${deg_code}: ${responseData.inserted}/${responseData.total || courses.length} records upserted`);
+            console.log(`   ✅ Grouped batch: ${responseData.inserted}/${responseData.total || totalCourses} records upserted`);
           } else {
-            console.log(`   ✅ ${deg_code}: Batch sent successfully`);
+            console.log(`   ✅ Grouped batch sent successfully`);
           }
         } catch (e) {
           // Response might not be JSON, that's ok
-          console.log(`   ✅ ${deg_code}: Batch sent successfully`);
+          console.log(`   ✅ Grouped batch sent successfully`);
         }
         return true;
       } else {
         const text = await response.text();
-        console.error(`   ❌ ${deg_code}: Supabase Error: ${response.status} - ${text.substring(0, 200)}`);
+        console.error(`   ❌ Grouped batch: Supabase Error: ${response.status} - ${text.substring(0, 200)}`);
         return false;
       }
     } catch (error) {
-      console.error(`   ❌ ${deg_code}: Network error: ${error.message}`);
+      console.error(`   ❌ Grouped batch: Network error: ${error.message}`);
       return false;
     }
   }

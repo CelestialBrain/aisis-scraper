@@ -160,19 +160,41 @@ The baseline files are stored locally in `logs/baselines/` and are not committed
 
 The scraper includes several performance optimization options:
 
-#### Supabase Sync Batch Size
+#### Supabase Sync Batch Size and Concurrency
 
-Control how many records are sent to the Edge Function in each HTTP request:
+The sync phase has been optimized with batching and HTTP-level concurrency to reduce total sync time:
 
 ```bash
-SUPABASE_CLIENT_BATCH_SIZE=2000 npm start  # Default: 2000
+# Schedule sync performance
+SUPABASE_CLIENT_BATCH_SIZE=2000 npm start  # Default: 2000 records per batch
+SCHEDULE_SEND_CONCURRENCY=2 npm start      # Default: 2 concurrent HTTP requests
+
+# Curriculum sync performance
+CURRICULUM_SEND_GROUP_SIZE=10 npm run curriculum      # Default: 10 programs per batch
+CURRICULUM_SEND_CONCURRENCY=2 npm run curriculum      # Default: 2 concurrent HTTP requests
 ```
 
-- **Larger values (e.g., 3000-5000)**: Fewer HTTP requests, faster total sync time, but higher memory usage
-- **Smaller values (e.g., 500-1000)**: More granular progress reporting, safer for timeout prevention
-- **Default (2000)**: Optimized for typical 3000-4000 course datasets, resulting in 1-3 Edge Function calls
+**Schedule Sync Optimization:**
+- **SUPABASE_CLIENT_BATCH_SIZE**: Controls batch size (default: 2000 records)
+  - Larger values (e.g., 3000-5000): Fewer HTTP requests, faster sync
+  - Smaller values (e.g., 500-1000): More granular progress, safer for timeouts
+- **SCHEDULE_SEND_CONCURRENCY**: Controls parallel HTTP requests (default: 2)
+  - Higher values (3-5): Faster sync but more aggressive
+  - Lower values (1-2): Conservative, safer for Edge Function limits
 
-The Edge Function further splits large batches into smaller database transactions (100 records by default) to prevent individual transaction timeouts.
+**Curriculum Sync Optimization:**
+- **CURRICULUM_SEND_GROUP_SIZE**: Number of programs grouped per HTTP request (default: 10)
+  - Reduces HTTP overhead by sending multiple programs in one call
+  - Edge function internally batches DB operations (500 records per transaction)
+- **CURRICULUM_SEND_CONCURRENCY**: Parallel HTTP requests (default: 2)
+  - Higher values (3-5): Faster sync for large curriculum sets
+  - Lower values (1-2): Conservative, reduces Edge Function load
+
+**Performance Impact:**
+- **Schedules**: For ~4000 courses, sync time reduced from ~15 minutes (43 sequential department sends) to ~3-5 minutes (2-3 batches with concurrency 2)
+- **Curriculum**: For ~450 programs, sync time reduced from ~15 minutes (450 sequential sends) to ~2-4 minutes (~45 grouped sends with concurrency 2)
+
+The Edge Function further splits large batches into smaller database transactions (schedules: 100 by default via `GITHUB_INGEST_DB_BATCH_SIZE`, curriculum: 500) to prevent individual transaction timeouts.
 
 ## Google Sheets Integration
 
@@ -656,6 +678,9 @@ Baseline files are stored in `logs/baselines/baseline-{term}.json` and track:
 | `GOOGLE_SERVICE_ACCOUNT` | - | Base64-encoded service account JSON |
 | `SPREADSHEET_ID` | - | Google Sheets spreadsheet ID |
 | `SUPABASE_CLIENT_BATCH_SIZE` | `2000` | Records per HTTP request to Supabase |
+| `SCHEDULE_SEND_CONCURRENCY` | `2` | Concurrent schedule batch sends (1-5) |
+| `CURRICULUM_SEND_GROUP_SIZE` | `10` | Programs grouped per HTTP request (1-50) |
+| `CURRICULUM_SEND_CONCURRENCY` | `2` | Concurrent curriculum group sends (1-5) |
 | **Term Configuration** | | |
 | `AISIS_TERM` | Auto-detect | Override term code (e.g., `2025-1`) |
 | `APPLICABLE_PERIOD` | Auto-detect | Legacy term override (use `AISIS_TERM` instead) |

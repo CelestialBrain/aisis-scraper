@@ -1,5 +1,5 @@
 import { AISISScraper } from './scraper.js';
-import { SupabaseManager } from './supabase.js';
+import { SupabaseManager, chunkArray, processWithConcurrency } from './supabase.js';
 import { GoogleSheetsManager } from './sheets.js';
 import { BaselineManager } from './baseline.js';
 import fs from 'fs';
@@ -159,48 +159,68 @@ async function main() {
         regressionFailed = true;
       }
 
-      // 3. Supabase Sync - Per-Department Batching (mirroring curriculum per-program approach)
+      // 3. Supabase Sync - OPTIMIZED WITH BATCHING AND CONCURRENCY
       if (supabase) {
-        console.log('\n🚀 Starting Supabase Sync (Per-Department Batching)...');
-        console.log(`   Sending ${deptResults.length} batch(es), one per department\n`);
+        console.log('\n🚀 Starting Supabase Sync (Optimized with Batching and Concurrency)...');
         
         const supabaseStart = Date.now();
+        
+        // Parse configuration from environment
+        const SCHEDULE_SEND_CONCURRENCY = parseInt(process.env.SCHEDULE_SEND_CONCURRENCY || '2', 10);
+        const SUPABASE_CLIENT_BATCH_SIZE = parseInt(process.env.SUPABASE_CLIENT_BATCH_SIZE || '2000', 10);
+        
+        console.log(`   Configuration: batch_size=${SUPABASE_CLIENT_BATCH_SIZE}, concurrency=${SCHEDULE_SEND_CONCURRENCY}`);
+        
+        // Collect all enriched and transformed courses across all departments
+        const allCleanCourses = [];
+        for (const { department, courses } of deptResults) {
+          const enrichedCourses = courses.map(c => ({ ...c, term_code: usedTerm }));
+          const cleanCourses = supabase.transformScheduleData(enrichedCourses);
+          allCleanCourses.push(...cleanCourses);
+        }
+        
+        // Batch all courses using SUPABASE_CLIENT_BATCH_SIZE
+        const scheduleBatches = chunkArray(allCleanCourses, SUPABASE_CLIENT_BATCH_SIZE);
+        console.log(`   Batched ${allCleanCourses.length} course(s) into ${scheduleBatches.length} batch(es)\n`);
+        
         let successCount = 0;
         let failureCount = 0;
         
-        // Process each department separately
-        for (const { department, courses } of deptResults) {
-          console.log(`   📤 Sending batch for ${department}...`);
-          console.log(`      Department: ${department}`);
-          console.log(`      Courses: ${courses.length}`);
-          
-          try {
-            // Enrich and transform this department's courses
-            const enrichedCourses = courses.map(c => ({ ...c, term_code: usedTerm }));
-            const cleanCourses = supabase.transformScheduleData(enrichedCourses);
+        // Process batches with concurrency control
+        const results = await processWithConcurrency(
+          scheduleBatches,
+          SCHEDULE_SEND_CONCURRENCY,
+          async (batch, batchIndex) => {
+            const totalBatchIndex = batchIndex + 1;
+            console.log(`   📤 [${totalBatchIndex}/${scheduleBatches.length}] Sending schedule batch: records=${batch.length}`);
             
-            // Sync this department's courses
-            await supabase.syncToSupabase('schedules', cleanCourses, usedTerm, department);
-            successCount++;
-            console.log(`   ✅ ${department}: Batch sent successfully`);
-          } catch (err) {
-            failureCount++;
-            console.error(`   ❌ ${department}: Failed to send batch`);
-            console.error(`      Error: ${err.message}`);
-            if (process.env.DEBUG_SCRAPER === 'true') {
-              console.error(`      Stack: ${err.stack}`);
+            try {
+              // Send batch using syncToSupabase which handles the HTTP request and metadata
+              await supabase.syncToSupabase('schedules', batch, usedTerm, 'ALL');
+              successCount += batch.length;
+              console.log(`   ✅ [${totalBatchIndex}/${scheduleBatches.length}]: Batch sent successfully`);
+              return true;
+            } catch (err) {
+              failureCount += batch.length;
+              console.error(`   ❌ [${totalBatchIndex}/${scheduleBatches.length}]: Failed to send batch`);
+              console.error(`      Error: ${err.message}`);
+              if (process.env.DEBUG_SCRAPER === 'true') {
+                console.error(`      Stack: ${err.stack}`);
+              }
+              return false;
             }
           }
-        }
+        );
         
         phaseTimings.supabase = Date.now() - supabaseStart;
         
         // Final summary log
         console.log('\n✅ SCHEDULE SUPABASE SYNC COMPLETE', {
           term: usedTerm,
-          departments_total: deptResults.length,
-          successful: successCount,
-          failed: failureCount,
+          total_courses: allCleanCourses.length,
+          total_batches: scheduleBatches.length,
+          successful_records: successCount,
+          failed_records: failureCount,
           duration_ms: phaseTimings.supabase
         });
         console.log(`   ⏱  Supabase sync: ${formatTime(phaseTimings.supabase)}`);
