@@ -856,7 +856,18 @@ export class AISISScraper {
       total_courses: summary.total_courses
     });
     
-    return allCourses;
+    // Build per-department result array for structured sync
+    const departmentsArray = departments.map((dept, index) => ({
+      department: dept,
+      courses: perDeptCourses[index] || []
+    }));
+    
+    // Return structured object with both flat courses (backward compat) and per-department grouping
+    return {
+      term: term,
+      courses: allCourses,
+      departments: departmentsArray
+    };
   }
 
   async _scrapeDepartment(term, deptCode, retryCount = 0) {

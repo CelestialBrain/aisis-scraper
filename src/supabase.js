@@ -348,9 +348,9 @@ export class SupabaseManager {
     let totalInvalidFiltered = 0;
     
     for (const item of scheduleItems) {
-      // Transform first
-      const parsedTime = this.parseTimePattern(item.time);
-      
+      // Transform schedule item, excluding unused time/delivery fields
+      // Note: start_time, end_time, days_of_week, and delivery_mode are not meaningfully
+      // populated by the scraper (always defaults/empty) so we exclude them from the export
       const record = {
         subject_code: item.subjectCode,
         section: item.section,
@@ -364,11 +364,6 @@ export class SupabaseManager {
         level: item.level,
         remarks: item.remarks,
         max_capacity: this.safeInt(item.maxSlots),
-        
-        start_time: parsedTime.start || '00:00:00', 
-        end_time: parsedTime.end || '23:59:59',     
-        days_of_week: parsedTime.days ? JSON.stringify(parsedTime.days) : '[]', 
-        delivery_mode: null,
         term_code: item.term_code  // Preserve term_code from enriched record
       };
       

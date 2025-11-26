@@ -30,9 +30,6 @@ Each row in the exported sheet includes:
 | `course_title` | Full course name | `FINAL PAPER SUBMISSION (DOCTORAL)` |
 | `units` | Credit units | `0` |
 | `time_pattern` | Original time string from AISIS | `TBA (~)` |
-| `start_time` | Parsed start time | `00:00:00` |
-| `end_time` | Parsed end time | `23:59:59` |
-| `days_of_week` | Days as JSON array | `[2,4]` for T-TH |
 | `room` | Room assignment | `TBA` or `SEC-A201` |
 | `instructor` | Faculty name | `REYES, PEDRO` |
 | `department` | **Department code** | `ENLL` |
@@ -40,8 +37,9 @@ Each row in the exported sheet includes:
 | `level` | Course level | `G` (Graduate) or `U` (Undergraduate) |
 | `remarks` | Additional notes | `` |
 | `max_capacity` | Maximum enrollment | `5` |
-| `delivery_mode` | Delivery mode (if any) | `null` |
 | `term_code` | Academic term | `2025-1` |
+
+**Note:** Previous versions included `start_time`, `end_time`, `days_of_week`, and `delivery_mode` columns, but these were removed as they were not meaningfully populated by the scraper (always default values or empty). The `time_pattern` column contains the original time information from AISIS.
 
 **Important:** The `department` column allows filtering and grouping by department within the sheet.
 
@@ -57,13 +55,13 @@ To view only specific departments in Google Sheets:
 
 2. **Using Query Formulas:**
    ```
-   =QUERY(Schedules!A:Q, "SELECT * WHERE K = 'ENLL'", 1)
+   =QUERY(Schedules!A:M, "SELECT * WHERE H = 'ENLL'", 1)
    ```
-   Where `K` is the department column.
+   Where `H` is the department column.
 
 3. **Creating Department-Specific Tabs:**
    - Create a new tab named "ENLL Only"
-   - Use formula: `=QUERY(Schedules!A:Q, "SELECT * WHERE K = 'ENLL'", 1)`
+   - Use formula: `=QUERY(Schedules!A:M, "SELECT * WHERE H = 'ENLL'", 1)`
    - Repeat for other departments as needed
 
 ## Verification
@@ -101,10 +99,10 @@ Examples:
 
 ### Column Visibility
 
-Hide columns that aren't needed for your use case:
-- Hide `term_code` if viewing a single term
-- Hide `delivery_mode` if mostly null
-- Hide technical fields like `days_of_week` (JSON) if not using programmatically
+Since the schema has been streamlined to remove unused fields, all remaining columns contain meaningful data:
+- `time_pattern` contains the original time information from AISIS
+- `department` is critical for filtering and grouping
+- All other fields are actively used and populated
 
 ### Data Freshness
 
@@ -122,8 +120,8 @@ Create separate tabs for major departments:
 
 ```
 Tab: "All Schedules"    → All departments
-Tab: "ENGG"            → =QUERY(All Schedules!A:Q, "SELECT * WHERE K = 'ENGG'", 1)
-Tab: "ENLL"            → =QUERY(All Schedules!A:Q, "SELECT * WHERE K = 'ENLL'", 1)
+Tab: "ENGG"            → =QUERY(All Schedules!A:M, "SELECT * WHERE H = 'ENGG'", 1)
+Tab: "ENLL"            → =QUERY(All Schedules!A:M, "SELECT * WHERE H = 'ENLL'", 1)
 Tab: "Summary"         → Pivot table with department counts
 ```
 
@@ -134,11 +132,11 @@ Use Apps Script to create dynamic filters:
 ```javascript
 function filterByDepartment(deptCode) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet();
-  var sourceRange = sheet.getRange('All Schedules!A:Q');
+  var sourceRange = sheet.getRange('All Schedules!A:M');
   var targetSheet = sheet.getSheetByName(deptCode) || sheet.insertSheet(deptCode);
   
   var filter = sourceRange.createFilter();
-  filter.setColumnFilterCriteria(11, SpreadsheetApp.newFilterCriteria()
+  filter.setColumnFilterCriteria(8, SpreadsheetApp.newFilterCriteria()
     .whenTextEqualTo(deptCode)
     .build());
 }
@@ -214,7 +212,7 @@ If the sheet is slow with 3000+ rows:
 **Goal:** Find all graduate courses with TBA time
 
 **Steps:**
-1. Use query: `=QUERY(Schedules!A:Q, "SELECT * WHERE M = 'G' AND E CONTAINS 'TBA'", 1)`
+1. Use query: `=QUERY(Schedules!A:M, "SELECT * WHERE J = 'G' AND E CONTAINS 'TBA'", 1)`
 2. Review results
 3. Check for edge cases (comprehensives, residency, final papers)
 
