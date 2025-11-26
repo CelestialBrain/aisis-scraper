@@ -1,5 +1,5 @@
 import { AISISScraper } from './scraper.js';
-import { SupabaseManager } from './supabase.js';
+import { SupabaseManager, chunkArray, processWithConcurrency } from './supabase.js';
 import { GoogleSheetsManager } from './sheets.js';
 import { parseAllCurricula } from './curriculum-parser.js';
 import { 
@@ -239,15 +239,18 @@ async function main() {
       fs.writeFileSync('data/curriculum.json', JSON.stringify(curriculumOutput, null, 2));
       console.log(`\n   💾 Saved ${programs.length} programs (${validRows.length} valid courses) to data/curriculum.json`);
 
-      // 2. Supabase Sync - NEW BATCHING APPROACH
+      // 2. Supabase Sync - OPTIMIZED WITH GROUPING AND CONCURRENCY
       if (supabase && validRows.length > 0) {
-        console.log('\n   🚀 Starting Supabase Sync (New Batching Approach)...');
-        console.log(`      Sending ${groupedByProgram.size} batch(es), one per program/version\n`);
+        console.log('\n   🚀 Starting Supabase Sync (Optimized with Grouping and Concurrency)...');
         
-        let successCount = 0;
-        let failureCount = 0;
+        // Parse configuration from environment
+        const CURRICULUM_SEND_GROUP_SIZE = parseInt(process.env.CURRICULUM_SEND_GROUP_SIZE || '10', 10);
+        const CURRICULUM_SEND_CONCURRENCY = parseInt(process.env.CURRICULUM_SEND_CONCURRENCY || '2', 10);
         
-        // Send one request per program/version
+        console.log(`      Configuration: group_size=${CURRICULUM_SEND_GROUP_SIZE}, concurrency=${CURRICULUM_SEND_CONCURRENCY}`);
+        
+        // Build all curriculum batches
+        const curriculumBatches = [];
         for (const [degCode, courses] of groupedByProgram) {
           // Find original scraped courses for this program (before deduplication/validation)
           // for accurate metadata counts
@@ -265,7 +268,7 @@ async function main() {
             invalidForThisProgram
           );
           
-          // Send batch
+          // Create batch object
           const batch = {
             deg_code: degCode,
             program_code: metadata.program_code,
@@ -274,28 +277,54 @@ async function main() {
             metadata: metadata
           };
           
-          const success = await supabase.sendCurriculumBatch(batch);
-          
-          if (success) {
-            successCount++;
-          } else {
-            failureCount++;
-          }
+          curriculumBatches.push(batch);
         }
+        
+        // Group batches into chunks for grouped sending
+        const groups = chunkArray(curriculumBatches, CURRICULUM_SEND_GROUP_SIZE);
+        console.log(`      Grouped ${curriculumBatches.length} program(s) into ${groups.length} group(s)\n`);
+        
+        let successCount = 0;
+        let failureCount = 0;
+        
+        // Process groups with concurrency control
+        const results = await processWithConcurrency(
+          groups,
+          CURRICULUM_SEND_CONCURRENCY,
+          async (group, groupIndex) => {
+            const totalGroupIndex = groupIndex + 1;
+            const programCount = group.length;
+            const totalCourses = group.reduce((sum, batch) => sum + batch.courses.length, 0);
+            
+            console.log(`   📤 [${totalGroupIndex}/${groups.length}] Sending curriculum group: programs=${programCount}, courses=${totalCourses}`);
+            
+            // Send the group (either single batch or grouped batches)
+            const success = await supabase.sendCurriculumBatch(group);
+            
+            if (success) {
+              successCount += programCount;
+            } else {
+              failureCount += programCount;
+            }
+            
+            return success;
+          }
+        );
         
         // Summary
         console.log(`\n   📊 Supabase Sync Summary:`);
-        console.log(`      Total batches: ${groupedByProgram.size}`);
-        console.log(`      ✅ Successful: ${successCount}`);
-        console.log(`      ❌ Failed: ${failureCount}`);
+        console.log(`      Total programs: ${curriculumBatches.length}`);
+        console.log(`      Total groups: ${groups.length}`);
+        console.log(`      ✅ Successful programs: ${successCount}`);
+        console.log(`      ❌ Failed programs: ${failureCount}`);
         console.log(`      Total courses synced: ${validRows.length}`);
         
         if (failureCount === 0) {
-          console.log(`\n   ✅ All batches synced successfully!`);
+          console.log(`\n   ✅ All programs synced successfully!`);
         } else if (successCount > 0) {
-          console.log(`\n   ⚠️  Partial success - some batches failed`);
+          console.log(`\n   ⚠️  Partial success - some programs failed`);
         } else {
-          console.log(`\n   ❌ All batches failed`);
+          console.log(`\n   ❌ All programs failed`);
         }
       } else {
         console.log('\n   ⚠️ Supabase sync skipped (no DATA_INGEST_TOKEN or no rows)');
