@@ -482,6 +482,27 @@ export class SupabaseManager {
   }
 
   /**
+   * Transform a curriculum course row to match the Supabase schema
+   * @private
+   * @param {Object} row - Course row object
+   * @returns {Object} Transformed course object
+   */
+  _transformCurriculumCourse(row) {
+    return {
+      degree_code: row.deg_code,
+      program_label: row.program_label,
+      program_title: row.program_title,
+      year_level: row.year_level,
+      semester: row.semester,
+      course_code: row.course_code,
+      course_title: row.course_title,
+      units: row.units,
+      prerequisites: row.prerequisites,
+      category: row.category
+    };
+  }
+
+  /**
    * Send curriculum batch(es) to Supabase
    * 
    * Supports two modes:
@@ -520,18 +541,7 @@ export class SupabaseManager {
       console.log(`      Metadata: scraped=${metadata.total_courses_scraped}, deduped=${metadata.deduplication_removed}, invalid=${metadata.invalid_courses_count}`);
 
       // Transform courses to match the Supabase schema
-      const transformedCourses = courses.map(row => ({
-        degree_code: row.deg_code,
-        program_label: row.program_label,
-        program_title: row.program_title,
-        year_level: row.year_level,
-        semester: row.semester,
-        course_code: row.course_code,
-        course_title: row.course_title,
-        units: row.units,
-        prerequisites: row.prerequisites,
-        category: row.category
-      }));
+      const transformedCourses = courses.map(row => this._transformCurriculumCourse(row));
 
       // Build the payload with program-level grouping
       const payload = {
@@ -602,18 +612,7 @@ export class SupabaseManager {
       totalInvalidCourses += metadata.invalid_courses_count || 0;
       
       // Transform and collect courses
-      const transformedCourses = courses.map(row => ({
-        degree_code: row.deg_code,
-        program_label: row.program_label,
-        program_title: row.program_title,
-        year_level: row.year_level,
-        semester: row.semester,
-        course_code: row.course_code,
-        course_title: row.course_title,
-        units: row.units,
-        prerequisites: row.prerequisites,
-        category: row.category
-      }));
+      const transformedCourses = courses.map(row => this._transformCurriculumCourse(row));
       
       allTransformedCourses.push(...transformedCourses);
     }
