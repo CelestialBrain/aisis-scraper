@@ -31,6 +31,7 @@ import fs from 'fs';
 import { AISISScraper } from './scraper.js';
 import { SupabaseManager, chunkArray, processWithConcurrency, ALL_DEPARTMENTS_LABEL } from './supabase.js';
 import { GoogleSheetsManager } from './sheets.js';
+import { BaselineManager } from './baseline.js';
 import 'dotenv/config';
 
 /**
@@ -204,6 +205,53 @@ async function main() {
       });
     }
 
+    // Initialize baseline manager for regression detection
+    const baselineManager = new BaselineManager();
+    const baselineConfig = baselineManager.getConfigSummary();
+    console.log(`\n🔍 Baseline tracking enabled:`);
+    console.log(`   Drop threshold: ${baselineConfig.dropThresholdPercent}%`);
+    console.log(`   Warn-only mode: ${baselineConfig.warnOnly ? 'Yes' : 'No (will fail on regression)'}`);
+
+    // Process baseline comparison for each term
+    let regressionFailed = false;
+    
+    for (const termData of allTermsData) {
+      if (!termData.courses || termData.courses.length === 0) {
+        continue;
+      }
+      
+      const { term, courses: scheduleData } = termData;
+      
+      // Extract per-department counts for detailed analysis
+      const deptCounts = {};
+      for (const course of scheduleData) {
+        const dept = course.department || 'UNKNOWN';
+        deptCounts[dept] = (deptCounts[dept] || 0) + 1;
+      }
+      
+      // Compare with previous baseline
+      const comparisonResult = baselineManager.compareWithBaseline(
+        term,
+        scheduleData.length,
+        deptCounts
+      );
+      
+      // Record new baseline for future comparisons
+      baselineManager.recordBaseline(term, scheduleData.length, deptCounts, {
+        scrapeTime: phaseTimings.scraping,
+        departmentCount: Object.keys(deptCounts).length,
+        academicYear: targetYear
+      });
+      
+      // Check if we should fail the job due to regression
+      if (baselineManager.shouldFailJob(comparisonResult)) {
+        console.error(`\n❌ REGRESSION DETECTED for term ${term}: Total record count dropped significantly`);
+        console.error(`   This likely indicates data loss during scraping`);
+        console.error(`   Set BASELINE_WARN_ONLY=true to make this a warning instead of failure`);
+        regressionFailed = true;
+      }
+    }
+
     // Common metadata for output files
     const scrapedAt = new Date().toISOString();
     
@@ -351,6 +399,12 @@ async function main() {
       console.log(`   Sheets sync: ${formatTime(phaseTimings.sheets)}`);
     }
     console.log(`   Total time: ${formatTime(totalTime)}`);
+
+    // Exit with error if regression detected and not in warn-only mode
+    if (regressionFailed) {
+      console.log('\n❌ Scraping completed with REGRESSION ERROR!');
+      process.exit(1);
+    }
 
     console.log('\n═══════════════════════════════════════════════════════');
     console.log(`✅ Full Academic Year ${targetYear} scraping completed!`);
