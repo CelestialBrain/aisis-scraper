@@ -30,8 +30,8 @@ const capturedRequests = [];
 
 // Mock SupabaseManager that captures requests
 class MockSupabaseManager extends SupabaseManager {
-  async sendRequest(dataType, records, termCode = null, department = null, programCode = null, replaceExisting = null) {
-    const metadata = this.buildMetadata(termCode, department, programCode, records.length, replaceExisting);
+  async sendRequest(dataType, records, termCode = null, department = null, programCode = null, replaceExisting = null, chunkIndex = null, totalChunks = null) {
+    const metadata = this.buildMetadata(termCode, department, programCode, records.length, replaceExisting, chunkIndex, totalChunks);
     
     capturedRequests.push({
       dataType,
@@ -39,12 +39,15 @@ class MockSupabaseManager extends SupabaseManager {
       termCode,
       department,
       replaceExisting,
+      chunkIndex,
+      totalChunks,
       metadata
     });
     
     console.log(`   📨 Mock: Captured request for batch ${capturedRequests.length}`);
     console.log(`      - Records: ${records.length}`);
     console.log(`      - replace_existing: ${replaceExisting}`);
+    console.log(`      - chunk_index: ${chunkIndex}, total_chunks: ${totalChunks}`);
     
     return true;
   }
@@ -150,21 +153,37 @@ function verifyFix(result) {
   console.log(`   Expected: ${totalSchedules}`);
   console.log(`   ${totalSent === totalSchedules ? '✅ CORRECT' : '❌ WRONG'}\n`);
   
-  // CRITICAL: Verify replace_existing behavior
-  console.log('🔄 replace_existing behavior:\n');
+  // CRITICAL: Verify replace_existing behavior and chunk metadata
+  console.log('🔄 replace_existing and chunk metadata:\n');
   let allCorrect = true;
+  let chunkMetadataCorrect = true;
   
   requests.forEach((req, index) => {
     const batchNum = index + 1;
-    const expected = index === 0; // Only first batch should have replace_existing=true
-    const isCorrect = req.replaceExisting === expected;
+    const expectedReplaceExisting = index === 0; // Only first batch should have replace_existing=true
+    const isReplaceCorrect = req.replaceExisting === expectedReplaceExisting;
     
-    if (!isCorrect) allCorrect = false;
+    // Verify chunk metadata
+    const expectedChunkIndex = index;
+    const expectedTotalChunks = expectedBatches;
+    const isChunkIndexCorrect = req.chunkIndex === expectedChunkIndex;
+    const isTotalChunksCorrect = req.totalChunks === expectedTotalChunks;
+    const isMetadataChunkCorrect = req.metadata.chunk_index === expectedChunkIndex;
+    const isMetadataTotalCorrect = req.metadata.total_chunks === expectedTotalChunks;
+    
+    if (!isReplaceCorrect) allCorrect = false;
+    if (!isChunkIndexCorrect || !isTotalChunksCorrect || !isMetadataChunkCorrect || !isMetadataTotalCorrect) {
+      chunkMetadataCorrect = false;
+    }
     
     console.log(`   Batch ${batchNum}/${requests.length}:`);
     console.log(`      Records: ${req.recordCount}`);
-    console.log(`      replace_existing: ${req.replaceExisting} (expected: ${expected}) ${isCorrect ? '✅' : '❌'}`);
+    console.log(`      replace_existing: ${req.replaceExisting} (expected: ${expectedReplaceExisting}) ${isReplaceCorrect ? '✅' : '❌'}`);
+    console.log(`      chunk_index: ${req.chunkIndex} (expected: ${expectedChunkIndex}) ${isChunkIndexCorrect ? '✅' : '❌'}`);
+    console.log(`      total_chunks: ${req.totalChunks} (expected: ${expectedTotalChunks}) ${isTotalChunksCorrect ? '✅' : '❌'}`);
     console.log(`      Metadata has replace_existing: ${req.metadata.replace_existing !== undefined ? '✅' : '❌'}`);
+    console.log(`      Metadata has chunk_index: ${req.metadata.chunk_index !== undefined ? '✅' : '❌'}`);
+    console.log(`      Metadata has total_chunks: ${req.metadata.total_chunks !== undefined ? '✅' : '❌'}`);
     
     if (index === 0) {
       console.log(`      → This batch clears old data for term ${req.termCode}`);
@@ -185,7 +204,11 @@ function verifyFix(result) {
     { name: 'All records sent', passed: totalSent === totalSchedules },
     { name: 'First batch: replace_existing=true', passed: requests[0]?.replaceExisting === true },
     { name: 'Second batch: replace_existing=false', passed: requests[1]?.replaceExisting === false },
-    { name: 'All batches have correct replace_existing', passed: allCorrect }
+    { name: 'All batches have correct replace_existing', passed: allCorrect },
+    { name: 'First batch: chunk_index=0', passed: requests[0]?.chunkIndex === 0 },
+    { name: 'Second batch: chunk_index=1', passed: requests[1]?.chunkIndex === 1 },
+    { name: 'All batches have total_chunks=2', passed: requests.every(r => r.totalChunks === 2) },
+    { name: 'Chunk metadata in payload', passed: chunkMetadataCorrect }
   ];
   
   tests.forEach(test => {
@@ -198,7 +221,8 @@ function verifyFix(result) {
     console.log('\n✅ ALL TESTS PASSED!\n');
     console.log('🎉 Data loss prevention mechanism validated!');
     console.log('   INTAC courses (and all departments) will be preserved');
-    console.log('   across multiple batches during ingestion.\n');
+    console.log('   across multiple batches during ingestion.');
+    console.log('   Chunk metadata is correctly included for observability.\n');
     return true;
   } else {
     console.log('\n❌ SOME TESTS FAILED!\n');

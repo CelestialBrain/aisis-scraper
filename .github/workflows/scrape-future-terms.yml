@@ -14,6 +14,14 @@ on:
           - future
           - all
           - year
+      require_baselines:
+        description: 'Require baselines (fail if missing)'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
   schedule:
     # Run weekly on Sundays at 2 AM UTC
     - cron: '0 2 * * 0'
@@ -37,13 +45,48 @@ jobs:
         run: npm install
 
       - name: Download previous baselines
+        id: download-baselines
         # See README.md "Baseline Tracking and Regression Detection" section
         # Downloads baseline-{term}.json files from previous runs for comparison
         uses: actions/download-artifact@v4
         with:
           name: baselines
           path: logs/baselines/
-        continue-on-error: true  # Don't fail if no previous baseline exists
+        continue-on-error: true  # Don't fail here; we check below
+
+      - name: Check baselines availability
+        # When REQUIRE_BASELINES is true and baselines failed to download,
+        # log a clear error and fail fast before any ingestion
+        run: |
+          REQUIRE_BASELINES="${{ github.event.inputs.require_baselines || 'true' }}"
+          DOWNLOAD_OUTCOME="${{ steps.download-baselines.outcome }}"
+          
+          echo "Baselines download outcome: $DOWNLOAD_OUTCOME"
+          echo "REQUIRE_BASELINES: $REQUIRE_BASELINES"
+          
+          if [[ "$REQUIRE_BASELINES" == "true" && "$DOWNLOAD_OUTCOME" != "success" ]]; then
+            echo ""
+            echo "❌ FATAL: Baselines artifact 'baselines' missing; aborting schedule ingest to avoid data loss."
+            echo ""
+            echo "The workflow is configured with REQUIRE_BASELINES=true, but no baselines artifact was found."
+            echo "This typically means:"
+            echo "  - This is the first run (baselines don't exist yet)"
+            echo "  - Previous runs failed to upload baselines"
+            echo "  - The artifact expired (retention is 90 days)"
+            echo ""
+            echo "Solutions:"
+            echo "  1. For first-time setup: Re-run with require_baselines=false"
+            echo "  2. Check previous workflow runs for baselines artifact"
+            echo "  3. Manually restore baselines from a known good state"
+            exit 1
+          fi
+          
+          if [[ "$DOWNLOAD_OUTCOME" == "success" ]]; then
+            echo "✅ Baselines downloaded successfully"
+            ls -la logs/baselines/ || true
+          else
+            echo "ℹ️  No baselines found (first run or expired). Proceeding without baselines."
+          fi
 
       - name: Run scraper (year mode by default)
         env:
@@ -56,6 +99,9 @@ jobs:
           # Scrape mode: 'year' by default (scrapes all terms in current academic year)
           # Can be overridden via workflow input to: current, current_next, future, all, year
           AISIS_SCRAPE_MODE: ${{ github.event.inputs.scrape_mode || 'year' }}
+          # Require baselines for regression detection (default: true for scheduled runs)
+          # Set to false for first-time runs or when intentionally resetting baselines
+          REQUIRE_BASELINES: ${{ github.event.inputs.require_baselines || 'true' }}
           # Optional: Performance tuning (default: 2000)
           # SUPABASE_CLIENT_BATCH_SIZE: '2000'
           # Optional: Regression detection (defaults: 5.0, true)

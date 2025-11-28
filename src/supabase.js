@@ -129,8 +129,11 @@ export class SupabaseManager {
     // For schedules: only the first batch should delete existing records (replace_existing=true)
     // Subsequent batches should append/upsert (replace_existing=false) to avoid data loss
     let isFirstBatchForTerm = true;
+    const totalBatches = batches.length;
 
-    // Process each batch
+    // Process each batch SEQUENTIALLY to prevent race conditions
+    // DO NOT use parallel processing here - it causes data loss when multiple
+    // batches with replace_existing=true are sent concurrently
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
       const batch = batches[batchIndex];
       const batchNum = batchIndex + 1;
@@ -148,7 +151,9 @@ export class SupabaseManager {
         console.log(`   ➕ Subsequent batch: replace_existing=false (append mode)`);
       }
       
-      const success = await this.sendRequest(dataType, batch, termCode, department, programCode, replaceExisting);
+      // Pass chunk metadata for observability - allows edge function to reason about multi-chunk uploads
+      // chunk_index is zero-based, total_chunks is the total number of chunks for this term
+      const success = await this.sendRequest(dataType, batch, termCode, department, programCode, replaceExisting, batchIndex, totalBatches);
       
       if (success) {
         successCount += batch.length;
@@ -219,9 +224,11 @@ export class SupabaseManager {
    * @param {string|null} programCode - Program code for curriculum
    * @param {number|null} recordCount - Number of records in the payload
    * @param {boolean|null} replaceExisting - Whether to replace existing records (schedules only)
+   * @param {number|null} chunkIndex - Zero-based index of this chunk (for multi-chunk uploads)
+   * @param {number|null} totalChunks - Total number of chunks being uploaded
    * @returns {Object} Metadata object with all available context
    */
-  buildMetadata(termCode = null, department = null, programCode = null, recordCount = null, replaceExisting = null) {
+  buildMetadata(termCode = null, department = null, programCode = null, recordCount = null, replaceExisting = null, chunkIndex = null, totalChunks = null) {
     const metadata = {};
     
     // Add context-specific metadata
@@ -232,6 +239,13 @@ export class SupabaseManager {
     // Only add replace_existing if explicitly set (null means omit from metadata)
     if (replaceExisting != null) {
       metadata.replace_existing = replaceExisting;
+    }
+    // Add chunk information for multi-chunk uploads
+    if (chunkIndex !== null) {
+      metadata.chunk_index = chunkIndex;
+    }
+    if (totalChunks !== null) {
+      metadata.total_chunks = totalChunks;
     }
     
     // Add GitHub Actions context if available
@@ -281,11 +295,13 @@ export class SupabaseManager {
    * @param {string|null} department - Department code
    * @param {string|null} programCode - Program code for curriculum
    * @param {boolean|null} replaceExisting - Whether to replace existing records (schedules only)
+   * @param {number|null} chunkIndex - Zero-based index of this chunk (for multi-chunk uploads)
+   * @param {number|null} totalChunks - Total number of chunks being uploaded
    * @returns {Promise<boolean>} True if successful, false if all retries failed
    */
-  async sendRequest(dataType, records, termCode = null, department = null, programCode = null, replaceExisting = null) {
-    // Build metadata with GitHub Actions context, record count, and replace_existing flag
-    const metadata = this.buildMetadata(termCode, department, programCode, records.length, replaceExisting);
+  async sendRequest(dataType, records, termCode = null, department = null, programCode = null, replaceExisting = null, chunkIndex = null, totalChunks = null) {
+    // Build metadata with GitHub Actions context, record count, replace_existing flag, and chunk info
+    const metadata = this.buildMetadata(termCode, department, programCode, records.length, replaceExisting, chunkIndex, totalChunks);
 
     const payload = {
       data_type: dataType,

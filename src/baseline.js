@@ -6,6 +6,11 @@ import path from 'path';
  * 
  * Stores historical data in logs/baselines/ directory and provides
  * regression detection to alert when record counts drop significantly.
+ * 
+ * Configuration environment variables:
+ * - BASELINE_DROP_THRESHOLD: Percentage threshold for regression alerts (default: 5.0)
+ * - BASELINE_WARN_ONLY: If 'false', fail job on regression; otherwise warn (default: true)
+ * - REQUIRE_BASELINES: If 'true', fail job if no baseline exists for a term (default: false)
  */
 export class BaselineManager {
   // Default configuration constants
@@ -30,6 +35,10 @@ export class BaselineManager {
     }
     
     this.warnOnly = process.env.BASELINE_WARN_ONLY !== 'false'; // Default to warn-only mode
+    
+    // REQUIRE_BASELINES: If true, fail when no baseline exists (prevents data loss from race conditions)
+    // This should be enabled for production workflows after the first successful run
+    this.requireBaselines = process.env.REQUIRE_BASELINES === 'true';
   }
 
   /**
@@ -38,6 +47,45 @@ export class BaselineManager {
   ensureBaselineDir() {
     if (!fs.existsSync(this.baselineDir)) {
       fs.mkdirSync(this.baselineDir, { recursive: true });
+    }
+  }
+
+  /**
+   * Check if baselines directory has any baseline files
+   * @returns {boolean} True if at least one baseline file exists
+   */
+  hasAnyBaselines() {
+    try {
+      const files = fs.readdirSync(this.baselineDir);
+      return files.some(f => f.startsWith('baseline-') && f.endsWith('.json'));
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * Validate that baselines exist when REQUIRE_BASELINES is enabled.
+   * Call this before starting any data ingestion to fail fast.
+   * 
+   * @throws {Error} If REQUIRE_BASELINES is true and no baselines exist
+   */
+  validateBaselinesExist() {
+    if (this.requireBaselines && !this.hasAnyBaselines()) {
+      const errorMessage = `FATAL: Baselines artifact 'baselines' missing; aborting schedule ingest to avoid data loss.\n` +
+        `The REQUIRE_BASELINES environment variable is set to 'true', but no baseline files were found.\n` +
+        `This typically means the baselines artifact failed to download from previous runs.\n` +
+        `Without baselines, we cannot detect data regressions and may risk data loss.\n\n` +
+        `Solutions:\n` +
+        `1. Check if the 'baselines' artifact exists from previous workflow runs\n` +
+        `2. Manually download and restore baselines from a known good run\n` +
+        `3. Set REQUIRE_BASELINES=false to allow first-time runs (not recommended for production)`;
+      
+      console.error(`\n❌ ${errorMessage}`);
+      throw new Error(errorMessage);
+    }
+    
+    if (this.requireBaselines) {
+      console.log(`   ✅ Baselines validation passed: baseline files exist`);
     }
   }
 
@@ -249,6 +297,7 @@ export class BaselineManager {
     return {
       dropThresholdPercent: this.dropThresholdPercent,
       warnOnly: this.warnOnly,
+      requireBaselines: this.requireBaselines,
       baselineDir: this.baselineDir
     };
   }

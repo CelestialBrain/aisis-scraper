@@ -29,7 +29,7 @@
 
 import fs from 'fs';
 import { AISISScraper } from './scraper.js';
-import { SupabaseManager, chunkArray, processWithConcurrency, ALL_DEPARTMENTS_LABEL } from './supabase.js';
+import { SupabaseManager, ALL_DEPARTMENTS_LABEL } from './supabase.js';
 import { GoogleSheetsManager } from './sheets.js';
 import { BaselineManager } from './baseline.js';
 import 'dotenv/config';
@@ -211,6 +211,13 @@ async function main() {
     console.log(`\n🔍 Baseline tracking enabled:`);
     console.log(`   Drop threshold: ${baselineConfig.dropThresholdPercent}%`);
     console.log(`   Warn-only mode: ${baselineConfig.warnOnly ? 'Yes' : 'No (will fail on regression)'}`);
+    console.log(`   Require baselines: ${baselineConfig.requireBaselines ? 'Yes (will fail if missing)' : 'No'}`);
+
+    // Validate baselines exist BEFORE processing if required
+    // This prevents data loss by failing fast when baselines are missing
+    if (baselineConfig.requireBaselines) {
+      baselineManager.validateBaselinesExist();
+    }
 
     // Process baseline comparison for each term
     let regressionFailed = false;
@@ -289,21 +296,21 @@ async function main() {
     console.log(`   ✅ Saved full breakdown to ${fullDataPath}`);
 
     // Supabase Sync (optional)
+    // IMPORTANT: We sync all data for a term in a single call to syncToSupabase.
+    // This ensures proper replace_existing handling: only the first batch clears
+    // old data, and subsequent batches append. Parallel batch sending was removed
+    // to prevent data loss from race conditions.
+    // See docs/ingestion.md for details on the chunking protocol.
     if (supabase && allCourses.length > 0) {
-      console.log('\n🚀 Starting Supabase Sync...');
+      console.log('\n🚀 Starting Supabase Sync (Sequential per-term)...');
       
       const supabaseStart = Date.now();
-      
-      // Parse configuration from environment
-      const SCHEDULE_SEND_CONCURRENCY = parseInt(process.env.SCHEDULE_SEND_CONCURRENCY || '2', 10);
-      const SUPABASE_CLIENT_BATCH_SIZE = parseInt(process.env.SUPABASE_CLIENT_BATCH_SIZE || '2000', 10);
-      
-      console.log(`   Configuration: batch_size=${SUPABASE_CLIENT_BATCH_SIZE}, concurrency=${SCHEDULE_SEND_CONCURRENCY}`);
       
       let totalSuccessCount = 0;
       let totalFailureCount = 0;
       
       // Process each term separately to maintain term isolation in Supabase
+      // Each term is synced as a single unit - syncToSupabase handles batching internally
       for (const termData of allTermsData) {
         if (!termData.courses || termData.courses.length === 0) {
           continue;
@@ -311,40 +318,22 @@ async function main() {
         
         const { term, courses: termCourses } = termData;
         console.log(`\n   📅 Syncing term: ${term}`);
+        console.log(`   Total courses for term ${term}: ${termCourses.length}`);
         
-        // Batch courses for this term
-        const scheduleBatches = chunkArray(termCourses, SUPABASE_CLIENT_BATCH_SIZE);
-        console.log(`   Batched ${termCourses.length} course(s) into ${scheduleBatches.length} batch(es)`);
+        // Sync all courses for this term in a single call
+        // syncToSupabase handles batching internally and ensures:
+        // - First batch: replace_existing=true (clears old term data)
+        // - Subsequent batches: replace_existing=false (appends)
+        // - Sequential processing to prevent race conditions
+        const success = await supabase.syncToSupabase('schedules', termCourses, term, ALL_DEPARTMENTS_LABEL);
         
-        let successCount = 0;
-        let failureCount = 0;
-        
-        // Process batches with concurrency control
-        await processWithConcurrency(
-          scheduleBatches,
-          SCHEDULE_SEND_CONCURRENCY,
-          async (batch, batchIndex) => {
-            const totalBatchIndex = batchIndex + 1;
-            console.log(`      📤 [${totalBatchIndex}/${scheduleBatches.length}] Sending schedule batch: records=${batch.length}`);
-            
-            try {
-              await supabase.syncToSupabase('schedules', batch, term, ALL_DEPARTMENTS_LABEL);
-              successCount += batch.length;
-              console.log(`      ✅ [${totalBatchIndex}/${scheduleBatches.length}]: Batch sent successfully`);
-              return true;
-            } catch (err) {
-              failureCount += batch.length;
-              console.error(`      ❌ [${totalBatchIndex}/${scheduleBatches.length}]: Failed to send batch`);
-              console.error(`         Error: ${err.message}`);
-              return false;
-            }
-          }
-        );
-        
-        totalSuccessCount += successCount;
-        totalFailureCount += failureCount;
-        
-        console.log(`   ✅ Term ${term} sync complete: ${successCount} successful, ${failureCount} failed`);
+        if (success) {
+          totalSuccessCount += termCourses.length;
+          console.log(`   ✅ Term ${term} sync complete: ${termCourses.length} records synced`);
+        } else {
+          totalFailureCount += termCourses.length;
+          console.error(`   ❌ Term ${term} sync failed`);
+        }
       }
       
       phaseTimings.supabase = Date.now() - supabaseStart;
