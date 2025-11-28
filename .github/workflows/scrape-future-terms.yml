@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - current
+          - current_next
           - future
           - all
           - year
@@ -53,7 +54,7 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
           # Scrape mode: 'year' by default (scrapes all terms in current academic year)
-          # Can be overridden via workflow input to: current, future, all, year
+          # Can be overridden via workflow input to: current, current_next, future, all, year
           AISIS_SCRAPE_MODE: ${{ github.event.inputs.scrape_mode || 'year' }}
           # Optional: Performance tuning (default: 2000)
           # SUPABASE_CLIENT_BATCH_SIZE: '2000'

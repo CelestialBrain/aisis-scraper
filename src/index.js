@@ -3,6 +3,7 @@ import { SupabaseManager, chunkArray, processWithConcurrency, ALL_DEPARTMENTS_LA
 import { GoogleSheetsManager } from './sheets.js';
 import { BaselineManager } from './baseline.js';
 import { getTermYear } from './constants.js';
+import { getNextTerm, findNextAvailableTerm, formatTermLabel } from './term-utils.js';
 import fs from 'fs';
 import 'dotenv/config';
 
@@ -78,11 +79,12 @@ async function main() {
     console.log(`   ⏱  Login & validation: ${formatTime(phaseTimings.login)}`);
 
     // Determine scraping mode
-    // 'current' (default) - scrape only current term
+    // 'current' - scrape only current term
+    // 'current_next' (default) - scrape current term + next term
     // 'future' - scrape only future terms (after current)
     // 'all' - scrape both current and future terms
     // 'year' - scrape all terms in the current term's academic year
-    const scrapeMode = process.env.AISIS_SCRAPE_MODE || 'current';
+    const scrapeMode = process.env.AISIS_SCRAPE_MODE || 'current_next';
     console.log(`\n📋 Scrape mode: ${scrapeMode}`);
     
     let termsToScrape = [];
@@ -99,7 +101,7 @@ async function main() {
       // Wrap in array for unified processing
       multiTermResults = [scrapeResult];
     } else {
-      // Multi-term mode (future, all, or year)
+      // Multi-term mode (current_next, future, all, or year)
       console.log('🔍 Discovering available terms...');
       const termsDiscoveryStart = Date.now();
       const availableTerms = await scraper.getAvailableTerms();
@@ -117,7 +119,28 @@ async function main() {
       console.log(`   📌 Current term: ${currentTerm} (${currentTermObj.label})`);
       
       // Filter terms based on mode
-      if (scrapeMode === 'future') {
+      if (scrapeMode === 'current_next') {
+        // Current + Next term mode: scrape current term and the next term in sequence
+        // This is the recommended mode for high-frequency scheduled runs
+        const nextTermInAisis = findNextAvailableTerm(availableTerms, currentTerm);
+        
+        // Start with current term
+        termsToScrape = [currentTerm];
+        
+        // Add next term if it exists in AISIS
+        if (nextTermInAisis) {
+          termsToScrape.push(nextTermInAisis);
+          console.log(`   🔮 Next term: ${nextTermInAisis} (${formatTermLabel(nextTermInAisis)})`);
+        } else {
+          // Check if calculated next term might be expected but not yet available
+          const expectedNextTerm = getNextTerm(currentTerm);
+          if (expectedNextTerm) {
+            console.log(`   ℹ️  Next term ${expectedNextTerm} not yet available in AISIS (will be scraped when published)`);
+          }
+        }
+        
+        console.log(`   📅 Current + Next terms to scrape: ${termsToScrape.join(', ')}`);
+      } else if (scrapeMode === 'future') {
         termsToScrape = availableTerms
           .filter(t => compareTermCodes(t.value, currentTerm) > 0)
           .map(t => t.value)
@@ -142,7 +165,7 @@ async function main() {
         console.log(`   📆 Year mode: scraping all terms in academic year ${currentYear}`);
         console.log(`   📅 Terms in year ${currentYear} to scrape: ${termsToScrape.join(', ')}`);
       } else {
-        throw new Error(`Invalid AISIS_SCRAPE_MODE: ${scrapeMode}. Valid values: current, future, all, year`);
+        throw new Error(`Invalid AISIS_SCRAPE_MODE: ${scrapeMode}. Valid values: current, current_next, future, all, year`);
       }
       
       if (termsToScrape.length === 0) {

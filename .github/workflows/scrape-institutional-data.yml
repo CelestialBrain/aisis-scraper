@@ -1,4 +1,4 @@
-name: AISIS – Class Schedule (Current Term)
+name: AISIS – Class Schedule (Current + Next Term)
 
 on:
   workflow_dispatch:
@@ -6,10 +6,11 @@ on:
       scrape_mode:
         description: 'Scrape mode'
         required: false
-        default: 'current'
+        default: 'current_next'
         type: choice
         options:
           - current
+          - current_next
           - future
           - all
   schedule:
@@ -50,9 +51,11 @@ jobs:
           DATA_INGEST_TOKEN: ${{ secrets.DATA_INGEST_TOKEN }}
           GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
-          # Scrape mode: 'current' (default), 'future', or 'all'
-          # Uses workflow input if provided, otherwise defaults to 'current'
-          AISIS_SCRAPE_MODE: ${{ github.event.inputs.scrape_mode || 'current' }}
+          # Scrape mode: 'current_next' (default), 'current', 'future', or 'all'
+          # Uses workflow input if provided, otherwise defaults to 'current_next'
+          # 'current_next' scrapes both the current term and the next term in sequence
+          # This keeps both the active term and the upcoming term fresh
+          AISIS_SCRAPE_MODE: ${{ github.event.inputs.scrape_mode || 'current_next' }}
           # Optional: Override term to skip auto-detection (speeds up startup)
           # AISIS_TERM: '2025-1'
           # Optional: Performance tuning (default: 2000)

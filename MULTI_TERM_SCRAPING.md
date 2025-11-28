@@ -47,24 +47,43 @@ const results = await scraper.scrapeMultipleTerms(['2024-2', '2025-0', '2025-1']
 
 ## Scrape Modes
 
-The scraper supports four modes via the `AISIS_SCRAPE_MODE` environment variable:
+The scraper supports five modes via the `AISIS_SCRAPE_MODE` environment variable:
 
-### `current` (default)
+### `current_next` (default) ⭐ Recommended for high-frequency runs
+
+- Scrapes **current term + next term** in sequence
+- **This is the new default mode** for the primary scheduled workflow (every 6 hours)
+- Keeps both the active term and the upcoming term fresh
+- Next term is calculated automatically: `YYYY-0 → YYYY-1 → YYYY-2 → (YYYY+1)-0`
+- If the next term is not yet available in AISIS, only the current term is scraped
+- Each term is synced **separately** to Supabase with `replace_existing: true` for safe data replacement
+
+**Example**: If the current term is `2025-1` (First Semester):
+- Scrapes: `2025-1` and `2025-2` (current + next)
+- Each term is sent as a separate request to `github-data-ingest`
+
+**Rationale**: Students often need schedules for both the current term and the upcoming term for planning. This mode provides that data freshness without the overhead of scraping all available terms.
+
+### `current`
+
 - Scrapes only the current term
-- Maintains backward compatibility with existing behavior
-- Used by the scheduled workflow (every 6 hours)
+- Useful for minimal resource usage or when only current data is needed
+- Use this mode if you want the original single-term behavior
 
 ### `future`
+
 - Scrapes only future terms (terms after the current term)
 - Useful for planning and pre-loading upcoming schedules
 - **Note**: This mode may miss intersession terms (term `*-0`) if they have a code less than the current term
 
 ### `all`
+
 - Scrapes both current and future terms
 - Useful for comprehensive data collection
 - Available via manual workflow dispatch
 
 ### `year` (recommended for weekly workflow)
+
 - Scrapes **all terms in the current term's academic year**
 - Based on the year portion of the term code (e.g., `2025-*` for all 2025 terms)
 - Includes intersession (term `*-0`), first semester (term `*-1`), and second semester (term `*-2`)
@@ -72,6 +91,7 @@ The scraper supports four modes via the `AISIS_SCRAPE_MODE` environment variable
 - **Key benefit**: Reliably captures intersession terms that `future` mode might miss
 
 **Example**: If the current term is `2025-1` (First Semester 2025-2026):
+- `current_next` mode scrapes: `2025-1`, `2025-2` (current + next)
 - `year` mode scrapes: `2025-0`, `2025-1`, `2025-2` (all 2025-* terms)
 - `future` mode scrapes: `2025-2`, `2026-0` (terms > `2025-1`)
 - Notice that `future` mode misses `2025-0` (intersession), while `year` mode includes it
@@ -80,7 +100,7 @@ The scraper supports four modes via the `AISIS_SCRAPE_MODE` environment variable
 
 ### New Variables
 
-- `AISIS_SCRAPE_MODE`: Set to `current`, `future`, `all`, or `year` (default: `current`)
+- `AISIS_SCRAPE_MODE`: Set to `current_next`, `current`, `future`, `all`, or `year` (default: `current_next`)
 
 ### Existing Variables (unchanged)
 
@@ -93,30 +113,37 @@ The scraper supports four modes via the `AISIS_SCRAPE_MODE` environment variable
 
 ## Usage Examples
 
-### Example 1: Scrape Current Term Only (default)
+### Example 1: Scrape Current + Next Term (default)
 
 ```bash
 npm start
-# or
+# or explicitly
+AISIS_SCRAPE_MODE=current_next npm start
+```
+
+### Example 2: Scrape Current Term Only
+
+```bash
 AISIS_SCRAPE_MODE=current npm start
 ```
 
-### Example 2: Scrape Future Terms
+### Example 3: Scrape Future Terms
 
 ```bash
 AISIS_SCRAPE_MODE=future npm start
 ```
 
-### Example 3: Scrape All Available Terms
+### Example 4: Scrape All Available Terms
 
 ```bash
 AISIS_SCRAPE_MODE=all npm start
 ```
 
-### Example 4: Programmatic Use
+### Example 5: Programmatic Use
 
 ```javascript
 import { AISISScraper, compareTermCodes } from './src/scraper.js';
+import { getCurrentAndNextTerms, getNextTerm } from './src/term-utils.js';
 
 const scraper = new AISISScraper(username, password);
 await scraper.init();
@@ -156,6 +183,7 @@ Each term's data is synced separately to maintain term isolation:
 - Delete operations are scoped by `term_code`
 - Upsert operations use `(term_code, subject_code, section, department)` as unique key
 - Multi-term scraping is **safe** - each term is processed independently
+- **Important**: When `replace_existing: true` is set, only the specified term's data is deleted before the new data is inserted. This prevents accidental deletion of other terms' data.
 
 ### Google Sheets
 
@@ -169,14 +197,20 @@ In multi-term mode:
 
 ## Workflows
 
-### AISIS – Class Schedule (Current Term)
+### AISIS – Class Schedule (Current + Next Term) ⭐ Primary Workflow
 
 **File**: `scrape-institutional-data.yml`
 
-- **Schedule**: Every 6 hours
-- **Mode**: `current` (scrapes only current term)
-- **Purpose**: Keep current term data fresh
-- **Manual Dispatch**: Supports choosing mode via dropdown
+- **Schedule**: Every 6 hours (cron: `0 */6 * * *`)
+- **Mode**: `current_next` (scrapes current term + next term)
+- **Purpose**: Keep both the active term and the upcoming term fresh for students planning ahead
+- **Supabase Sync**: Each term is synced **separately** with `replace_existing: true`, so data is safely replaced on a per-term basis
+- **Manual Dispatch**: Supports choosing mode via dropdown (`current`, `current_next`, `future`, `all`)
+
+**Why `current_next`?**
+- Students need both current schedules and upcoming term schedules for enrollment planning
+- Refreshing two terms every 6 hours ensures data is always fresh
+- Separate per-term requests to `github-data-ingest` prevent accidental data loss from mixed-term deletions
 
 ### AISIS – Class Schedule (Full Academic Year)
 
@@ -195,7 +229,7 @@ In multi-term mode:
 - **Schedule**: Weekly on Sundays at 2 AM UTC
 - **Mode**: `year` (scrapes all terms in current academic year)
 - **Purpose**: Keep all terms in the current academic year fresh, including intersession (term `*-0`)
-- **Manual Dispatch**: Supports choosing mode via dropdown (`current`, `future`, `all`, `year`)
+- **Manual Dispatch**: Supports choosing mode via dropdown (`current`, `current_next`, `future`, `all`, `year`)
 
 **Note**: This workflow was previously named "AISIS Future Terms Scrape" and set to `future` mode, but now defaults to `year` mode to ensure intersession terms are reliably scraped.
 
@@ -229,6 +263,51 @@ In multi-term mode:
 - Returns `null` for invalid term code formats
 - Used by the `year` scrape mode to filter terms by academic year
 
+#### `getNextTerm(termCode)` (NEW)
+- Exported from `src/term-utils.js`
+- Calculates the next term in the academic cycle
+- Term cycle: `YYYY-0 → YYYY-1 → YYYY-2 → (YYYY+1)-0`
+- Used by the `current_next` scrape mode
+
+#### `getCurrentAndNextTerms(currentTerm)` (NEW)
+- Exported from `src/term-utils.js`
+- Returns `[currentTerm, nextTerm]` array
+- Primary helper for the `current_next` scrape mode
+
+#### `findNextAvailableTerm(availableTerms, currentTerm)` (NEW)
+- Exported from `src/term-utils.js`
+- Finds the next term from a list of available AISIS terms
+- Returns `null` if next term is not yet available in AISIS
+
+## Per-Term Supabase Ingestion
+
+When scraping multiple terms (including `current_next` mode), each term is synced **separately** to the `github-data-ingest` Edge Function. This is critical for safe data replacement.
+
+### Why Per-Term Ingestion?
+
+When `replace_existing: true` is set in the metadata, the Edge Function deletes existing records for the specified `term_code` before inserting new data. If we sent multiple terms in a single request, all terms' data could be deleted but only partial data re-inserted if an error occurs mid-sync.
+
+### How It Works
+
+1. **Scrape phase**: All requested terms are scraped using a shared AISIS session
+2. **Sync phase**: Each term's data is sent in a **separate** POST request:
+   ```javascript
+   // For each term, call syncToSupabase separately
+   await supabase.syncToSupabase('schedules', termData, termCode, ALL_DEPARTMENTS_LABEL);
+   ```
+3. **Metadata**: Each request includes:
+   - `data_type: 'schedules'`
+   - `metadata.term_code`: The specific term (e.g., `'2025-1'`)
+   - `metadata.replace_existing: true` (for first batch of term)
+   - `metadata.department: 'ALL'`
+
+### Safe Replacement Guarantees
+
+- ✅ Deleting term A's data does not affect term B
+- ✅ Failed sync for term A does not prevent term B from syncing
+- ✅ Each term is atomic - all or nothing for that term
+- ✅ Partial success is handled gracefully (per-term error logging)
+
 ## Baseline Tracking
 
 Baseline tracking works per-term:
@@ -240,10 +319,11 @@ Baseline tracking works per-term:
 
 The implementation maintains full backward compatibility:
 
-1. **Default behavior unchanged**: Without setting `AISIS_SCRAPE_MODE`, scrapes current term only
-2. **Single-term data format preserved**: When scraping one term, output matches legacy format
-3. **Google Sheets single-tab mode**: Single-term scraping continues using "Schedules" tab
-4. **Existing workflows work**: Current workflow unchanged except for explicit mode setting
+1. **Default behavior changed**: Default mode is now `current_next` (scrapes current + next term)
+2. **Previous default available**: Set `AISIS_SCRAPE_MODE=current` for original single-term behavior
+3. **Single-term data format preserved**: When scraping one term, output matches legacy format
+4. **Google Sheets single-tab mode**: Single-term scraping continues using "Schedules" tab
+5. **Existing workflows work**: Workflows updated but can still be configured for any mode
 
 ## Error Handling
 
@@ -259,14 +339,15 @@ The implementation maintains full backward compatibility:
 ### Network Requests
 
 Multi-term scraping makes more requests:
-- 1 request to discover available terms (if mode is `future`, `all`, or `year`)
+- 1 request to discover available terms (if mode is `current_next`, `future`, `all`, or `year`)
 - N × M requests where N = number of terms, M = number of departments
 - Existing concurrency and batching controls still apply
 
 ### Recommendations
 
+- Use `current_next` mode for high-frequency runs (default, every 6 hours) - keeps active and upcoming terms fresh
 - Use `year` mode for weekly runs (scrapes all terms in the academic year, including intersession)
-- Use `current` mode for frequent updates (existing behavior)
+- Use `current` mode if you only need the active term (minimal resource usage)
 - Use `future` mode if you only want upcoming terms (but may miss intersession)
 - Consider adjusting `AISIS_CONCURRENCY` and `AISIS_BATCH_DELAY_MS` if needed
 
@@ -275,6 +356,9 @@ Multi-term scraping makes more requests:
 To test multi-term functionality:
 
 ```bash
+# Run term-utils unit tests
+node src/test-term-utils.js
+
 # Run term year mode unit tests
 node tests/test-term-year-mode.js
 
@@ -292,8 +376,15 @@ node -e "import('./src/constants.js').then(m => {
   console.log(m.getTermYear('invalid')); // null
 });"
 
-# Test year mode discovery (requires valid credentials)
-AISIS_SCRAPE_MODE=year npm start
+# Test getNextTerm helper (NEW)
+node -e "import('./src/term-utils.js').then(m => {
+  console.log(m.getNextTerm('2025-0')); // '2025-1'
+  console.log(m.getNextTerm('2025-1')); // '2025-2'
+  console.log(m.getNextTerm('2025-2')); // '2026-0'
+});"
+
+# Test current_next mode discovery (requires valid credentials)
+AISIS_SCRAPE_MODE=current_next npm start
 ```
 
 ## Known Limitations
