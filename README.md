@@ -5,7 +5,7 @@ This project contains a Node.js-based web scraper that automatically logs into A
 ## Features
 
 - **Automated Scraping**: Runs on a scheduled basis via GitHub Actions.
-- **Multi-Term Support**: Can scrape current term, future terms, or all available terms in one run. See [MULTI_TERM_SCRAPING.md](MULTI_TERM_SCRAPING.md).
+- **Multi-Term Support**: Can scrape current term, future terms, all available terms, or **all terms in the current academic year** in one run. See [MULTI_TERM_SCRAPING.md](MULTI_TERM_SCRAPING.md).
 - **Institutional Data Focus**: Scrapes class schedules and official curriculum data.
 - **Supabase Integration**: Automatically syncs data to Supabase via Edge Functions.
 - **Batched Sync Architecture**: Two-layer batching prevents 504 timeouts when syncing thousands of records.
@@ -685,6 +685,7 @@ Baseline files are stored in `logs/baselines/baseline-{term}.json` and track:
 | **Term Configuration** | | |
 | `AISIS_TERM` | Auto-detect | Override term code (e.g., `2025-1`) |
 | `APPLICABLE_PERIOD` | Auto-detect | Legacy term override (use `AISIS_TERM` instead) |
+| `AISIS_SCRAPE_MODE` | `current` | Scrape mode: `current`, `future`, `all`, or `year`. See [MULTI_TERM_SCRAPING.md](MULTI_TERM_SCRAPING.md) |
 | **Schedule Scraper Performance** | | |
 | `FAST_MODE` | `false` | Enable fast mode (skip validation, minimal delays) |
 | `AISIS_CONCURRENCY` | `8` | Departments to scrape in parallel (1-20) |

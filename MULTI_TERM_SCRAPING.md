@@ -47,7 +47,7 @@ const results = await scraper.scrapeMultipleTerms(['2024-2', '2025-0', '2025-1']
 
 ## Scrape Modes
 
-The scraper supports three modes via the `AISIS_SCRAPE_MODE` environment variable:
+The scraper supports four modes via the `AISIS_SCRAPE_MODE` environment variable:
 
 ### `current` (default)
 - Scrapes only the current term
@@ -57,18 +57,30 @@ The scraper supports three modes via the `AISIS_SCRAPE_MODE` environment variabl
 ### `future`
 - Scrapes only future terms (terms after the current term)
 - Useful for planning and pre-loading upcoming schedules
-- Used by the weekly workflow (Sundays at 2 AM)
+- **Note**: This mode may miss intersession terms (term `*-0`) if they have a code less than the current term
 
 ### `all`
 - Scrapes both current and future terms
 - Useful for comprehensive data collection
 - Available via manual workflow dispatch
 
+### `year` (recommended for weekly workflow)
+- Scrapes **all terms in the current term's academic year**
+- Based on the year portion of the term code (e.g., `2025-*` for all 2025 terms)
+- Includes intersession (term `*-0`), first semester (term `*-1`), and second semester (term `*-2`)
+- Used by the weekly workflow (`scrape-future-terms.yml`) to ensure all terms in the academic year are kept fresh
+- **Key benefit**: Reliably captures intersession terms that `future` mode might miss
+
+**Example**: If the current term is `2025-1` (First Semester 2025-2026):
+- `year` mode scrapes: `2025-0`, `2025-1`, `2025-2` (all 2025-* terms)
+- `future` mode scrapes: `2025-2`, `2026-0` (terms > `2025-1`)
+- Notice that `future` mode misses `2025-0` (intersession), while `year` mode includes it
+
 ## Environment Variables
 
 ### New Variables
 
-- `AISIS_SCRAPE_MODE`: Set to `current`, `future`, or `all` (default: `current`)
+- `AISIS_SCRAPE_MODE`: Set to `current`, `future`, `all`, or `year` (default: `current`)
 
 ### Existing Variables (unchanged)
 
@@ -167,9 +179,11 @@ In multi-term mode:
 ### Future Terms Workflow (scrape-future-terms.yml)
 
 - **Schedule**: Weekly on Sundays at 2 AM UTC
-- **Mode**: `future` (scrapes only future terms)
-- **Purpose**: Pre-load upcoming term schedules
-- **Manual Dispatch**: Supports choosing mode via dropdown
+- **Mode**: `year` (scrapes all terms in current academic year)
+- **Purpose**: Keep all terms in the current academic year fresh, including intersession (term `*-0`)
+- **Manual Dispatch**: Supports choosing mode via dropdown (`current`, `future`, `all`, `year`)
+
+**Note**: This workflow was previously set to `future` mode, but now defaults to `year` mode to ensure intersession terms are reliably scraped.
 
 ## Implementation Details
 
@@ -194,6 +208,12 @@ In multi-term mode:
 - Compares two term codes numerically
 - Returns: `<0` if a<b, `0` if a==b, `>0` if a>b
 - Handles invalid formats gracefully (falls back to string comparison)
+
+#### `getTermYear(termCode)`
+- Exported from `src/constants.js`
+- Extracts the year portion from a term code (e.g., `'2025-1'` → `'2025'`)
+- Returns `null` for invalid term code formats
+- Used by the `year` scrape mode to filter terms by academic year
 
 ## Baseline Tracking
 
@@ -225,14 +245,15 @@ The implementation maintains full backward compatibility:
 ### Network Requests
 
 Multi-term scraping makes more requests:
-- 1 request to discover available terms (if mode is `future` or `all`)
+- 1 request to discover available terms (if mode is `future`, `all`, or `year`)
 - N × M requests where N = number of terms, M = number of departments
 - Existing concurrency and batching controls still apply
 
 ### Recommendations
 
-- Use `future` mode for weekly runs (fewer terms than `all`)
+- Use `year` mode for weekly runs (scrapes all terms in the academic year, including intersession)
 - Use `current` mode for frequent updates (existing behavior)
+- Use `future` mode if you only want upcoming terms (but may miss intersession)
 - Consider adjusting `AISIS_CONCURRENCY` and `AISIS_BATCH_DELAY_MS` if needed
 
 ## Testing
@@ -240,6 +261,9 @@ Multi-term scraping makes more requests:
 To test multi-term functionality:
 
 ```bash
+# Run term year mode unit tests
+node tests/test-term-year-mode.js
+
 # Test term comparison
 node -e "import('./src/scraper.js').then(m => {
   console.log(m.compareTermCodes('2024-1', '2024-2')); // -1
@@ -247,8 +271,15 @@ node -e "import('./src/scraper.js').then(m => {
   console.log(m.compareTermCodes('2025-2', '2025-1')); // 1
 });"
 
-# Test discovery (requires valid credentials)
-AISIS_SCRAPE_MODE=future npm start
+# Test getTermYear helper
+node -e "import('./src/constants.js').then(m => {
+  console.log(m.getTermYear('2025-1')); // '2025'
+  console.log(m.getTermYear('2025-0')); // '2025'
+  console.log(m.getTermYear('invalid')); // null
+});"
+
+# Test year mode discovery (requires valid credentials)
+AISIS_SCRAPE_MODE=year npm start
 ```
 
 ## Known Limitations
