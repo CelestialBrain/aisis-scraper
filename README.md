@@ -685,7 +685,6 @@ Baseline files are stored in `logs/baselines/baseline-{term}.json` and track:
 | `GOOGLE_SERVICE_ACCOUNT` | - | Base64-encoded service account JSON |
 | `SPREADSHEET_ID` | - | Google Sheets spreadsheet ID |
 | `SUPABASE_CLIENT_BATCH_SIZE` | `2000` | Records per HTTP request to Supabase |
-| `SCHEDULE_SEND_CONCURRENCY` | `2` | Concurrent schedule batch sends (1-5) |
 | `CURRICULUM_SEND_GROUP_SIZE` | `10` | Programs grouped per HTTP request (1-50) |
 | `CURRICULUM_SEND_CONCURRENCY` | `2` | Concurrent curriculum group sends (1-5) |
 | **Term Configuration** | | |
@@ -705,6 +704,7 @@ Baseline files are stored in `logs/baselines/baseline-{term}.json` and track:
 | **Regression Detection** | | |
 | `BASELINE_DROP_THRESHOLD` | `5.0` | Regression alert threshold (%) |
 | `BASELINE_WARN_ONLY` | `true` | Warn only (don't fail job) on regression |
+| `REQUIRE_BASELINES` | `true` | Fail job if baselines artifact is missing (prevents data loss). See [docs/ingestion.md](docs/ingestion.md) |
 | **Debugging** | | |
 | `DEBUG_SCRAPER` | `false` | Enable detailed debug logging |
 
