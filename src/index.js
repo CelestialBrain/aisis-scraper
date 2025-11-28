@@ -3,7 +3,7 @@ import { SupabaseManager, chunkArray, processWithConcurrency, ALL_DEPARTMENTS_LA
 import { GoogleSheetsManager } from './sheets.js';
 import { BaselineManager } from './baseline.js';
 import { getTermYear } from './constants.js';
-import { getCurrentAndNextTerms, findNextAvailableTerm, formatTermLabel } from './term-utils.js';
+import { getNextTerm, findNextAvailableTerm, formatTermLabel } from './term-utils.js';
 import fs from 'fs';
 import 'dotenv/config';
 
@@ -122,21 +122,20 @@ async function main() {
       if (scrapeMode === 'current_next') {
         // Current + Next term mode: scrape current term and the next term in sequence
         // This is the recommended mode for high-frequency scheduled runs
-        const calculatedTerms = getCurrentAndNextTerms(currentTerm);
-        const nextTerm = findNextAvailableTerm(availableTerms, currentTerm);
+        const nextTermInAisis = findNextAvailableTerm(availableTerms, currentTerm);
         
         // Start with current term
         termsToScrape = [currentTerm];
         
         // Add next term if it exists in AISIS
-        if (nextTerm) {
-          termsToScrape.push(nextTerm);
-          console.log(`   🔮 Next term: ${nextTerm} (${formatTermLabel(nextTerm)})`);
+        if (nextTermInAisis) {
+          termsToScrape.push(nextTermInAisis);
+          console.log(`   🔮 Next term: ${nextTermInAisis} (${formatTermLabel(nextTermInAisis)})`);
         } else {
           // Check if calculated next term might be expected but not yet available
-          const expectedNext = calculatedTerms[1];
-          if (expectedNext) {
-            console.log(`   ℹ️  Next term ${expectedNext} not yet available in AISIS (will be scraped when published)`);
+          const expectedNextTerm = getNextTerm(currentTerm);
+          if (expectedNextTerm) {
+            console.log(`   ℹ️  Next term ${expectedNextTerm} not yet available in AISIS (will be scraped when published)`);
           }
         }
         

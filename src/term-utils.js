@@ -8,8 +8,6 @@
  * Academic year cycle: YYYY-0 (Intersession) → YYYY-1 (1st Sem) → YYYY-2 (2nd Sem) → (YYYY+1)-0
  */
 
-import { getTermYear } from './constants.js';
-
 /**
  * Get the next term code given a current term
  * 
