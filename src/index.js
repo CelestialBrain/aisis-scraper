@@ -2,6 +2,7 @@ import { AISISScraper, compareTermCodes } from './scraper.js';
 import { SupabaseManager, chunkArray, processWithConcurrency, ALL_DEPARTMENTS_LABEL } from './supabase.js';
 import { GoogleSheetsManager } from './sheets.js';
 import { BaselineManager } from './baseline.js';
+import { getTermYear } from './constants.js';
 import fs from 'fs';
 import 'dotenv/config';
 
@@ -80,6 +81,7 @@ async function main() {
     // 'current' (default) - scrape only current term
     // 'future' - scrape only future terms (after current)
     // 'all' - scrape both current and future terms
+    // 'year' - scrape all terms in the current term's academic year
     const scrapeMode = process.env.AISIS_SCRAPE_MODE || 'current';
     console.log(`\n📋 Scrape mode: ${scrapeMode}`);
     
@@ -97,7 +99,7 @@ async function main() {
       // Wrap in array for unified processing
       multiTermResults = [scrapeResult];
     } else {
-      // Multi-term mode (future or all)
+      // Multi-term mode (future, all, or year)
       console.log('🔍 Discovering available terms...');
       const termsDiscoveryStart = Date.now();
       const availableTerms = await scraper.getAvailableTerms();
@@ -127,8 +129,20 @@ async function main() {
           .map(t => t.value)
           .sort(compareTermCodes);
         console.log(`   📅 All terms to scrape (current + future): ${termsToScrape.join(', ')}`);
+      } else if (scrapeMode === 'year') {
+        // Year mode: scrape all terms in the current term's academic year
+        const currentYear = getTermYear(currentTerm);
+        if (!currentYear) {
+          throw new Error(`Could not extract year from current term: ${currentTerm}. Expected format: YYYY-S (e.g., '2025-1')`);
+        }
+        termsToScrape = availableTerms
+          .filter(t => getTermYear(t.value) === currentYear)
+          .map(t => t.value)
+          .sort(compareTermCodes);
+        console.log(`   📆 Year mode: scraping all terms in academic year ${currentYear}`);
+        console.log(`   📅 Terms in year ${currentYear} to scrape: ${termsToScrape.join(', ')}`);
       } else {
-        throw new Error(`Invalid AISIS_SCRAPE_MODE: ${scrapeMode}. Valid values: current, future, all`);
+        throw new Error(`Invalid AISIS_SCRAPE_MODE: ${scrapeMode}. Valid values: current, future, all, year`);
       }
       
       if (termsToScrape.length === 0) {

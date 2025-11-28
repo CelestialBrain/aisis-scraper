@@ -6,12 +6,13 @@ on:
       scrape_mode:
         description: 'Scrape mode'
         required: false
-        default: 'future'
+        default: 'year'
         type: choice
         options:
           - current
           - future
           - all
+          - year
   schedule:
     # Run weekly on Sundays at 2 AM UTC
     - cron: '0 2 * * 0'
@@ -43,7 +44,7 @@ jobs:
           path: logs/baselines/
         continue-on-error: true  # Don't fail if no previous baseline exists
 
-      - name: Run scraper (future terms)
+      - name: Run scraper (year mode by default)
         env:
           AISIS_USERNAME: ${{ secrets.AISIS_USERNAME }}
           AISIS_PASSWORD: ${{ secrets.AISIS_PASSWORD }}
@@ -51,8 +52,9 @@ jobs:
           DATA_INGEST_TOKEN: ${{ secrets.DATA_INGEST_TOKEN }}
           GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
-          # Scrape mode: 'future' by default, can be overridden via workflow input
-          AISIS_SCRAPE_MODE: ${{ github.event.inputs.scrape_mode || 'future' }}
+          # Scrape mode: 'year' by default (scrapes all terms in current academic year)
+          # Can be overridden via workflow input to: current, future, all, year
+          AISIS_SCRAPE_MODE: ${{ github.event.inputs.scrape_mode || 'year' }}
           # Optional: Performance tuning (default: 2000)
           # SUPABASE_CLIENT_BATCH_SIZE: '2000'
           # Optional: Regression detection (defaults: 5.0, true)

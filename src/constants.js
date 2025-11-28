@@ -149,3 +149,46 @@ export const COURSE_CODE_MAP = {
 export function applyCourseMappings(normalizedCode) {
   return COURSE_CODE_MAP[normalizedCode] || normalizedCode;
 }
+
+/**
+ * Extract the year portion from a term code
+ * 
+ * Term codes follow the format YYYY-N where:
+ * - YYYY is the academic year (e.g., 2024, 2025)
+ * - N is the semester: 0 (Intersession), 1 (First Semester), 2 (Second Semester)
+ * 
+ * @param {string} termCode - Term code (e.g., '2025-1')
+ * @returns {string|null} Year portion (e.g., '2025') or null if invalid format
+ * 
+ * @example
+ * getTermYear('2025-1')  // returns '2025'
+ * getTermYear('2025-0')  // returns '2025'
+ * getTermYear('invalid') // returns null
+ */
+export function getTermYear(termCode) {
+  if (!termCode || typeof termCode !== 'string') {
+    return null;
+  }
+  
+  const parts = termCode.split('-');
+  if (parts.length !== 2) {
+    return null;
+  }
+  
+  const year = parts[0];
+  const semester = parts[1];
+  
+  // Validate that year is a 4-digit number
+  if (!/^\d{4}$/.test(year)) {
+    return null;
+  }
+  
+  // Validate that semester is a single digit (0-9)
+  // Note: While AISIS typically uses 0 (intersession), 1 (first sem), 2 (second sem),
+  // we accept any single digit for flexibility with potential future term formats
+  if (!/^\d$/.test(semester)) {
+    return null;
+  }
+  
+  return year;
+}
