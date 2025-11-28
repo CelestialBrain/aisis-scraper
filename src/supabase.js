@@ -6,6 +6,10 @@ import { validateScheduleRecord, isHeaderLikeRecord, SAMPLE_INVALID_RECORDS_COUN
 const MULTI_PROGRAM_LABEL = 'MULTI_PROGRAM';
 const ALL_DEPARTMENTS_LABEL = 'ALL';
 
+// Valid university codes for multi-university support
+const VALID_UNIVERSITY_CODES = ['ADMU', 'ADDU'];
+const DEFAULT_UNIVERSITY_CODE = 'ADMU';
+
 /**
  * Split an array into chunks of specified size
  * @param {Array} items - Array to chunk
@@ -73,6 +77,16 @@ export class SupabaseManager {
     // Read from environment variable or fallback to parameter or default
     const baseUrl = supabaseUrl || process.env.SUPABASE_URL || 'https://npnringvuiystpxbntvj.supabase.co';
     this.url = `${baseUrl}/functions/v1/github-data-ingest`;
+    
+    // Multi-university support: read university code from environment, default to ADMU
+    const envUniversityCode = process.env.UNIVERSITY_CODE || DEFAULT_UNIVERSITY_CODE;
+    if (!VALID_UNIVERSITY_CODES.includes(envUniversityCode)) {
+      console.warn(`   ⚠️ Invalid UNIVERSITY_CODE "${envUniversityCode}", defaulting to ${DEFAULT_UNIVERSITY_CODE}. Valid codes: ${VALID_UNIVERSITY_CODES.join(', ')}`);
+      this.universityCode = DEFAULT_UNIVERSITY_CODE;
+    } else {
+      this.universityCode = envUniversityCode;
+    }
+    console.log(`   🏫 SupabaseManager initialized for university: ${this.universityCode}`);
   }
 
   /**
@@ -98,6 +112,8 @@ export class SupabaseManager {
       if (dataType === 'curriculum' && programCode && !record.program_code) {
         enriched.program_code = programCode;
       }
+      // Inject university_code for multi-university support
+      enriched.university_code = this.universityCode;
       return enriched;
     });
 
@@ -146,7 +162,7 @@ export class SupabaseManager {
       const replaceExisting = (dataType === 'schedules') ? isFirstBatchForTerm : null;
       
       if (dataType === 'schedules' && isFirstBatchForTerm) {
-        console.log(`   🔄 First batch for term ${termCode}: replace_existing=true (will clear old data)`);
+        console.log(`   🔄 First batch for term ${termCode}: replace_existing=true (will clear old schedule data for ${this.universityCode})`);
       } else if (dataType === 'schedules' && !isFirstBatchForTerm) {
         console.log(`   ➕ Subsequent batch: replace_existing=false (append mode)`);
       }
@@ -230,6 +246,9 @@ export class SupabaseManager {
    */
   buildMetadata(termCode = null, department = null, programCode = null, recordCount = null, replaceExisting = null, chunkIndex = null, totalChunks = null) {
     const metadata = {};
+    
+    // Add university code for multi-university support (critical for Edge Function to scope deletions)
+    metadata.university_code = this.universityCode;
     
     // Add context-specific metadata
     if (termCode) metadata.term_code = termCode;
@@ -413,7 +432,8 @@ export class SupabaseManager {
         level: item.level,
         remarks: item.remarks,
         max_capacity: this.safeInt(item.maxSlots),
-        term_code: item.term_code  // Preserve term_code from enriched record
+        term_code: item.term_code,  // Preserve term_code from enriched record
+        university_code: this.universityCode  // Multi-university support
       };
       
       // Check for header/placeholder rows
@@ -474,7 +494,8 @@ export class SupabaseManager {
         course_code: item.courseCode,
         course_description: item.description,
         units: this.safeFloat(item.units),
-        category: item.category || 'CORE'
+        category: item.category || 'CORE',
+        university_code: this.universityCode  // Multi-university support
       };
     });
   }
@@ -490,9 +511,10 @@ export class SupabaseManager {
         course_title: item.title || item.course_title,
         units: this.safeFloat(item.units),
         description: item.description || null,
-        school_id: item.school_id || 'ADMU', // Default to Ateneo
+        school_id: item.school_id || this.universityCode, // Default to current university
         department: item.department || null,
-        level: item.level || null
+        level: item.level || null,
+        university_code: this.universityCode  // Multi-university support
       };
     });
   }
@@ -514,7 +536,8 @@ export class SupabaseManager {
       course_title: row.course_title,
       units: row.units,
       prerequisites: row.prerequisites,
-      category: row.category
+      category: row.category,
+      university_code: this.universityCode  // Multi-university support
     };
   }
 
