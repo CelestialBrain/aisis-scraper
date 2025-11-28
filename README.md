@@ -497,13 +497,16 @@ Example output:
 
 ## How It Works
 
-- **GitHub Actions**: The project has two workflows:
-  - `.github/workflows/scrape-institutional-data.yml`: Runs every 6 hours to scrape class schedules
-  - `.github/workflows/scrape-curriculum.yml`: Runs weekly to scrape official curriculum data
+- **GitHub Actions**: The project has four workflows:
+  1. **AISIS – Class Schedule (Current Term)** (`.github/workflows/scrape-institutional-data.yml`): Runs every 6 hours to scrape class schedules for the current term
+  2. **AISIS – Class Schedule (Full Academic Year)** (`.github/workflows/aisis-schedule-full-year.yml`): Manual trigger to scrape all three semesters (intersession, first, second) for a specified academic year
+  3. **AISIS – Class Schedule (All Available Terms)** (`.github/workflows/scrape-future-terms.yml`): Runs weekly to scrape all terms in the current academic year
+  4. **AISIS – Degree Curricula (All Programs)** (`.github/workflows/scrape-curriculum.yml`): Runs weekly to scrape official curriculum data
 - **Scraper (`src/scraper.js`)**: This script uses `node-fetch` to perform direct HTTP requests and `cheerio` to parse the HTML, eliminating the need for a headless browser (Puppeteer). This makes the scraper significantly faster and more stable.
 - **Supabase Sync (`src/supabase.js`)**: This script transforms the scraped data and syncs it to Supabase via the `github-data-ingest` Edge Function endpoint.
 - **Main Scripts**:
-  - `src/index.js`: Entry point for scraping class schedules
+  - `src/index.js`: Entry point for scraping class schedules (current term or multi-term modes)
+  - `src/scrape-full-year.js`: Entry point for full academic year schedule scraping
   - `src/index-curriculum.js`: Entry point for scraping curriculum data
 
 ## Running Locally (for Testing)

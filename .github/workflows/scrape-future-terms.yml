@@ -1,4 +1,4 @@
-name: AISIS Future Terms Scrape
+name: AISIS – Class Schedule (All Available Terms)
 
 on:
   workflow_dispatch:
