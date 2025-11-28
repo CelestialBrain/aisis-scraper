@@ -5,13 +5,15 @@ This project contains a Node.js-based web scraper that automatically logs into A
 ## Features
 
 - **Automated Scraping**: Runs on a scheduled basis via GitHub Actions.
-- **Multi-Term Support**: Can scrape current term, future terms, all available terms, or **all terms in the current academic year** in one run. See [MULTI_TERM_SCRAPING.md](MULTI_TERM_SCRAPING.md).
+- **Multi-Term Support**: Can scrape current term, **current + next term** (new default), future terms, all available terms, or all terms in the current academic year in one run. See [MULTI_TERM_SCRAPING.md](MULTI_TERM_SCRAPING.md).
 - **Institutional Data Focus**: Scrapes class schedules and official curriculum data.
 - **Supabase Integration**: Automatically syncs data to Supabase via Edge Functions.
 - **Batched Sync Architecture**: Two-layer batching prevents 504 timeouts when syncing thousands of records.
 - **Secure Credential Management**: Uses GitHub Secrets for secure storage of credentials.
 - **Fast Mode**: Switched from Puppeteer to **Direct HTTP Requests (node-fetch + Cheerio)** for speed, stability, and low memory usage.
 - **Production-Grade**: Built with error handling, robust data transformation, and partial failure recovery.
+
+> **Note**: As of the latest update, the default `AISIS_SCRAPE_MODE` changed from `current` to `current_next`. This means the scraper now fetches both the current term and the next term by default. To restore the previous single-term behavior, set `AISIS_SCRAPE_MODE=current` in your environment.
 
 ## Data Categories Scraped
 
@@ -498,16 +500,17 @@ Example output:
 ## How It Works
 
 - **GitHub Actions**: The project has four workflows:
-  1. **AISIS – Class Schedule (Current Term)** (`.github/workflows/scrape-institutional-data.yml`): Runs every 6 hours to scrape class schedules for the current term
+  1. **AISIS – Class Schedule (Current + Next Term)** (`.github/workflows/scrape-institutional-data.yml`): Runs every 6 hours to scrape class schedules for **both the current term and the next term**. This is the primary operational workflow that keeps schedule data fresh. Each term is synced separately to the `github-data-ingest` function with `replace_existing: true` to safely replace existing data without cross-term issues.
   2. **AISIS – Class Schedule (Full Academic Year)** (`.github/workflows/aisis-schedule-full-year.yml`): Manual trigger to scrape all three semesters (intersession, first, second) for a specified academic year
   3. **AISIS – Class Schedule (All Available Terms)** (`.github/workflows/scrape-future-terms.yml`): Runs weekly to scrape all terms in the current academic year
   4. **AISIS – Degree Curricula (All Programs)** (`.github/workflows/scrape-curriculum.yml`): Runs weekly to scrape official curriculum data
 - **Scraper (`src/scraper.js`)**: This script uses `node-fetch` to perform direct HTTP requests and `cheerio` to parse the HTML, eliminating the need for a headless browser (Puppeteer). This makes the scraper significantly faster and more stable.
 - **Supabase Sync (`src/supabase.js`)**: This script transforms the scraped data and syncs it to Supabase via the `github-data-ingest` Edge Function endpoint.
 - **Main Scripts**:
-  - `src/index.js`: Entry point for scraping class schedules (current term or multi-term modes)
+  - `src/index.js`: Entry point for scraping class schedules (current term, current+next, or multi-term modes)
   - `src/scrape-full-year.js`: Entry point for full academic year schedule scraping
   - `src/index-curriculum.js`: Entry point for scraping curriculum data
+  - `src/term-utils.js`: Helpers for term code calculations (next term, etc.)
 
 ## Running Locally (for Testing)
 
@@ -688,7 +691,7 @@ Baseline files are stored in `logs/baselines/baseline-{term}.json` and track:
 | **Term Configuration** | | |
 | `AISIS_TERM` | Auto-detect | Override term code (e.g., `2025-1`) |
 | `APPLICABLE_PERIOD` | Auto-detect | Legacy term override (use `AISIS_TERM` instead) |
-| `AISIS_SCRAPE_MODE` | `current` | Scrape mode: `current`, `future`, `all`, or `year`. See [MULTI_TERM_SCRAPING.md](MULTI_TERM_SCRAPING.md) |
+| `AISIS_SCRAPE_MODE` | `current_next` | Scrape mode: `current`, `current_next`, `future`, `all`, or `year`. See [MULTI_TERM_SCRAPING.md](MULTI_TERM_SCRAPING.md) |
 | **Schedule Scraper Performance** | | |
 | `FAST_MODE` | `false` | Enable fast mode (skip validation, minimal delays) |
 | `AISIS_CONCURRENCY` | `8` | Departments to scrape in parallel (1-20) |

@@ -389,6 +389,30 @@ Breakdown for 3,783 courses:
 
 The scraper runs automatically via GitHub Actions with optimized defaults.
 
+### Workflows Overview
+
+| Workflow | Schedule | Mode | Purpose |
+|----------|----------|------|---------|
+| **AISIS – Class Schedule (Current + Next Term)** | Every 6 hours | `current_next` | Primary operational workflow - keeps current and upcoming terms fresh |
+| **AISIS – Class Schedule (All Available Terms)** | Weekly (Sunday 2 AM UTC) | `year` | Weekly comprehensive scrape of all terms in academic year |
+| **AISIS – Class Schedule (Full Academic Year)** | Manual only | Custom | On-demand full academic year scrape |
+| **AISIS – Degree Curricula (All Programs)** | Weekly (Sunday midnight UTC) | N/A | Curriculum data scrape |
+
+### Current + Next Term Workflow (Primary)
+
+The primary workflow (`scrape-institutional-data.yml`) now uses `current_next` mode by default:
+
+1. **Discovers available terms** from AISIS dropdown
+2. **Identifies current term** (selected option in AISIS)
+3. **Calculates next term** automatically using term-utils.js:
+   - `2025-0 → 2025-1` (Intersession → First Semester)
+   - `2025-1 → 2025-2` (First Semester → Second Semester)
+   - `2025-2 → 2026-0` (Second Semester → Next year's Intersession)
+4. **Scrapes both terms** using a shared AISIS session
+5. **Syncs each term separately** to `github-data-ingest` with `replace_existing: true`
+
+**Per-Term Ingestion**: Each term is sent in a separate POST request to the Edge Function with its own `metadata.term_code`. This ensures that when `replace_existing: true` is set, only that specific term's data is deleted before inserting the new data. This prevents accidental deletion of other terms' data.
+
 ### Required Secrets
 
 In GitHub repository settings > Secrets:
@@ -402,6 +426,28 @@ In GitHub repository settings > Secrets:
 Add these for further optimization:
 - `AISIS_TERM`: Skip term auto-detection (e.g., `2025-1`)
 - `SUPABASE_CLIENT_BATCH_SIZE`: Custom batch size (default: `2000`)
+
+### Adjusting Term Coverage
+
+To adjust which terms are scraped in the primary workflow:
+
+1. **Change mode** via workflow dispatch dropdown:
+   - `current_next`: Current + next term (default)
+   - `current`: Only current term
+   - `future`: Only future terms
+   - `all`: All available terms
+
+2. **Override via environment variable**:
+   ```yaml
+   env:
+     AISIS_SCRAPE_MODE: 'current'  # or 'current_next', 'future', 'all', 'year'
+   ```
+
+3. **For specific term override** (bypasses mode selection):
+   ```yaml
+   env:
+     AISIS_TERM: '2025-1'  # Forces single-term mode with this specific term
+   ```
 
 ## Rollback Plan
 
@@ -453,6 +499,7 @@ After successful deployment:
 
 - Edge Functions documentation: `supabase/functions/README.md`
 - Architecture details: `README.md` (Batching Architecture section)
+- Multi-term documentation: `MULTI_TERM_SCRAPING.md`
 - Supabase docs: https://supabase.com/docs/guides/functions
 - GitHub Issues: https://github.com/CelestialBrain/aisis-scraper/issues
 
