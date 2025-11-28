@@ -169,21 +169,35 @@ In multi-term mode:
 
 ## Workflows
 
-### Current Term Workflow (scrape-institutional-data.yml)
+### AISIS – Class Schedule (Current Term)
+
+**File**: `scrape-institutional-data.yml`
 
 - **Schedule**: Every 6 hours
 - **Mode**: `current` (scrapes only current term)
 - **Purpose**: Keep current term data fresh
 - **Manual Dispatch**: Supports choosing mode via dropdown
 
-### Future Terms Workflow (scrape-future-terms.yml)
+### AISIS – Class Schedule (Full Academic Year)
+
+**File**: `aisis-schedule-full-year.yml`
+
+- **Schedule**: Manual trigger only (workflow_dispatch)
+- **Mode**: Scrapes all three semesters for a specified academic year (`YYYY-0`, `YYYY-1`, `YYYY-2`)
+- **Purpose**: Comprehensive scrape of a complete academic year
+- **Manual Dispatch**: Accepts `target_year` input (defaults to current calendar year)
+- **Output**: Saves results to `logs/schedule-all-terms-{year}.json`
+
+### AISIS – Class Schedule (All Available Terms)
+
+**File**: `scrape-future-terms.yml`
 
 - **Schedule**: Weekly on Sundays at 2 AM UTC
 - **Mode**: `year` (scrapes all terms in current academic year)
 - **Purpose**: Keep all terms in the current academic year fresh, including intersession (term `*-0`)
 - **Manual Dispatch**: Supports choosing mode via dropdown (`current`, `future`, `all`, `year`)
 
-**Note**: This workflow was previously set to `future` mode, but now defaults to `year` mode to ensure intersession terms are reliably scraped.
+**Note**: This workflow was previously named "AISIS Future Terms Scrape" and set to `future` mode, but now defaults to `year` mode to ensure intersession terms are reliably scraped.
 
 ## Implementation Details
 

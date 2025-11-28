@@ -1,4 +1,4 @@
-name: AISIS Curriculum Scrape
+name: AISIS – Degree Curricula (All Programs)
 
 on:
   workflow_dispatch:
