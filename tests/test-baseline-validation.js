@@ -1,9 +1,15 @@
 /**
  * Test baseline requirement validation
  * 
- * This test verifies that when REQUIRE_BASELINES=true, the baseline manager
- * correctly fails fast if no baseline files exist. This prevents data loss
- * from accidental ingestion when baselines are missing.
+ * This test verifies that the baseline manager correctly handles various
+ * combinations of REQUIRE_BASELINES and BASELINE_WARN_ONLY settings:
+ * 
+ * - When REQUIRE_BASELINES=true and BASELINE_WARN_ONLY=false (strict mode):
+ *   Throw error if no baselines exist
+ * - When REQUIRE_BASELINES=true and BASELINE_WARN_ONLY=true (warn-only/bootstrap mode):
+ *   Warn but continue if no baselines exist
+ * - When REQUIRE_BASELINES=false:
+ *   Skip validation entirely
  */
 
 import fs from 'fs';
@@ -19,18 +25,25 @@ const TEST_BASELINE_DIR = '/tmp/test-baselines-' + Date.now();
 let passed = 0;
 let failed = 0;
 
-// Helper to clean up test directory
+// Helper to clean up test directory and reset environment
 function cleanup() {
   if (fs.existsSync(TEST_BASELINE_DIR)) {
     fs.rmSync(TEST_BASELINE_DIR, { recursive: true });
   }
 }
 
-// Test 1: validateBaselinesExist throws when REQUIRE_BASELINES=true and no baselines
-console.log('Test 1: Should throw when REQUIRE_BASELINES=true and no baselines exist');
+function resetEnv() {
+  delete process.env.REQUIRE_BASELINES;
+  delete process.env.BASELINE_WARN_ONLY;
+}
+
+// Test 1: validateBaselinesExist throws when REQUIRE_BASELINES=true, BASELINE_WARN_ONLY=false, and no baselines
+console.log('Test 1: Should throw when REQUIRE_BASELINES=true, BASELINE_WARN_ONLY=false, and no baselines exist (strict mode)');
 try {
   cleanup();
+  resetEnv();
   process.env.REQUIRE_BASELINES = 'true';
+  process.env.BASELINE_WARN_ONLY = 'false';
   
   const manager = new BaselineManager(TEST_BASELINE_DIR);
   
@@ -40,7 +53,7 @@ try {
     failed++;
   } catch (e) {
     if (e.message.includes('Baselines artifact')) {
-      console.log('✅ PASS: Correctly threw error when baselines missing');
+      console.log('✅ PASS: Correctly threw error when baselines missing in strict mode');
       passed++;
     } else {
       console.log('❌ FAIL: Wrong error message:', e.message);
@@ -49,12 +62,14 @@ try {
   }
 } finally {
   cleanup();
+  resetEnv();
 }
 
 // Test 2: validateBaselinesExist does not throw when REQUIRE_BASELINES=false
 console.log('\nTest 2: Should not throw when REQUIRE_BASELINES=false');
 try {
   cleanup();
+  resetEnv();
   process.env.REQUIRE_BASELINES = 'false';
   
   const manager = new BaselineManager(TEST_BASELINE_DIR);
@@ -69,13 +84,16 @@ try {
   }
 } finally {
   cleanup();
+  resetEnv();
 }
 
-// Test 3: validateBaselinesExist passes when baselines exist
-console.log('\nTest 3: Should not throw when baselines exist');
+// Test 3: validateBaselinesExist passes when REQUIRE_BASELINES=true, BASELINE_WARN_ONLY=true, and baselines exist
+console.log('\nTest 3: Should not throw when REQUIRE_BASELINES=true, BASELINE_WARN_ONLY=true, and baselines exist');
 try {
   cleanup();
+  resetEnv();
   process.env.REQUIRE_BASELINES = 'true';
+  process.env.BASELINE_WARN_ONLY = 'true';
   
   // Create the directory and a baseline file
   fs.mkdirSync(TEST_BASELINE_DIR, { recursive: true });
@@ -102,12 +120,37 @@ try {
   }
 } finally {
   cleanup();
+  resetEnv();
 }
 
-// Test 4: hasAnyBaselines returns false when no baselines
-console.log('\nTest 4: hasAnyBaselines should return false when empty');
+// Test 4: validateBaselinesExist does not throw when REQUIRE_BASELINES=true, BASELINE_WARN_ONLY=true (default), and no baselines (warn-only/bootstrap mode)
+console.log('\nTest 4: Should not throw when REQUIRE_BASELINES=true, BASELINE_WARN_ONLY=true, and no baselines exist (warn-only bootstrap mode)');
 try {
   cleanup();
+  resetEnv();
+  process.env.REQUIRE_BASELINES = 'true';
+  process.env.BASELINE_WARN_ONLY = 'true';
+  
+  const manager = new BaselineManager(TEST_BASELINE_DIR);
+  
+  try {
+    manager.validateBaselinesExist();
+    console.log('✅ PASS: No error thrown in warn-only bootstrap mode (warning emitted instead)');
+    passed++;
+  } catch (e) {
+    console.log('❌ FAIL: Should not have thrown in warn-only mode:', e.message);
+    failed++;
+  }
+} finally {
+  cleanup();
+  resetEnv();
+}
+
+// Test 5: hasAnyBaselines returns false when no baselines
+console.log('\nTest 5: hasAnyBaselines should return false when empty');
+try {
+  cleanup();
+  resetEnv();
   process.env.REQUIRE_BASELINES = 'false';
   
   const manager = new BaselineManager(TEST_BASELINE_DIR);
@@ -122,12 +165,14 @@ try {
   }
 } finally {
   cleanup();
+  resetEnv();
 }
 
-// Test 5: hasAnyBaselines returns true when baselines exist
-console.log('\nTest 5: hasAnyBaselines should return true when baselines exist');
+// Test 6: hasAnyBaselines returns true when baselines exist
+console.log('\nTest 6: hasAnyBaselines should return true when baselines exist');
 try {
   cleanup();
+  resetEnv();
   process.env.REQUIRE_BASELINES = 'false';
   
   // Create the directory and a baseline file
@@ -149,12 +194,14 @@ try {
   }
 } finally {
   cleanup();
+  resetEnv();
 }
 
-// Test 6: getConfigSummary includes requireBaselines
-console.log('\nTest 6: getConfigSummary should include requireBaselines');
+// Test 7: getConfigSummary includes requireBaselines
+console.log('\nTest 7: getConfigSummary should include requireBaselines');
 try {
   cleanup();
+  resetEnv();
   process.env.REQUIRE_BASELINES = 'true';
   
   const manager = new BaselineManager(TEST_BASELINE_DIR);
@@ -169,8 +216,7 @@ try {
   }
 } finally {
   cleanup();
-  // Reset env var
-  delete process.env.REQUIRE_BASELINES;
+  resetEnv();
 }
 
 // Summary
@@ -180,6 +226,9 @@ console.log(`   Total: ${passed + failed}`);
 console.log(`   ✅ Passed: ${passed}`);
 console.log(`   ❌ Failed: ${failed}`);
 console.log('═══════════════════════════════════════════════════════');
+
+// Final cleanup
+resetEnv();
 
 if (failed === 0) {
   console.log('\n✅ All tests passed!');
