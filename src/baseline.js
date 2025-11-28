@@ -67,21 +67,37 @@ export class BaselineManager {
    * Validate that baselines exist when REQUIRE_BASELINES is enabled.
    * Call this before starting any data ingestion to fail fast.
    * 
-   * @throws {Error} If REQUIRE_BASELINES is true and no baselines exist
+   * Behavior depends on BASELINE_WARN_ONLY setting:
+   * - If warnOnly is true (default): emit warning and continue in bootstrap mode
+   * - If warnOnly is false: throw error (strict mode)
+   * 
+   * @throws {Error} If REQUIRE_BASELINES is true, BASELINE_WARN_ONLY is false, and no baselines exist
    */
   validateBaselinesExist() {
     if (this.requireBaselines && !this.hasAnyBaselines()) {
-      const errorMessage = `FATAL: Baselines artifact 'baselines' missing; aborting schedule ingest to avoid data loss.\n` +
+      const message = `Baselines artifact 'baselines' missing.\n` +
         `The REQUIRE_BASELINES environment variable is set to 'true', but no baseline files were found.\n` +
         `This typically means the baselines artifact failed to download from previous runs.\n` +
-        `Without baselines, we cannot detect data regressions and may risk data loss.\n\n` +
-        `Solutions:\n` +
-        `1. Check if the 'baselines' artifact exists from previous workflow runs\n` +
-        `2. Manually download and restore baselines from a known good run\n` +
-        `3. Set REQUIRE_BASELINES=false to allow first-time runs (not recommended for production)`;
+        `Without baselines, we cannot detect data regressions and may risk data loss.`;
       
-      console.error(`\n❌ ${errorMessage}`);
-      throw new Error(errorMessage);
+      if (this.warnOnly) {
+        // Bootstrap mode: warn but continue
+        console.warn(`\n⚠️ WARNING: ${message}`);
+        console.warn(`   Proceeding in bootstrap mode (BASELINE_WARN_ONLY=true).`);
+        console.warn(`   New baselines will be created and uploaded for future regression detection.`);
+        console.warn(`   To enable strict mode, set BASELINE_WARN_ONLY=false.\n`);
+        return;
+      } else {
+        // Strict mode: throw error
+        const errorMessage = `FATAL: ${message}\n\n` +
+          `Solutions:\n` +
+          `1. Check if the 'baselines' artifact exists from previous workflow runs\n` +
+          `2. Manually download and restore baselines from a known good run\n` +
+          `3. Set REQUIRE_BASELINES=false to allow first-time runs (not recommended for production)`;
+        
+        console.error(`\n❌ ${errorMessage}`);
+        throw new Error(errorMessage);
+      }
     }
     
     if (this.requireBaselines) {

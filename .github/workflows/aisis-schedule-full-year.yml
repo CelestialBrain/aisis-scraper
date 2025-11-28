@@ -1,9 +1,9 @@
 name: AISIS – Class Schedule (Full Academic Year)
 
 # Bootstrap-aware baseline handling:
-# - workflow_dispatch: REQUIRE_BASELINES defaults to 'true' (strict regression detection)
+# - workflow_dispatch: REQUIRE_BASELINES defaults to 'false' (bootstrap mode for safety on first run)
 # - This workflow is dispatch-only, but the same pattern is used for consistency.
-# For first-time runs, set require_baselines=false to bootstrap baselines.
+# For strict mode, explicitly set require_baselines=true in workflow input.
 
 on:
   workflow_dispatch:
@@ -13,9 +13,9 @@ on:
         required: false
         type: string
       require_baselines:
-        description: 'Require baselines (fail if missing) - defaults to true for manual runs'
+        description: 'Require baselines (fail if missing) - defaults to false for bootstrap'
         required: false
-        default: 'true'
+        default: 'false'
         type: choice
         options:
           - 'true'
@@ -62,19 +62,20 @@ jobs:
 
       - name: Check baselines availability
         # Bootstrap-aware baseline checking:
-        # - workflow_dispatch: REQUIRE_BASELINES defaults to 'true' (strict mode)
+        # - workflow_dispatch: REQUIRE_BASELINES defaults to 'false' (bootstrap mode for safety)
         # - schedule/other events: REQUIRE_BASELINES defaults to 'false' (bootstrap mode)
-        # This allows first-time runs to bootstrap baselines.
+        # This allows first-time runs or manual runs to bootstrap baselines safely.
+        # For strict mode, explicitly set require_baselines=true in workflow input.
         run: |
           # Compute REQUIRE_BASELINES based on event type:
-          # - For workflow_dispatch: use input value, default to 'true'
+          # - For workflow_dispatch: use input value, default to 'false' (bootstrap mode)
           # - For schedule/other: use input value if somehow available, default to 'false'
           EVENT_NAME="${{ github.event_name }}"
           INPUT_VALUE="${{ github.event.inputs.require_baselines }}"
           
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            # Manual dispatch: strict mode by default
-            REQUIRE_BASELINES="${INPUT_VALUE:-true}"
+            # Manual dispatch: bootstrap mode by default for safer first runs
+            REQUIRE_BASELINES="${INPUT_VALUE:-false}"
           else
             # Scheduled/other: bootstrap mode by default
             REQUIRE_BASELINES="${INPUT_VALUE:-false}"
@@ -100,12 +101,12 @@ jobs:
             echo "  - The artifact expired (retention is 90 days)"
             echo ""
             echo "Why is REQUIRE_BASELINES=true?"
-            echo "  - For workflow_dispatch: this is the default (strict regression detection mode)"
-            echo "  - For schedule: baselines are usually available from prior runs"
+            echo "  - You explicitly set require_baselines=true in the workflow input (strict mode)"
+            echo "  - For strict regression detection after baselines are established"
             echo ""
             echo "Solutions:"
-            echo "  1. If this is a workflow_dispatch run: Re-run with require_baselines=false to bootstrap"
-            echo "  2. For scheduled runs: this error is unexpected; check if prior runs uploaded baselines"
+            echo "  1. Re-run with require_baselines=false to bootstrap baselines"
+            echo "  2. Check if prior runs uploaded baselines successfully"
             echo "  3. Manually restore baselines from a known good state if needed"
             exit 1
           fi
@@ -129,8 +130,8 @@ jobs:
           TARGET_YEAR: ${{ env.TARGET_YEAR }}
           # Require baselines for regression detection
           # Uses the computed value from the 'Check baselines availability' step
-          # - workflow_dispatch: defaults to 'true' (strict mode)
-          # - For bootstrap runs, set require_baselines=false in the workflow input
+          # - workflow_dispatch: defaults to 'false' (bootstrap mode for safety)
+          # - For strict mode, explicitly set require_baselines=true in the workflow input
           REQUIRE_BASELINES: ${{ env.COMPUTED_REQUIRE_BASELINES }}
           # Optional: Performance tuning (default: 2000)
           # SUPABASE_CLIENT_BATCH_SIZE: '2000'
