@@ -1,5 +1,10 @@
 name: AISIS – Class Schedule (Full Academic Year)
 
+# Bootstrap-aware baseline handling:
+# - workflow_dispatch: REQUIRE_BASELINES defaults to 'true' (strict regression detection)
+# - This workflow is dispatch-only, but the same pattern is used for consistency.
+# For first-time runs, set require_baselines=false to bootstrap baselines.
+
 on:
   workflow_dispatch:
     inputs:
@@ -8,7 +13,7 @@ on:
         required: false
         type: string
       require_baselines:
-        description: 'Require baselines (fail if missing)'
+        description: 'Require baselines (fail if missing) - defaults to true for manual runs'
         required: false
         default: 'true'
         type: choice
@@ -56,14 +61,33 @@ jobs:
         continue-on-error: true  # Don't fail here; we check below
 
       - name: Check baselines availability
-        # When REQUIRE_BASELINES is true and baselines failed to download,
-        # log a clear error and fail fast before any ingestion
+        # Bootstrap-aware baseline checking:
+        # - workflow_dispatch: REQUIRE_BASELINES defaults to 'true' (strict mode)
+        # - schedule/other events: REQUIRE_BASELINES defaults to 'false' (bootstrap mode)
+        # This allows first-time runs to bootstrap baselines.
         run: |
-          REQUIRE_BASELINES="${{ github.event.inputs.require_baselines || 'true' }}"
+          # Compute REQUIRE_BASELINES based on event type:
+          # - For workflow_dispatch: use input value, default to 'true'
+          # - For schedule/other: use input value if somehow available, default to 'false'
+          EVENT_NAME="${{ github.event_name }}"
+          INPUT_VALUE="${{ github.event.inputs.require_baselines }}"
+          
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            # Manual dispatch: strict mode by default
+            REQUIRE_BASELINES="${INPUT_VALUE:-true}"
+          else
+            # Scheduled/other: bootstrap mode by default
+            REQUIRE_BASELINES="${INPUT_VALUE:-false}"
+          fi
+          
           DOWNLOAD_OUTCOME="${{ steps.download-baselines.outcome }}"
           
+          echo "Event type: $EVENT_NAME"
           echo "Baselines download outcome: $DOWNLOAD_OUTCOME"
-          echo "REQUIRE_BASELINES: $REQUIRE_BASELINES"
+          echo "REQUIRE_BASELINES (computed): $REQUIRE_BASELINES"
+          
+          # Export for use in subsequent steps
+          echo "COMPUTED_REQUIRE_BASELINES=$REQUIRE_BASELINES" >> $GITHUB_ENV
           
           if [[ "$REQUIRE_BASELINES" == "true" && "$DOWNLOAD_OUTCOME" != "success" ]]; then
             echo ""
@@ -75,10 +99,14 @@ jobs:
             echo "  - Previous runs failed to upload baselines"
             echo "  - The artifact expired (retention is 90 days)"
             echo ""
+            echo "Why is REQUIRE_BASELINES=true?"
+            echo "  - For workflow_dispatch: this is the default (strict regression detection mode)"
+            echo "  - For schedule: baselines are usually available from prior runs"
+            echo ""
             echo "Solutions:"
-            echo "  1. For first-time setup: Re-run with require_baselines=false"
-            echo "  2. Check previous workflow runs for baselines artifact"
-            echo "  3. Manually restore baselines from a known good state"
+            echo "  1. If this is a workflow_dispatch run: Re-run with require_baselines=false to bootstrap"
+            echo "  2. For scheduled runs: this error is unexpected; check if prior runs uploaded baselines"
+            echo "  3. Manually restore baselines from a known good state if needed"
             exit 1
           fi
           
@@ -86,7 +114,8 @@ jobs:
             echo "✅ Baselines downloaded successfully"
             ls -la logs/baselines/ || true
           else
-            echo "ℹ️  No baselines found (first run or expired). Proceeding without baselines."
+            echo "ℹ️  No baselines found (first run or expired). Proceeding in bootstrap mode."
+            echo "   New baselines will be created and uploaded for future regression detection."
           fi
 
       - name: Run full year schedule scraper
@@ -98,9 +127,11 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
           TARGET_YEAR: ${{ env.TARGET_YEAR }}
-          # Require baselines for regression detection (default: true)
-          # Set to false for first-time runs or when intentionally resetting baselines
-          REQUIRE_BASELINES: ${{ github.event.inputs.require_baselines || 'true' }}
+          # Require baselines for regression detection
+          # Uses the computed value from the 'Check baselines availability' step
+          # - workflow_dispatch: defaults to 'true' (strict mode)
+          # - For bootstrap runs, set require_baselines=false in the workflow input
+          REQUIRE_BASELINES: ${{ env.COMPUTED_REQUIRE_BASELINES }}
           # Optional: Performance tuning (default: 2000)
           # SUPABASE_CLIENT_BATCH_SIZE: '2000'
         run: node src/scrape-full-year.js
@@ -113,6 +144,7 @@ jobs:
           name: baselines
           path: logs/baselines/
           retention-days: 90  # Keep baselines for 90 days
+          if-no-files-found: ignore  # Don't fail if baselines dir is empty (bootstrap case)
 
       - name: Upload schedule logs
         uses: actions/upload-artifact@v4
