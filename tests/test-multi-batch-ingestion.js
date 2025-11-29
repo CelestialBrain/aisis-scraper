@@ -29,7 +29,11 @@ process.env.GITHUB_EVENT_NAME = 'schedule';
 const capturedRequests = [];
 
 // Mock SupabaseManager that captures requests
+// Provide a test URL since SUPABASE_URL is now required
 class MockSupabaseManager extends SupabaseManager {
+  constructor(token) {
+    super(token, 'https://test.supabase.co');
+  }
   async sendRequest(dataType, records, termCode = null, department = null, programCode = null, replaceExisting = null, chunkIndex = null, totalChunks = null) {
     const metadata = this.buildMetadata(termCode, department, programCode, records.length, replaceExisting, chunkIndex, totalChunks);
     

@@ -74,8 +74,11 @@ export { ALL_DEPARTMENTS_LABEL };
 export class SupabaseManager {
   constructor(ingestToken, supabaseUrl = null) {
     this.ingestToken = ingestToken;
-    // Read from environment variable or fallback to parameter or default
-    const baseUrl = supabaseUrl || process.env.SUPABASE_URL || 'https://npnringvuiystpxbntvj.supabase.co';
+    // Read from argument or environment variable - no hardcoded fallback
+    const baseUrl = supabaseUrl || process.env.SUPABASE_URL;
+    if (!baseUrl) {
+      throw new Error('SUPABASE_URL is required. Please set it in your environment variables.');
+    }
     this.url = `${baseUrl}/functions/v1/github-data-ingest`;
     
     // Multi-university support: read university code from environment, default to ADMU

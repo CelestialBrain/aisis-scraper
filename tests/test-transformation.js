@@ -8,7 +8,8 @@ console.log('══════════════════════�
 console.log('🧪 Testing Transformation Validation');
 console.log('═══════════════════════════════════════════════════════\n');
 
-const supabase = new SupabaseManager('fake-token');
+// Provide a test URL since SUPABASE_URL is now required
+const supabase = new SupabaseManager('fake-token', 'https://test.supabase.co');
 
 // Test data with valid, header, and invalid records
 const testData = [
