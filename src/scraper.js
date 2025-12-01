@@ -1018,7 +1018,7 @@ export class AISISScraper {
         // Compute subject prefix counts for this department
         const subjectPrefixCounts = {};
         for (const course of courseList) {
-          const prefix = course.subjectCode.split(/[\s.]/)[0]; // Split on space or dot
+          const prefix = course.subjectCode.split(/[\s.\/]/)[0]; // Split on space, dot, or slash
           subjectPrefixCounts[prefix] = (subjectPrefixCounts[prefix] || 0) + 1;
         }
         
@@ -1371,10 +1371,10 @@ export class AISISScraper {
     }
     
     // Compute per-subject prefix counts for diagnostic purposes
-    // Subject prefix is the first "word" of subjectCode (e.g., "PEPC" from "PEPC 10")
+    // Subject prefix is the first "word" of subjectCode (e.g., "PEPC" from "PEPC 10", "NSTP" from "NSTP 11/CWTS")
     const subjectPrefixCounts = {};
     for (const course of courses) {
-      const prefix = course.subjectCode.split(/[\s.]/)[0]; // Split on space or dot
+      const prefix = course.subjectCode.split(/[\s.\/]/)[0]; // Split on space, dot, or slash
       subjectPrefixCounts[prefix] = (subjectPrefixCounts[prefix] || 0) + 1;
     }
     

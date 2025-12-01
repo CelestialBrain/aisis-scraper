@@ -129,7 +129,7 @@ async function testPESubjectParsing() {
   console.log('Test 4: Subject prefix breakdown');
   const subjectPrefixCounts = {};
   for (const course of courses) {
-    const prefix = course.subjectCode.split(/[\s.]/)[0];
+    const prefix = course.subjectCode.split(/[\s.\/]/)[0]; // Split on space, dot, or slash
     subjectPrefixCounts[prefix] = (subjectPrefixCounts[prefix] || 0) + 1;
   }
   
