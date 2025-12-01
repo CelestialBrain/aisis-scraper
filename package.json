@@ -9,7 +9,9 @@
     "dev": "node src/index.js",
     "curriculum": "node src/index-curriculum.js",
     "verify": "node src/verify-schedules.js",
-    "test": "node tests/test-parser.js"
+    "test": "node tests/test-parser.js",
+    "test:all": "node tests/test-parser.js && node tests/test-pe-subject-parsing.js",
+    "validate:subjects": "node src/validate-subjects.js"
   },
   "repository": {
     "type": "git",

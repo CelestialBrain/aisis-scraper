@@ -1,0 +1,126 @@
+<!-- Realistic AISIS schedule HTML fixture for PE department testing
+     Contains mixed subject prefixes to test parsing accuracy:
+     - PEPC courses (with and without dots in course numbers)
+     - NSTP courses (CWTS style)
+     - PHYED courses
+     - Header row (should be filtered)
+     
+     This fixture validates that:
+     1. _parseCourses correctly extracts all course types
+     2. No subject prefixes are inadvertently filtered
+     3. Courses with dots in numbers (e.g., PEPC 13.03) are preserved
+     4. transformScheduleData/validation doesn't filter valid PE courses
+-->
+<html>
+<body>
+<table class="needspadding">
+  <!-- Header row - should be filtered by isHeaderLikeRecord() -->
+  <tr>
+    <td class="text02">Subject Code</td>
+    <td class="text02">Section</td>
+    <td class="text02">Title</td>
+    <td class="text02">Units</td>
+    <td class="text02">Time</td>
+    <td class="text02">Room</td>
+    <td class="text02">Instructor</td>
+    <td class="text02">Max</td>
+    <td class="text02">Lang</td>
+    <td class="text02">Level</td>
+    <td class="text02">Free</td>
+    <td class="text02">Remarks</td>
+    <td class="text02">S</td>
+    <td class="text02">P</td>
+  </tr>
+  
+  <!-- PEPC 10 - no dot -->
+  <tr>
+    <td class="text02">PEPC 10</td>
+    <td class="text02">A</td>
+    <td class="text02">RHYTHMIC ACTIVITIES</td>
+    <td class="text02">2.0</td>
+    <td class="text02">T-TH 08:00-09:00</td>
+    <td class="text02">GYM-01</td>
+    <td class="text02">REYES, MARIA</td>
+    <td class="text02">30</td>
+    <td class="text02">ENGLISH</td>
+    <td class="text02">U</td>
+    <td class="text02">5</td>
+    <td class="text02"></td>
+    <td class="text02"></td>
+    <td class="text02"></td>
+  </tr>
+  
+  <!-- PEPC 13.03 - with dot -->
+  <tr>
+    <td class="text02">PEPC 13.03</td>
+    <td class="text02">B</td>
+    <td class="text02">BADMINTON</td>
+    <td class="text02">2.0</td>
+    <td class="text02">M-W 10:00-11:00</td>
+    <td class="text02">GYM-02</td>
+    <td class="text02">SANTOS, JUAN</td>
+    <td class="text02">25</td>
+    <td class="text02">ENGLISH</td>
+    <td class="text02">U</td>
+    <td class="text02">3</td>
+    <td class="text02"></td>
+    <td class="text02"></td>
+    <td class="text02"></td>
+  </tr>
+  
+  <!-- NSTP 11/CWTS - NSTP style course -->
+  <tr>
+    <td class="text02">NSTP 11/CWTS</td>
+    <td class="text02">N-SPM2</td>
+    <td class="text02">CWTS 1</td>
+    <td class="text02">3.0</td>
+    <td class="text02">SAT 13:00-16:00</td>
+    <td class="text02">LS-G05</td>
+    <td class="text02">GARCIA, PEDRO</td>
+    <td class="text02">40</td>
+    <td class="text02">ENGLISH</td>
+    <td class="text02">U</td>
+    <td class="text02">10</td>
+    <td class="text02"></td>
+    <td class="text02"></td>
+    <td class="text02"></td>
+  </tr>
+  
+  <!-- PHYED 100.20 - another variant -->
+  <tr>
+    <td class="text02">PHYED 100.20</td>
+    <td class="text02">C</td>
+    <td class="text02">FUNDAMENTALS OF BASKETBALL</td>
+    <td class="text02">2.0</td>
+    <td class="text02">T-TH 14:00-15:00</td>
+    <td class="text02">COURT-A</td>
+    <td class="text02">CRUZ, ANNA</td>
+    <td class="text02">30</td>
+    <td class="text02">ENGLISH</td>
+    <td class="text02">U</td>
+    <td class="text02">8</td>
+    <td class="text02"></td>
+    <td class="text02"></td>
+    <td class="text02"></td>
+  </tr>
+  
+  <!-- PEPC 15 - another PEPC without dot -->
+  <tr>
+    <td class="text02">PEPC 15</td>
+    <td class="text02">D</td>
+    <td class="text02">SWIMMING</td>
+    <td class="text02">2.0</td>
+    <td class="text02">M-W 14:00-15:00</td>
+    <td class="text02">POOL-01</td>
+    <td class="text02">LIM, JOSE</td>
+    <td class="text02">20</td>
+    <td class="text02">ENGLISH</td>
+    <td class="text02">U</td>
+    <td class="text02">2</td>
+    <td class="text02"></td>
+    <td class="text02"></td>
+    <td class="text02"></td>
+  </tr>
+</table>
+</body>
+</html>

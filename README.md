@@ -631,17 +631,42 @@ For more details, see `supabase/functions/README.md`.
 The scraper includes comprehensive tests to ensure all course patterns are correctly parsed:
 
 ```bash
-npm test  # Run all parser tests
+npm test         # Run basic parser tests
+npm run test:all # Run all parser tests including PE subject parsing
 node tests/test-real-world-patterns.js  # Test with real AISIS patterns
 ```
 
 The tests validate:
-- **Decimal course codes**: `ENE 13.03i`, `ENGL 298.66`
+- **Decimal course codes**: `ENE 13.03i`, `ENGL 298.66`, `PEPC 13.03`
 - **Complex section codes**: `WXY1`, `ST1A`, `PT-GRAD`, `THES/DISS1-8`
 - **0-unit enrollment objects**: `COMP`, `SUB-A`, `SUB-B`, `THES/DISS`, `YYY`, `ODEF`, `RESID`
 - **Special markers**: `TBA (~)` for special enrollment courses
 - **Graduate courses**: 200-300 level courses
 - **Lab sections**: `LAB1-VW`, `LAB2-VW`
+- **PE department subjects**: `PEPC 10`, `NSTP 11/CWTS`, `PHYED 100.20`
+
+### Subject Validation
+
+After scraping, validate subject distribution across departments:
+
+```bash
+npm run validate:subjects  # Analyze data/courses.json
+node src/validate-subjects.js data/custom-courses.json  # Custom path
+```
+
+This script:
+- Computes per-department course counts
+- Computes per-subject prefix breakdown (e.g., PEPC, NSTP, PHYED within PE department)
+- Identifies missing subject families in critical departments
+
+Example output:
+```
+📊 Per-Department Summary:
+PE     ( 79 courses): NSTP=79, PEPC=0, PHYED=0
+
+🔍 Critical Department Analysis:
+⚠️  PE: PEPC courses missing (count = 0)
+```
 
 ### Baseline Tracking
 
@@ -650,6 +675,7 @@ Baseline files are stored in `logs/baselines/baseline-{term}.json` and track:
 - Per-department record counts
 - Timestamp of scrape
 - GitHub Actions metadata (if running in CI)
+- **Optional**: Per-department subject prefix counts (when `TRACK_SUBJECT_PREFIXES=true`)
 
 **Important**: Baseline files are local and not committed to git. To preserve baselines across GitHub Actions runs:
 
@@ -705,8 +731,9 @@ Baseline files are stored in `logs/baselines/baseline-{term}.json` and track:
 | `BASELINE_DROP_THRESHOLD` | `5.0` | Regression alert threshold (%) |
 | `BASELINE_WARN_ONLY` | `true` | Warn only (don't fail job) on regression |
 | `REQUIRE_BASELINES` | `true` | Fail job if baselines artifact is missing (prevents data loss). See [docs/ingestion.md](docs/ingestion.md) |
+| `TRACK_SUBJECT_PREFIXES` | `false` | Track per-department subject prefix counts in baselines for regression detection |
 | **Debugging** | | |
-| `DEBUG_SCRAPER` | `false` | Enable detailed debug logging |
+| `DEBUG_SCRAPER` | `false` | Enable detailed debug logging including subject prefix breakdowns |
 
 ## License
 
