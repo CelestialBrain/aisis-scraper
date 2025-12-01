@@ -1,5 +1,5 @@
 import { AISISScraper } from '../src/scraper.js';
-import { isHeaderLikeRecord, validateScheduleRecord } from '../src/constants.js';
+import { isHeaderLikeRecord, validateScheduleRecord, getSubjectPrefix } from '../src/constants.js';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -129,7 +129,7 @@ async function testPESubjectParsing() {
   console.log('Test 4: Subject prefix breakdown');
   const subjectPrefixCounts = {};
   for (const course of courses) {
-    const prefix = course.subjectCode.split(/[\s.\/]/)[0]; // Split on space, dot, or slash
+    const prefix = getSubjectPrefix(course.subjectCode);
     subjectPrefixCounts[prefix] = (subjectPrefixCounts[prefix] || 0) + 1;
   }
   

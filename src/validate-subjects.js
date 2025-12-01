@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { getSubjectPrefix } from './constants.js';
 
 /**
  * Validation script for post-scrape subject analysis
@@ -13,15 +14,6 @@ import path from 'path';
  *   node src/validate-subjects.js
  *   node src/validate-subjects.js data/custom-courses.json
  */
-
-/**
- * Extract subject prefix from subjectCode
- * @param {string} subjectCode - Full subject code (e.g., "PEPC 10", "NSTP 11/CWTS")
- * @returns {string} Subject prefix (e.g., "PEPC", "NSTP")
- */
-function getSubjectPrefix(subjectCode) {
-  return subjectCode.split(/[\s.\/]/)[0]; // Split on space, dot, or slash
-}
 
 /**
  * Compute per-department subject prefix breakdown

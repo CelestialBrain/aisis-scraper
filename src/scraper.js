@@ -2,7 +2,7 @@ import fs from 'fs';
 import * as cheerio from 'cheerio';
 import { CookieJar } from 'tough-cookie';
 import crypto from 'crypto';
-import { DEPARTMENTS, isHeaderLikeRecord, SAMPLE_INVALID_RECORDS_COUNT } from './constants.js';
+import { DEPARTMENTS, isHeaderLikeRecord, SAMPLE_INVALID_RECORDS_COUNT, getSubjectPrefix } from './constants.js';
 
 // Use node-fetch directly instead of fetch-cookie
 const { default: fetch } = await import('node-fetch');
@@ -1018,7 +1018,7 @@ export class AISISScraper {
         // Compute subject prefix counts for this department
         const subjectPrefixCounts = {};
         for (const course of courseList) {
-          const prefix = course.subjectCode.split(/[\s.\/]/)[0]; // Split on space, dot, or slash
+          const prefix = getSubjectPrefix(course.subjectCode);
           subjectPrefixCounts[prefix] = (subjectPrefixCounts[prefix] || 0) + 1;
         }
         
@@ -1374,7 +1374,7 @@ export class AISISScraper {
     // Subject prefix is the first "word" of subjectCode (e.g., "PEPC" from "PEPC 10", "NSTP" from "NSTP 11/CWTS")
     const subjectPrefixCounts = {};
     for (const course of courses) {
-      const prefix = course.subjectCode.split(/[\s.\/]/)[0]; // Split on space, dot, or slash
+      const prefix = getSubjectPrefix(course.subjectCode);
       subjectPrefixCounts[prefix] = (subjectPrefixCounts[prefix] || 0) + 1;
     }
     
