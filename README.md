@@ -13,6 +13,7 @@ This project contains a Node.js-based web scraper that automatically logs into A
 - **Secure Credential Management**: Uses GitHub Secrets for secure storage of credentials.
 - **Fast Mode**: Switched from Puppeteer to **Direct HTTP Requests (node-fetch + Cheerio)** for speed, stability, and low memory usage.
 - **Production-Grade**: Built with error handling, robust data transformation, and partial failure recovery.
+- **🛡️ Data Loss Protection**: Comprehensive sanity checks and per-department baseline tracking prevent destructive syncs when AISIS misbehaves (e.g., returns wrong courses). See [Data Loss Protection](#data-loss-protection) below.
 
 > **Note**: As of the latest update, the default `AISIS_SCRAPE_MODE` changed from `current` to `current_next`. This means the scraper now fetches both the current term and the next term by default. To restore the previous single-term behavior, set `AISIS_SCRAPE_MODE=current` in your environment.
 
@@ -754,12 +755,116 @@ Baseline files are stored in `logs/baselines/baseline-{term}.json` and track:
 | `CURRICULUM_DELAY_MS` | `1000` | Delay between curriculum requests (0-5000ms) - **Balanced default** |
 | `CURRICULUM_CONCURRENCY` | `2` | Programs to scrape in parallel (1-10) - **Balanced default** |
 | **Regression Detection** | | |
-| `BASELINE_DROP_THRESHOLD` | `5.0` | Regression alert threshold (%) |
+| `BASELINE_DROP_THRESHOLD` | `5.0` | Overall regression alert threshold (%) |
+| `BASELINE_DEPT_DROP_THRESHOLD` | `0.5` | Per-department regression threshold (0.0-1.0 = 0%-100% drop) |
 | `BASELINE_WARN_ONLY` | `true` | Warn only (don't fail job) on regression |
 | `REQUIRE_BASELINES` | `true` | Fail job if baselines artifact is missing (prevents data loss). See [docs/ingestion.md](docs/ingestion.md) |
 | `TRACK_SUBJECT_PREFIXES` | `false` | Track per-department subject prefix counts in baselines for regression detection |
+| **Department Sanity Checks** | | |
+| `SCRAPER_MIN_MA_MATH` | `50` | Minimum MATH courses required for MA (Mathematics) department |
+| `SCRAPER_MIN_PE_COURSES` | `20` | Minimum total courses required for PE department |
+| `SCRAPER_MIN_NSTP_COURSES` | `10` | Minimum NSTP courses required for NSTP departments |
 | **Debugging** | | |
 | `DEBUG_SCRAPER` | `false` | Enable detailed debug logging including subject prefix breakdowns |
+
+## Data Loss Protection
+
+The scraper includes comprehensive safeguards to prevent data loss from AISIS misrouting or HTML quirks. These protections were implemented after a critical incident where the MA (Mathematics) department returned only 13 Korean-language courses instead of 300+ MATH courses, and the scraper used `replace_existing=true` to wipe out all correct data.
+
+### Department-Level Sanity Checks
+
+The scraper performs automatic sanity checks on critical departments during scraping:
+
+**MA (Mathematics) Department:**
+- Counts courses with `MATH` subject prefix
+- Requires minimum of 50 MATH courses (configurable via `SCRAPER_MIN_MA_MATH`)
+- If count is 0 or below threshold, scrape fails and department is marked as failed
+- Raw HTML is saved to `logs/` for debugging
+
+**PE (Physical Education) Department:**
+- Requires presence of `PEPC` and/or `PHYED` courses
+- Enforces minimum total course count (default: 20, configurable via `SCRAPER_MIN_PE_COURSES`)
+- Detects when required subject prefixes are missing
+
+**NSTP Departments:**
+- Requires minimum NSTP-prefixed courses (default: 10, configurable via `SCRAPER_MIN_NSTP_COURSES`)
+- Applies to both `NSTP (ADAST)` and `NSTP (OSCI)` departments
+
+When a sanity check fails:
+- The department scrape throws an error
+- The department is marked as `failed` in scrape summary
+- Department's courses are **excluded from Supabase sync**
+- Raw HTML response is saved to `logs/raw-sanity-check-failed-{term}-{dept}.html`
+- Clear error messages are logged for debugging
+
+### Per-Department Baseline Tracking
+
+The baseline system now tracks **per-department** statistics in addition to overall counts:
+
+- Stores baseline file: `logs/baselines/baseline-{term}-departments.json`
+- Tracks for each department:
+  - `row_count`: Number of courses
+  - `prefix_breakdown`: Count of courses by subject prefix (e.g., `MATH=305`, `PEPC=79`)
+- Detects regressions on a per-department basis before syncing to Supabase
+- Configurable drop threshold (default: 50% via `BASELINE_DEPT_DROP_THRESHOLD`)
+
+**Critical departments** (MA, PE, NSTP) that fail regression checks will **block** `replace_existing=true` behavior, preventing destructive syncs.
+
+### Supabase Sync Hardening
+
+Before syncing schedule data with `replace_existing=true`:
+
+1. **Pre-sync health check** validates all department data
+2. **Compares** current per-department counts against baselines
+3. **Detects critical regressions** (e.g., MA dropping from 305 to 13 courses)
+4. If critical departments fail health check:
+   - Sync is **aborted** to prevent data loss
+   - Clear error message explains which departments failed
+   - `replace_existing=true` is **never sent** to Supabase
+   - Existing good data in database is preserved
+
+### Raw HTML Snapshotting
+
+When sanity checks or health checks fail, the scraper automatically:
+- Creates `logs/` directory if it doesn't exist
+- Saves raw HTML response to timestamped file
+- Logs file path for manual inspection and debugging
+- Filename format: `logs/raw-{reason}-{term}-{dept}-{timestamp}.html`
+
+This allows maintainers to inspect exactly what AISIS returned and diagnose the root cause.
+
+### Configuration
+
+All sanity check thresholds are configurable via environment variables:
+
+```bash
+# MA (Mathematics) department
+SCRAPER_MIN_MA_MATH=50          # Minimum MATH courses
+
+# PE (Physical Education) department
+SCRAPER_MIN_PE_COURSES=20       # Minimum total courses
+
+# NSTP departments
+SCRAPER_MIN_NSTP_COURSES=10     # Minimum NSTP courses
+
+# Per-department regression threshold
+BASELINE_DEPT_DROP_THRESHOLD=0.5  # 50% drop triggers regression
+
+# Enable verbose logging
+DEBUG_SCRAPER=true
+```
+
+### Troubleshooting
+
+If you see sanity check failures:
+
+1. **Check logs** for error messages indicating which department failed and why
+2. **Inspect raw HTML** saved to `logs/` directory
+3. **Verify AISIS** is returning correct data via web browser
+4. **Adjust thresholds** if legitimate changes occurred (new semester, course restructuring)
+5. **Re-run scraper** once AISIS issue is resolved
+
+For more details on the baseline system and regression detection, see existing documentation on `BASELINE_DROP_THRESHOLD` and `BASELINE_WARN_ONLY`.
 
 ## License
 

@@ -261,6 +261,10 @@ async function main() {
         departmentCount: Object.keys(deptCounts).length
       });
       
+      // Also save per-department baseline for granular regression detection
+      const deptBaselineData = baselineManager.buildDepartmentBaselineData(deptResults);
+      baselineManager.saveDepartmentBaseline(term, deptBaselineData);
+      
       // Check if we should fail the job due to regression
       if (baselineManager.shouldFailJob(comparisonResult)) {
         console.error(`\n❌ REGRESSION DETECTED for term ${term}: Total record count dropped significantly`);
@@ -338,6 +342,10 @@ async function main() {
       for (const { term, deptResults } of allTermsData) {
         console.log(`\n   📅 Syncing term: ${term}`);
         
+        // Perform pre-sync health check to validate department data
+        // This prevents data loss from AISIS misrouting or HTML quirks
+        const healthCheck = supabase.validateDepartmentHealth(term, deptResults, baselineManager);
+        
         // Collect all enriched and transformed courses across all departments for this term
         const allCleanCourses = [];
         for (const { department, courses } of deptResults) {
@@ -350,17 +358,24 @@ async function main() {
         
         // Sync all courses for this term in a single call
         // syncToSupabase handles batching internally and ensures:
-        // - First batch: replace_existing=true (clears old term data)
+        // - First batch: replace_existing=true (clears old term data) - UNLESS health check failed
         // - Subsequent batches: replace_existing=false (appends)
         // - Sequential processing to prevent race conditions
-        const success = await supabase.syncToSupabase('schedules', allCleanCourses, term, ALL_DEPARTMENTS_LABEL);
-        
-        if (success) {
-          totalSuccessCount += allCleanCourses.length;
-          console.log(`   ✅ Term ${term} sync complete: ${allCleanCourses.length} records synced`);
-        } else {
+        // Pass health check result to control replace_existing behavior
+        try {
+          const success = await supabase.syncToSupabase('schedules', allCleanCourses, term, ALL_DEPARTMENTS_LABEL, null, healthCheck);
+          
+          if (success) {
+            totalSuccessCount += allCleanCourses.length;
+            console.log(`   ✅ Term ${term} sync complete: ${allCleanCourses.length} records synced`);
+          } else {
+            totalFailureCount += allCleanCourses.length;
+            console.error(`   ❌ Term ${term} sync failed`);
+          }
+        } catch (error) {
+          // Health check aborted sync - log and continue
+          console.error(`   ❌ Term ${term} sync aborted: ${error.message}`);
           totalFailureCount += allCleanCourses.length;
-          console.error(`   ❌ Term ${term} sync failed`);
         }
       }
       
