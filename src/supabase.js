@@ -712,6 +712,37 @@ export class SupabaseManager {
   }
 
   /**
+   * Build a program object for the new programs array format
+   * @private
+   * @param {Object} batch - Batch object containing deg_code, program_code, curriculum_version, courses, metadata
+   * @returns {Object} Program object with deg_code, program_code, program_title, version_year, version_sem, courses
+   */
+  _buildProgramObject(batch) {
+    const { deg_code, program_code, curriculum_version, courses, metadata } = batch;
+    
+    // Transform courses to match the Supabase schema
+    const transformedCourses = courses.map(row => this._transformCurriculumCourse(row));
+    
+    // Parse version into year and semester
+    // curriculum_version format: "2024_1" -> year: 2024, sem: 1
+    const versionParts = curriculum_version ? curriculum_version.split('_') : [];
+    const versionYear = versionParts.length > 0 ? parseInt(versionParts[0], 10) : null;
+    const versionSem = versionParts.length > 1 ? parseInt(versionParts[1], 10) : null;
+    
+    // Get program title from metadata or first course
+    const programTitle = metadata.program_name || (courses.length > 0 ? courses[0].program_title : null);
+    
+    return {
+      deg_code: deg_code,
+      program_code: program_code,
+      program_title: programTitle,
+      version_year: versionYear,
+      version_sem: versionSem,
+      courses: transformedCourses
+    };
+  }
+
+  /**
    * Send curriculum batch(es) to Supabase
    * 
    * Supports two modes:
@@ -737,7 +768,8 @@ export class SupabaseManager {
     
     // Single batch mode (updated for consistency with programs format)
     if (batches.length === 1) {
-      const { deg_code, program_code, curriculum_version, courses, metadata } = batches[0];
+      const batch = batches[0];
+      const { deg_code, program_code, curriculum_version, courses, metadata } = batch;
 
       if (!deg_code || !courses || courses.length === 0) {
         console.warn(`   ⚠️ Skipping empty batch for ${deg_code || 'unknown program'}`);
@@ -749,27 +781,8 @@ export class SupabaseManager {
       console.log(`      Courses: ${courses.length}`);
       console.log(`      Metadata: scraped=${metadata.total_courses_scraped}, deduped=${metadata.deduplication_removed}, invalid=${metadata.invalid_courses_count}`);
 
-      // Transform courses to match the Supabase schema
-      const transformedCourses = courses.map(row => this._transformCurriculumCourse(row));
-
-      // Parse version into year and semester
-      // curriculum_version format: "2024_1" -> year: 2024, sem: 1
-      const versionParts = curriculum_version ? curriculum_version.split('_') : [];
-      const versionYear = versionParts.length > 0 ? parseInt(versionParts[0], 10) : null;
-      const versionSem = versionParts.length > 1 ? parseInt(versionParts[1], 10) : null;
-      
-      // Get program title from metadata or first course
-      const programTitle = metadata.program_name || (courses.length > 0 ? courses[0].program_title : null);
-
-      // Build program object with self-describing structure
-      const programObj = {
-        deg_code: deg_code,
-        program_code: program_code,
-        program_title: programTitle,
-        version_year: versionYear,
-        version_sem: versionSem,
-        courses: transformedCourses
-      };
+      // Build program object using helper method
+      const programObj = this._buildProgramObject(batch);
 
       // Build the payload with new programs array format (single program wrapped in array)
       const payload = {
@@ -826,7 +839,7 @@ export class SupabaseManager {
     const programCodes = [];
     
     for (const batch of batches) {
-      const { deg_code, program_code, curriculum_version, courses, metadata } = batch;
+      const { deg_code, courses, metadata } = batch;
       
       if (!deg_code || !courses || courses.length === 0) {
         console.warn(`   ⚠️ Skipping empty batch for ${deg_code || 'unknown program'} in group`);
@@ -841,28 +854,8 @@ export class SupabaseManager {
       totalDeduplicationRemoved += metadata.deduplication_removed || 0;
       totalInvalidCourses += metadata.invalid_courses_count || 0;
       
-      // Transform courses to match the Supabase schema
-      const transformedCourses = courses.map(row => this._transformCurriculumCourse(row));
-      
-      // Parse version into year and semester
-      // curriculum_version format: "2024_1" -> year: 2024, sem: 1
-      const versionParts = curriculum_version ? curriculum_version.split('_') : [];
-      const versionYear = versionParts.length > 0 ? parseInt(versionParts[0], 10) : null;
-      const versionSem = versionParts.length > 1 ? parseInt(versionParts[1], 10) : null;
-      
-      // Get program title from metadata or first course
-      const programTitle = metadata.program_name || (courses.length > 0 ? courses[0].program_title : null);
-      
-      // Build program object with self-describing structure
-      const programObj = {
-        deg_code: deg_code,
-        program_code: program_code,
-        program_title: programTitle,
-        version_year: versionYear,
-        version_sem: versionSem,
-        courses: transformedCourses
-      };
-      
+      // Build program object using helper method
+      const programObj = this._buildProgramObject(batch);
       programs.push(programObj);
     }
     
