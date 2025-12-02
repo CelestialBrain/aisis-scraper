@@ -1833,16 +1833,15 @@ export class AISISScraper {
       ? process.env.CURRICULUM_SAMPLE.split(',').map(s => s.trim()).filter(s => s)
       : null;
     
-    // Balanced defaults: Safe but not painfully slow
-    // Fast mode uses 300ms (aggressive but tested)
-    // Normal mode uses 300ms (balanced - faster than previous 1000ms default)
-    const defaultCurriculumDelay = fastMode ? 300 : 300;
+    // Fast mode defaults: optimized for speed while maintaining safety
+    // Both fast mode and normal mode now use 300ms (faster than previous 1000ms default)
+    const defaultCurriculumDelay = 300;
     const curriculumDelayEnv = parseInt(process.env.CURRICULUM_DELAY_MS, 10);
     const curriculumDelayMs = isNaN(curriculumDelayEnv) 
       ? defaultCurriculumDelay 
       : Math.max(0, curriculumDelayEnv);
     
-    // Balanced defaults: Moderate parallelism for better performance
+    // Fast mode defaults: Moderate parallelism for better performance
     // Concurrency 6 provides good speedup while staying within AISIS limits (max 10)
     // Still uses _scrapeDegreeWithValidation to prevent AISIS session bleed
     const defaultCurriculumConcurrency = 6;
