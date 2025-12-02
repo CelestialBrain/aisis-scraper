@@ -1833,18 +1833,18 @@ export class AISISScraper {
       ? process.env.CURRICULUM_SAMPLE.split(',').map(s => s.trim()).filter(s => s)
       : null;
     
-    // Fast mode defaults: optimized for speed while maintaining safety
-    // Both fast mode and normal mode now use 300ms (faster than previous 1000ms default)
-    const defaultCurriculumDelay = 300;
+    // Balanced defaults: optimized for reliability while maintaining reasonable performance
+    // Fast mode uses 500ms, normal mode uses 1000ms (previous stable balanced settings)
+    const defaultCurriculumDelay = fastMode ? 500 : 1000;
     const curriculumDelayEnv = parseInt(process.env.CURRICULUM_DELAY_MS, 10);
     const curriculumDelayMs = isNaN(curriculumDelayEnv) 
       ? defaultCurriculumDelay 
       : Math.max(0, curriculumDelayEnv);
     
-    // Fast mode defaults: Moderate parallelism for better performance
-    // Concurrency 6 provides good speedup while staying within AISIS limits (max 10)
-    // Still uses _scrapeDegreeWithValidation to prevent AISIS session bleed
-    const defaultCurriculumConcurrency = 6;
+    // Balanced defaults: Conservative concurrency to prevent AISIS session bleed
+    // Concurrency 2 provides parallel scraping while minimizing session bleed issues
+    // All requests use _scrapeDegreeWithValidation to prevent AISIS session bleed
+    const defaultCurriculumConcurrency = 2;
     const curriculumConcurrencyEnv = parseInt(process.env.CURRICULUM_CONCURRENCY, 10);
     const curriculumConcurrency = isNaN(curriculumConcurrencyEnv) 
       ? defaultCurriculumConcurrency 
@@ -1859,23 +1859,23 @@ export class AISISScraper {
     // Show delay configuration with warnings
     if (process.env.CURRICULUM_DELAY_MS !== undefined) {
       console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (override)`);
-      if (curriculumDelayMs < 300) {
-        console.warn(`      ⚠️  Very low delay may increase risk of AISIS session bleed`);
+      if (curriculumDelayMs < 500) {
+        console.warn(`      ⚠️  Low delay may increase risk of AISIS session bleed`);
       }
     } else if (fastMode) {
       console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (FAST_MODE)`);
     } else {
-      console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (default - fast mode)`);
+      console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (default - balanced mode)`);
     }
     
     // Show concurrency configuration with warnings
     if (process.env.CURRICULUM_CONCURRENCY !== undefined) {
       console.log(`   📊 CURRICULUM_CONCURRENCY: ${curriculumConcurrency} (override, max: 10)`);
-      if (curriculumConcurrency > 6) {
-        console.warn(`      ⚠️  High concurrency (>6) may increase risk of AISIS session bleed`);
+      if (curriculumConcurrency > 4) {
+        console.warn(`      ⚠️  High concurrency (>4) may increase risk of AISIS session bleed`);
       }
     } else {
-      console.log(`   📊 CURRICULUM_CONCURRENCY: ${curriculumConcurrency} (default - fast mode with validation)`);
+      console.log(`   📊 CURRICULUM_CONCURRENCY: ${curriculumConcurrency} (default - balanced mode with validation)`);
     }
     console.log('');
 

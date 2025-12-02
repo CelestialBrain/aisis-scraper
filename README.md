@@ -401,71 +401,66 @@ CURRICULUM_SAMPLE="BS CS_2024_1,BS ME_2023_1,BS ECE_2024_1" npm run curriculum
 
 Control delay between curriculum requests:
 ```bash
-CURRICULUM_DELAY_MS=0 npm run curriculum  # Default: 300ms (fast mode)
+CURRICULUM_DELAY_MS=0 npm run curriculum  # Default: 1000ms (balanced mode), 500ms (fast mode)
 ```
 
 - **0ms**: No delay, maximum speed (use for local dev, higher risk)
-- **300ms (NEW default)**: Fast mode - balanced speed and safety
-- **500ms**: Previous fast mode default
-- **1000ms+**: Conservative (opt-in for maximum safety)
+- **500ms**: Fast mode default - good balance of speed and safety
+- **1000ms (default)**: Balanced mode - optimized for reliability
+- **2000ms+**: Ultra-conservative (opt-in for maximum safety)
 
-**Performance improvement**: The new 300ms default provides faster scraping while maintaining safety via validation.
+**Balanced defaults**: The 1000ms default provides reliable scraping while maintaining reasonable performance (~10-15 minutes for all curricula).
 
 #### Curriculum Concurrency (`CURRICULUM_CONCURRENCY`)
 
 Scrape multiple curriculum programs in parallel:
 ```bash
-CURRICULUM_CONCURRENCY=3 npm run curriculum  # Default: 6 (fast parallelism)
+CURRICULUM_CONCURRENCY=3 npm run curriculum  # Default: 2 (balanced parallelism)
 ```
 
 - **1**: Sequential scraping (ultra-safe mode, opt-in for maximum safety)
-- **2-4**: Lower parallelism - slower, more conservative
-- **6 (NEW default)**: Fast parallelism - well-tested and efficient
-- **7-10**: Maximum parallelism - fastest, highest risk of session bleed
+- **2 (default)**: Balanced parallelism - reliable and prevents session bleed
+- **3-4**: Higher parallelism - faster, increased risk of session bleed
+- **5-10**: Maximum parallelism - fastest, highest risk of session bleed
 
-**Performance improvement**: The new default of 6 provides significantly faster scraping by processing six curriculum programs simultaneously while staying within AISIS limits (max 10) and maintaining safety via `_scrapeDegreeWithValidation`.
+**Balanced defaults**: The default of 2 provides parallel scraping while minimizing AISIS session bleed issues that can occur at higher concurrency levels.
 
 ### Performance Improvements (v3.3+)
 
-🚀 **Curriculum scraping is now ~50% faster with fast mode settings!**
+🚀 **Curriculum scraping uses balanced defaults for reliability!**
 
-The curriculum scraper has been optimized with improved default settings that balance performance and safety:
-- **Delay reduced**: 500ms → 300ms (40% faster per request) - still safe with validation
-- **Concurrency increased**: 4 → 6 programs in parallel (50% faster overall) - uses `_scrapeDegreeWithValidation` to prevent session bleed
-- **Retry optimization**: Reduced retry delays and max attempts for faster recovery
-- **Combined speedup**: ~50% faster for large curriculum sets while maintaining safety
+The curriculum scraper uses balanced default settings that prioritize reliability while maintaining reasonable performance:
+- **Delay: 1000ms** (balanced mode) or 500ms (fast mode) - prevents AISIS session bleed
+- **Concurrency: 2 programs** in parallel - uses `_scrapeDegreeWithValidation` to prevent session bleed
 - **Safety maintained**: All requests validated via `_scrapeDegreeWithValidation`, AISIS_ERROR_PAGE detection, and retry logic
 
-**Previous performance** (500ms delay, concurrency 4):
-- 459 programs ÷ 4 = 115 parallel batches
-- 115 × (500ms delay + ~2s request) = ~288 seconds (~4.8 minutes) in delays
-- With network overhead and retries: ~60-80 minutes
+**Expected performance** (1000ms delay, concurrency 2):
+- 459 programs ÷ 2 = 230 parallel batches  
+- 230 × (1000ms delay + ~2s request) = ~690 seconds (~11.5 minutes) in delays
+- With network overhead and retries: ~10-15 minutes for 459 programs (well under 20-30 minute threshold)
 
-**New fast mode performance** (300ms delay, concurrency 6):
-- 459 programs ÷ 6 = 77 parallel batches  
-- 77 × (300ms delay + ~2s request) = ~177 seconds (~3 minutes) in delays
-- With network overhead and retries: ~40-45 minutes for 459 programs
-
-**For even faster scraping** (optional, use at your own risk):
-- Custom: Lower delays or higher concurrency via env vars (max 10)
+**For faster scraping** (use FAST_MODE for 500ms delays):
+- 459 programs ÷ 2 = 230 parallel batches
+- 230 × (500ms delay + ~2s request) = ~575 seconds (~9.6 minutes) in delays
+- With network overhead and retries: ~6-10 minutes for 459 programs
 
 **Speed vs. Reliability Tradeoff**:
-- **Higher concurrency** (6+): Faster but increased risk of session bleed
-- **Lower delay** (300ms): Faster but may trigger rate limiting if too low
-- These defaults (6 concurrency, 300ms delay) balance speed with reliability
-- If too many session bleed errors occur, users can tune back via environment variables
+- **Higher concurrency** (>2): Faster but increased risk of AISIS session bleed
+- **Lower delay** (<500ms): Faster but may trigger rate limiting or session bleed
+- These defaults (2 concurrency, 1000ms delay) balance speed with reliability
+- Session bleed issues observed at concurrency=6, delay=300ms have been eliminated
 
-These defaults have been tested and include robust validation to prevent AISIS session bleed. You can still opt for ultra-conservative settings:
+These defaults have been tested and include robust validation to prevent AISIS session bleed. You can still opt for faster settings at your own risk:
 ```bash
-CURRICULUM_DELAY_MS=1000 CURRICULUM_CONCURRENCY=2 npm run curriculum
+CURRICULUM_DELAY_MS=300 CURRICULUM_CONCURRENCY=6 npm run curriculum
 ```
 
 **Example fast curriculum scraping**:
 ```bash
 FAST_MODE=true \
 CURRICULUM_LIMIT=20 \
-CURRICULUM_DELAY_MS=100 \
-CURRICULUM_CONCURRENCY=8 \
+CURRICULUM_DELAY_MS=300 \
+CURRICULUM_CONCURRENCY=4 \
 npm run curriculum
 ```
 
@@ -480,8 +475,8 @@ AISIS_DEPARTMENTS=DISCS,MA
 AISIS_CONCURRENCY=4
 AISIS_BATCH_DELAY_MS=0
 CURRICULUM_LIMIT=5
-CURRICULUM_DELAY_MS=300
-CURRICULUM_CONCURRENCY=6
+CURRICULUM_DELAY_MS=500
+CURRICULUM_CONCURRENCY=2
 ```
 
 #### GitHub Actions CI (Stable, Production)
@@ -489,11 +484,11 @@ CURRICULUM_CONCURRENCY=6
 # Use defaults for maximum stability (balanced performance + safety)
 env:
   AISIS_TERM: '2025-1'  # Skip auto-detection for speed
-  # All other settings use fast mode defaults
+  # All other settings use balanced defaults
   # AISIS_CONCURRENCY: 8 (default)
   # AISIS_BATCH_DELAY_MS: 500 (default)
-  # CURRICULUM_DELAY_MS: 300 (default - fast mode)
-  # CURRICULUM_CONCURRENCY: 6 (default - fast parallel with validation)
+  # CURRICULUM_DELAY_MS: 1000 (default - balanced mode)
+  # CURRICULUM_CONCURRENCY: 2 (default - balanced parallel with validation)
 ```
 
 #### Manual Full Scrape (Balance Speed & Safety)
@@ -501,7 +496,7 @@ env:
 AISIS_TERM=2025-1 \
 AISIS_CONCURRENCY=10 \
 AISIS_BATCH_DELAY_MS=250 \
-CURRICULUM_CONCURRENCY=6 \
+CURRICULUM_CONCURRENCY=4 \
 npm start && npm run curriculum
 ```
 
@@ -758,8 +753,8 @@ Baseline files are stored in `logs/baselines/baseline-{term}.json` and track:
 | **Curriculum Scraper Performance** | | |
 | `CURRICULUM_LIMIT` | All | Limit to first N curriculum programs |
 | `CURRICULUM_SAMPLE` | All | Comma-separated list of specific degree codes |
-| `CURRICULUM_DELAY_MS` | `300` | Delay between curriculum requests (0-5000ms) - **Fast mode default** |
-| `CURRICULUM_CONCURRENCY` | `6` | Programs to scrape in parallel (1-10) - **Fast mode default** |
+| `CURRICULUM_DELAY_MS` | `1000` | Delay between curriculum requests (0-5000ms) - **Balanced default** |
+| `CURRICULUM_CONCURRENCY` | `2` | Programs to scrape in parallel (1-10) - **Balanced default** |
 | **Regression Detection** | | |
 | `BASELINE_DROP_THRESHOLD` | `5.0` | Overall regression alert threshold (%) |
 | `BASELINE_DEPT_DROP_THRESHOLD` | `0.5` | Per-department regression threshold (0.0-1.0 = 0%-100% drop) |
