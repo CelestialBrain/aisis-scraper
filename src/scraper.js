@@ -779,8 +779,8 @@ export class AISISScraper {
     // Log which source was used for departments
     if (availableDepartments.length > 0) {
       console.log(`   ✅ Using ${departments.length} departments from AISIS dropdown (dynamic discovery)`);
-      if (departments.length > DEPARTMENTS.length) {
-        const newDepts = departments.filter(d => !DEPARTMENTS.includes(d));
+      const newDepts = departments.filter(d => !DEPARTMENTS.includes(d));
+      if (newDepts.length > 0) {
         console.log(`   🆕 New departments discovered: ${newDepts.join(', ')}`);
       }
     } else {
