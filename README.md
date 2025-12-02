@@ -5,6 +5,7 @@ This project contains a Node.js-based web scraper that automatically logs into A
 ## Features
 
 - **Automated Scraping**: Runs on a scheduled basis via GitHub Actions.
+- **Dynamic Department Discovery**: Automatically discovers and scrapes all departments from the AISIS dropdown (IE, LCS, and any future departments are included without code changes).
 - **Multi-Term Support**: Can scrape current term, **current + next term** (new default), future terms, all available terms, or all terms in the current academic year in one run. See [MULTI_TERM_SCRAPING.md](MULTI_TERM_SCRAPING.md).
 - **Institutional Data Focus**: Scrapes class schedules and official curriculum data.
 - **Supabase Integration**: Automatically syncs data to Supabase via Edge Functions.
@@ -122,6 +123,31 @@ AISIS_TERM=2025-1
 **Legacy support**: The `APPLICABLE_PERIOD` environment variable is still supported for backward compatibility, but `AISIS_TERM` takes precedence if both are set.
 
 If no override is provided, the scraper will auto-detect and use the currently selected term in AISIS. Using an override skips the term auto-detection request, which can speed up startup time in CI environments.
+
+### 3a. Dynamic Department Discovery
+
+The scraper now **automatically discovers departments** from the AISIS Schedule of Classes page dropdown without requiring code changes.
+
+#### How It Works
+
+- On startup, the scraper fetches the `deptCode` dropdown from AISIS and extracts all available department codes
+- New departments (like IE, LCS) are automatically included in scraping runs
+- If the AISIS fetch fails, the scraper falls back to a hardcoded list in `src/constants.js`
+- The `AISIS_DEPARTMENTS` environment variable can still be used to filter specific departments for testing
+
+#### Benefits
+
+- **Future-proof**: New departments are automatically discovered without code updates
+- **Always current**: Reflects the exact department list AISIS exposes for the current term
+- **Safe fallback**: Uses hardcoded list if AISIS fetch fails (network issues, page structure changes)
+- **Developer-friendly**: `AISIS_DEPARTMENTS` filter still works for local testing
+
+#### Example Output
+
+```
+✅ Using 45 departments from AISIS dropdown (dynamic discovery)
+🆕 New departments discovered: IE, LCS
+```
 
 ### 4. Baseline Tracking and Regression Detection
 
@@ -331,9 +357,9 @@ AISIS_DEPARTMENTS="DISCS,MA,EN,EC" npm start
 ```
 
 - Accepts comma-separated list of department codes
-- Only scrapes departments in the canonical `DEPARTMENTS` list
+- Validates against the dynamically discovered department list (or fallback list if AISIS fetch failed)
 - Invalid codes are warned and ignored
-- Useful for testing changes without scraping all 43 departments
+- Useful for testing changes without scraping all departments
 
 **Example local development run**:
 ```bash

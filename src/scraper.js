@@ -742,24 +742,31 @@ export class AISISScraper {
     // Build a map of available department codes for quick lookup
     const availableDeptSet = new Set(availableDepartments.map(d => d.value));
     
-    // Use canonical DEPARTMENTS list as the authoritative set to scrape
+    // Use dynamic departments from AISIS as the authoritative set to scrape
+    // Falls back to canonical DEPARTMENTS list if AISIS fetch failed
+    // This allows automatic discovery of new departments (e.g., IE, LCS)
     // Filter by AISIS_DEPARTMENTS env var if provided (for local/dev runs)
-    let departments = DEPARTMENTS;
+    let departments = availableDepartments.length > 0 
+      ? availableDepartments.map(d => d.value)
+      : DEPARTMENTS;
+    // Store original list before filtering for logging
+    const originalDepartments = departments;
+    
     if (process.env.AISIS_DEPARTMENTS) {
       const requestedDepts = process.env.AISIS_DEPARTMENTS.split(',').map(d => d.trim()).filter(d => d);
-      const validDepts = requestedDepts.filter(d => DEPARTMENTS.includes(d));
-      const invalidDepts = requestedDepts.filter(d => !DEPARTMENTS.includes(d));
+      const validDepts = requestedDepts.filter(d => departments.includes(d));
+      const invalidDepts = requestedDepts.filter(d => !departments.includes(d));
       
       if (invalidDepts.length > 0) {
-        console.warn(`   ⚠️  Invalid departments in AISIS_DEPARTMENTS (not in canonical list): ${invalidDepts.join(', ')}`);
+        console.warn(`   ⚠️  Invalid departments in AISIS_DEPARTMENTS (not in current list): ${invalidDepts.join(', ')}`);
       }
       
       if (validDepts.length > 0) {
         departments = validDepts;
-        console.log(`   🎯 AISIS_DEPARTMENTS filter active: scraping ${departments.length} of ${DEPARTMENTS.length} departments`);
+        console.log(`   🎯 AISIS_DEPARTMENTS filter active: scraping ${departments.length} of ${originalDepartments.length} departments`);
         console.log(`      Departments: ${departments.join(', ')}`);
       } else {
-        console.warn(`   ⚠️  No valid departments in AISIS_DEPARTMENTS - using all canonical departments`);
+        console.warn(`   ⚠️  No valid departments in AISIS_DEPARTMENTS - using all ${originalDepartments.length} departments`);
       }
     }
 
@@ -769,14 +776,15 @@ export class AISISScraper {
     // Track per-department status for summary report
     const departmentStatus = {};
     
-    // Check which canonical departments are not in AISIS dropdown
+    // Log which source was used for departments
     if (availableDepartments.length > 0) {
-      const missingDepts = departments.filter(dept => !availableDeptSet.has(dept));
-      if (missingDepts.length > 0) {
-        console.log(`   ⚠️  ${missingDepts.length} canonical department(s) not found in AISIS dropdown for term ${term}:`);
-        console.log(`       ${missingDepts.join(', ')}`);
-        console.log(`   These will be attempted anyway and may return no results.`);
+      console.log(`   ✅ Using ${departments.length} departments from AISIS dropdown (dynamic discovery)`);
+      const newDepts = departments.filter(d => !DEPARTMENTS.includes(d));
+      if (newDepts.length > 0) {
+        console.log(`   🆕 New departments discovered: ${newDepts.join(', ')}`);
       }
+    } else {
+      console.log(`   ℹ️  Using ${departments.length} departments from fallback list (AISIS fetch failed)`);
     }
     
     // Log structured START message with finalized configuration
