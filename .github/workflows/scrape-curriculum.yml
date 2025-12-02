@@ -36,20 +36,19 @@ jobs:
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
 
           # Performance optimizations for CI
-          # (targeting ~2-5 min for limited runs or ~25-30 min for full scrapes)
+          # (targeting ~40-45 min for full scrapes with fast mode settings)
           # See CURRICULUM_PERFORMANCE_FIX.md and README.md for details
           FAST_MODE: 'true'
           # Skip validation passes, use minimal delays
-          CURRICULUM_DELAY_MS: '500'
-          # Balanced delay - much faster than code default (2000ms),
-          # still polite to AISIS
-          CURRICULUM_CONCURRENCY: '4'
-          # Scrape 2 programs in parallel - 4x speedup,
-          # well-tested and safe
+          CURRICULUM_DELAY_MS: '300'
+          # Fast mode default - 40% faster than previous 500ms
+          CURRICULUM_CONCURRENCY: '6'
+          # Scrape 6 programs in parallel - 50% more parallelism,
+          # well within AISIS limits (max 10)
 
           # Optional: Uncomment to limit scraping to first N programs
           # for faster CI runs
           # CURRICULUM_LIMIT: '50'
-          # (Scrape only first 50 programs - ~2-3 minutes
-          # instead of 25-30 minutes)
+          # (Scrape only first 50 programs - ~1-2 minutes
+          # instead of 40-45 minutes)
         run: npm run curriculum

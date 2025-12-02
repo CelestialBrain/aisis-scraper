@@ -94,7 +94,7 @@ const AISIS_ERROR_PAGE_MARKER = 'Your Request Cannot Be Processed At This Time';
 // Retry configuration for HTTP errors
 const RETRY_CONFIG = {
   MAX_RETRIES: 1,
-  RETRY_DELAY_MS: 2000
+  RETRY_DELAY_MS: 1500
 };
 
 // Scrape behavior configuration for batched concurrent department scraping
@@ -1695,11 +1695,11 @@ export class AISISScraper {
    * 
    * @param {string} degCode - Curriculum version identifier (e.g., 'BS CS_2024_1')
    * @param {string} label - Program label (e.g., 'BS Computer Science (2024-1)')
-   * @param {number} maxAttempts - Maximum number of attempts (default: 3)
+   * @param {number} maxAttempts - Maximum number of attempts (default: 2)
    * @returns {Promise<string>} Validated HTML for the curriculum
    * @throws {Error} If validation fails after all attempts
    */
-  async _scrapeDegreeWithValidation(degCode, label, maxAttempts = 3) {
+  async _scrapeDegreeWithValidation(degCode, label, maxAttempts = 2) {
     // Import validation functions from curriculum-parser
     // Note: Dynamic import to avoid circular dependencies
     const { extractProgramTitle, isProgramMatch } = await import('./curriculum-parser.js');
@@ -1797,10 +1797,10 @@ export class AISISScraper {
    * Supports filtering and limiting via environment variables:
    * - CURRICULUM_LIMIT: Take first N degree codes (e.g., "10" for first 10 programs)
    * - CURRICULUM_SAMPLE: Select specific degree codes (e.g., "BS CS_2024_1,BS ME_2023_1")
-   * - CURRICULUM_DELAY_MS: Delay between requests (default: 1000ms, 500ms in FAST_MODE)
-   *   ⚠️ WARNING: Very low delays (<500ms) increase risk of AISIS session bleed
-   * - CURRICULUM_CONCURRENCY: Number of programs to scrape in parallel (default: 2, max: 10)
-   *   ⚠️ WARNING: Very high concurrency (>4) increases risk of AISIS session bleed
+   * - CURRICULUM_DELAY_MS: Delay between requests (default: 300ms)
+   *   ⚠️ WARNING: Very low delays (<300ms) increase risk of AISIS session bleed
+   * - CURRICULUM_CONCURRENCY: Number of programs to scrape in parallel (default: 6, max: 10)
+   *   ⚠️ WARNING: Very high concurrency (>6) increases risk of AISIS session bleed
    * 
    * Workflow:
    * 1. GET J_VOFC.do to retrieve list of curriculum versions (degCode dropdown)
@@ -1833,19 +1833,18 @@ export class AISISScraper {
       ? process.env.CURRICULUM_SAMPLE.split(',').map(s => s.trim()).filter(s => s)
       : null;
     
-    // Balanced defaults: Safe but not painfully slow
-    // Fast mode uses 500ms (aggressive but tested)
-    // Normal mode uses 1000ms (balanced - safer than aggressive, faster than ultra-conservative 2000ms)
-    const defaultCurriculumDelay = fastMode ? 500 : 1000;
+    // Fast mode defaults: optimized for speed while maintaining safety
+    // Both fast mode and normal mode now use 300ms (faster than previous 1000ms default)
+    const defaultCurriculumDelay = 300;
     const curriculumDelayEnv = parseInt(process.env.CURRICULUM_DELAY_MS, 10);
     const curriculumDelayMs = isNaN(curriculumDelayEnv) 
       ? defaultCurriculumDelay 
       : Math.max(0, curriculumDelayEnv);
     
-    // Balanced defaults: Moderate parallelism for better performance
-    // Concurrency 2 is well-tested and significantly faster than sequential (concurrency 1)
+    // Fast mode defaults: Moderate parallelism for better performance
+    // Concurrency 6 provides good speedup while staying within AISIS limits (max 10)
     // Still uses _scrapeDegreeWithValidation to prevent AISIS session bleed
-    const defaultCurriculumConcurrency = 2;
+    const defaultCurriculumConcurrency = 6;
     const curriculumConcurrencyEnv = parseInt(process.env.CURRICULUM_CONCURRENCY, 10);
     const curriculumConcurrency = isNaN(curriculumConcurrencyEnv) 
       ? defaultCurriculumConcurrency 
@@ -1860,23 +1859,23 @@ export class AISISScraper {
     // Show delay configuration with warnings
     if (process.env.CURRICULUM_DELAY_MS !== undefined) {
       console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (override)`);
-      if (curriculumDelayMs < 500) {
+      if (curriculumDelayMs < 300) {
         console.warn(`      ⚠️  Very low delay may increase risk of AISIS session bleed`);
       }
     } else if (fastMode) {
       console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (FAST_MODE)`);
     } else {
-      console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (default - balanced mode)`);
+      console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (default - fast mode)`);
     }
     
     // Show concurrency configuration with warnings
     if (process.env.CURRICULUM_CONCURRENCY !== undefined) {
       console.log(`   📊 CURRICULUM_CONCURRENCY: ${curriculumConcurrency} (override, max: 10)`);
-      if (curriculumConcurrency > 4) {
-        console.warn(`      ⚠️  High concurrency (>4) may increase risk of AISIS session bleed`);
+      if (curriculumConcurrency > 6) {
+        console.warn(`      ⚠️  High concurrency (>6) may increase risk of AISIS session bleed`);
       }
     } else {
-      console.log(`   📊 CURRICULUM_CONCURRENCY: ${curriculumConcurrency} (default - parallel scraping with validation)`);
+      console.log(`   📊 CURRICULUM_CONCURRENCY: ${curriculumConcurrency} (default - fast mode with validation)`);
     }
     console.log('');
 
