@@ -3,8 +3,17 @@
  */
 
 /**
- * List of all departments to scrape
- * This should be kept in sync with AISIS department codes
+ * Fallback list of departments for schedule scraping
+ * 
+ * NOTE: As of dynamic department discovery implementation, this list is now a FALLBACK
+ * used only when the AISIS department dropdown fetch fails. The scraper now automatically
+ * discovers departments from the AISIS deptCode dropdown, which means new departments
+ * (like IE, LCS) are automatically included without code changes.
+ * 
+ * This list should still be maintained as a reasonable baseline for:
+ * 1. Fallback if AISIS fetch fails
+ * 2. Reference for historical department codes
+ * 3. Testing and validation purposes
  */
 export const DEPARTMENTS = [
   "BIO", "CH", "CHN", "COM", "CEPP", "CPA", "ELM", "DS", 
