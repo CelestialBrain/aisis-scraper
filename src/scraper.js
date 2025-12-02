@@ -2,7 +2,7 @@ import fs from 'fs';
 import * as cheerio from 'cheerio';
 import { CookieJar } from 'tough-cookie';
 import crypto from 'crypto';
-import { DEPARTMENTS, isHeaderLikeRecord, SAMPLE_INVALID_RECORDS_COUNT } from './constants.js';
+import { DEPARTMENTS, isHeaderLikeRecord, SAMPLE_INVALID_RECORDS_COUNT, getSubjectPrefix } from './constants.js';
 
 // Use node-fetch directly instead of fetch-cookie
 const { default: fetch } = await import('node-fetch');
@@ -1001,6 +1001,38 @@ export class AISISScraper {
       if (courseList) allCourses.push(...courseList);
     }
 
+    // Compute per-department subject prefix breakdown for diagnostics
+    // This helps identify when specific subject families (like PEPC) drop to zero
+    const debugMode = process.env.DEBUG_SCRAPER === 'true';
+    const criticalDepts = ['PE', 'NSTP']; // Departments where missing subjects are critical
+    
+    if (debugMode || criticalDepts.some(dept => departments.includes(dept))) {
+      console.log(`\n📊 Per-Department Subject Prefix Breakdown:`);
+      
+      for (let i = 0; i < departments.length; i++) {
+        const dept = departments[i];
+        const courseList = perDeptCourses[i] || [];
+        
+        if (courseList.length === 0) continue;
+        
+        // Compute subject prefix counts for this department
+        const subjectPrefixCounts = {};
+        for (const course of courseList) {
+          const prefix = getSubjectPrefix(course.subjectCode);
+          subjectPrefixCounts[prefix] = (subjectPrefixCounts[prefix] || 0) + 1;
+        }
+        
+        // Log breakdown for critical departments or in debug mode
+        if (debugMode || criticalDepts.includes(dept)) {
+          const breakdown = Object.entries(subjectPrefixCounts)
+            .sort((a, b) => b[1] - a[1]) // Sort by count descending
+            .map(([prefix, count]) => `${prefix}=${count}`)
+            .join(', ');
+          console.log(`   ${dept} (term ${term}): ${breakdown}`);
+        }
+      }
+    }
+
     // Generate summary and save to logs
     const summary = {
       term: term,
@@ -1185,11 +1217,26 @@ export class AISISScraper {
     const $ = cheerio.load(html);
     const courses = [];
     
-    // Define the number of cells per row (EN schedule table has 14 columns)
+    /**
+     * AISIS Schedule Table Structure Assumptions:
+     * - Schedule data is in an HTML table with class 'needspadding'
+     * - Each course row contains 14 cells (columns) with class 'text02'
+     * - Column order: Subject Code, Section, Title, Units, Time, Room, Instructor,
+     *   Max Slots, Language, Level, Free Slots, Remarks, S, P
+     * - Header rows are also present but are filtered by isHeaderLikeRecord()
+     * - We use 'table.needspadding td.text02' when available to avoid non-schedule cells,
+     *   falling back to 'td.text02' for compatibility with older HTML or test fixtures
+     */
     const CELLS_PER_ROW = 14;
     
-    // Look for course cells with class 'text02' (same as Python)
-    const courseCells = $('td.text02');
+    // Try tightened selector first (preferred for production), fall back to broader selector
+    // This ensures we work with both real AISIS HTML and test fixtures
+    let courseCells = $('table.needspadding td.text02');
+    
+    if (courseCells.length === 0) {
+      // Fallback to broader selector for compatibility
+      courseCells = $('td.text02');
+    }
     
     if (courseCells.length === 0) {
       return courses;
@@ -1199,15 +1246,23 @@ export class AISISScraper {
     const expectedRows = Math.floor(totalCells / CELLS_PER_ROW);
     const remainder = totalCells % CELLS_PER_ROW;
     
+    // Debug mode configuration
+    const debugMode = process.env.DEBUG_SCRAPER === 'true';
+    
     // Defensive logging: warn if cells don't align to CELLS_PER_ROW chunks
     if (remainder !== 0) {
       console.log(`   ⚠️  ${deptCode}: ${totalCells} cells found (expected multiple of ${CELLS_PER_ROW}). Remainder: ${remainder} cells.`);
       console.log(`   ℹ️  ${deptCode}: Processing ${expectedRows} complete rows, ${remainder} cells will be skipped.`);
+      
+      // In debug mode, show a sample of the first raw cell to help diagnose selector issues
+      if (debugMode && courseCells.length > 0) {
+        const firstCellText = $(courseCells[0]).text().trim();
+        console.log(`   🔍 ${deptCode}: First raw cell text: "${firstCellText}"`);
+      }
     }
 
     // Track invalid rows for debug logging
     const invalidRows = [];
-    const debugMode = process.env.DEBUG_SCRAPER === 'true';
 
     // Process in chunks of CELLS_PER_ROW cells per course
     let skippedRows = 0;
@@ -1306,13 +1361,33 @@ export class AISISScraper {
       });
     }
 
-    // Debug logging: show sample of parsed courses
+    // Debug logging: show sample of parsed courses and subject prefix breakdown
     if (debugMode && courses.length > 0) {
-      const sampleSize = Math.min(2, courses.length);
-      console.log(`   🔍 ${deptCode}: Sample of ${sampleSize} parsed course(s):`);
+      const sampleSize = Math.min(3, courses.length);
+      console.log(`   🔍 ${deptCode}: First ${sampleSize} parsed course(s):`);
       courses.slice(0, sampleSize).forEach(c => {
         console.log(`      - ${c.subjectCode} ${c.section}: ${c.title}`);
       });
+    }
+    
+    // Compute per-subject prefix counts for diagnostic purposes
+    // Subject prefix is the first "word" of subjectCode (e.g., "PEPC" from "PEPC 10", "NSTP" from "NSTP 11/CWTS")
+    const subjectPrefixCounts = {};
+    for (const course of courses) {
+      const prefix = getSubjectPrefix(course.subjectCode);
+      subjectPrefixCounts[prefix] = (subjectPrefixCounts[prefix] || 0) + 1;
+    }
+    
+    // Log subject prefix breakdown in debug mode or always for critical departments
+    const criticalDepts = ['PE', 'NSTP']; // Departments where missing subjects are critical
+    if (debugMode || criticalDepts.includes(deptCode)) {
+      if (Object.keys(subjectPrefixCounts).length > 0) {
+        const breakdown = Object.entries(subjectPrefixCounts)
+          .sort((a, b) => b[1] - a[1]) // Sort by count descending
+          .map(([prefix, count]) => `${prefix}=${count}`)
+          .join(', ');
+        console.log(`   📊 ${deptCode}: Subject prefix breakdown: ${breakdown}`);
+      }
     }
 
     return courses;

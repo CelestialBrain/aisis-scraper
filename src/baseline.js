@@ -137,9 +137,19 @@ export class BaselineManager {
    * Save new baseline for a term
    * @param {string} term - Term code
    * @param {object} data - Baseline data to save
+   *   - totalRecords: number
+   *   - departmentCounts: object (optional)
+   *   - subjectPrefixCounts: object (optional, per-department subject prefix breakdown)
    */
   saveBaseline(term, data) {
     const baselinePath = this.getBaselinePath(term);
+    
+    // Optionally track subject prefix counts if TRACK_SUBJECT_PREFIXES is enabled
+    const trackSubjectPrefixes = process.env.TRACK_SUBJECT_PREFIXES === 'true';
+    
+    if (trackSubjectPrefixes && data.subjectPrefixCounts) {
+      console.log(`   📊 Saving subject prefix tracking for ${term}`);
+    }
     
     try {
       fs.writeFileSync(baselinePath, JSON.stringify(data, null, 2));
@@ -315,6 +325,74 @@ export class BaselineManager {
       warnOnly: this.warnOnly,
       requireBaselines: this.requireBaselines,
       baselineDir: this.baselineDir
+    };
+  }
+
+  /**
+   * Compare subject prefix counts between current and previous runs
+   * Warns when specific subject prefixes (like PEPC) drop to zero for critical departments
+   * 
+   * @param {string} term - Term code
+   * @param {object} currentCounts - Current per-department subject prefix counts
+   *   Format: { 'PE': { 'PEPC': 152, 'NSTP': 79 }, ... }
+   * @param {object} previousCounts - Previous per-department subject prefix counts (optional)
+   *   If not provided, will attempt to load from baseline
+   * @returns {object} Comparison result with warnings
+   */
+  compareSubjectPrefixes(term, currentCounts, previousCounts = null) {
+    // Only run if TRACK_SUBJECT_PREFIXES is enabled
+    const trackSubjectPrefixes = process.env.TRACK_SUBJECT_PREFIXES === 'true';
+    if (!trackSubjectPrefixes) {
+      return { enabled: false };
+    }
+    
+    // If previousCounts not provided, try to load from baseline
+    if (!previousCounts) {
+      const baseline = this.loadBaseline(term);
+      if (baseline && baseline.subjectPrefixCounts) {
+        previousCounts = baseline.subjectPrefixCounts;
+      }
+    }
+    
+    if (!previousCounts) {
+      console.log(`\n📊 Subject Prefix Tracking: No previous data for comparison`);
+      return { enabled: true, hasPrevious: false };
+    }
+    
+    console.log(`\n📊 Subject Prefix Comparison:`);
+    
+    const warnings = [];
+    const criticalDepts = ['PE', 'NSTP']; // Departments where missing subjects are critical
+    
+    // Check for subjects that dropped to zero
+    for (const dept of criticalDepts) {
+      const currentDeptPrefixes = currentCounts[dept] || {};
+      const previousDeptPrefixes = previousCounts[dept] || {};
+      
+      // Find prefixes that existed before but are now at zero
+      for (const [prefix, prevCount] of Object.entries(previousDeptPrefixes)) {
+        const currCount = currentDeptPrefixes[prefix] || 0;
+        
+        if (prevCount > 0 && currCount === 0) {
+          const warning = `${dept}: ${prefix} dropped to zero (was ${prevCount})`;
+          warnings.push(warning);
+          console.log(`   ⚠️ ${warning}`);
+        } else if (prevCount > 0 && currCount < prevCount) {
+          const percentDrop = ((prevCount - currCount) / prevCount * 100).toFixed(1);
+          console.log(`   ℹ️  ${dept}: ${prefix} decreased from ${prevCount} to ${currCount} (-${percentDrop}%)`);
+        }
+      }
+    }
+    
+    if (warnings.length === 0) {
+      console.log(`   ✅ No critical subject prefix regressions detected`);
+    }
+    
+    return {
+      enabled: true,
+      hasPrevious: true,
+      warnings,
+      hasWarnings: warnings.length > 0
     };
   }
 }

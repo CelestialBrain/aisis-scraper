@@ -192,3 +192,30 @@ export function getTermYear(termCode) {
   
   return year;
 }
+
+/**
+ * Extract subject prefix from a subject code
+ * 
+ * Subject codes in AISIS can have various formats:
+ * - "PEPC 10" -> "PEPC"
+ * - "NSTP 11/CWTS" -> "NSTP" (with slash separator)
+ * - "ENGL 13.03" -> "ENGL" (with dot separator)
+ * 
+ * This function extracts the first component (the subject prefix)
+ * by splitting on space, dot, or slash.
+ * 
+ * @param {string} subjectCode - Full subject code (e.g., "PEPC 10", "NSTP 11/CWTS")
+ * @returns {string} Subject prefix (e.g., "PEPC", "NSTP")
+ * 
+ * @example
+ * getSubjectPrefix('PEPC 10')        // returns 'PEPC'
+ * getSubjectPrefix('NSTP 11/CWTS')   // returns 'NSTP'
+ * getSubjectPrefix('ENGL 13.03')     // returns 'ENGL'
+ */
+export function getSubjectPrefix(subjectCode) {
+  if (!subjectCode || typeof subjectCode !== 'string') {
+    return '';
+  }
+  return subjectCode.split(/[\s.\/]/)[0]; // Split on space, dot, or slash
+}
+
