@@ -712,6 +712,37 @@ export class SupabaseManager {
   }
 
   /**
+   * Build a program object for the new programs array format
+   * @private
+   * @param {Object} batch - Batch object containing deg_code, program_code, curriculum_version, courses, metadata
+   * @returns {Object} Program object with deg_code, program_code, program_title, version_year, version_sem, courses
+   */
+  _buildProgramObject(batch) {
+    const { deg_code, program_code, curriculum_version, courses, metadata } = batch;
+    
+    // Transform courses to match the Supabase schema
+    const transformedCourses = courses.map(row => this._transformCurriculumCourse(row));
+    
+    // Parse version into year and semester
+    // curriculum_version format: "2024_1" -> year: 2024, sem: 1
+    const versionParts = curriculum_version ? curriculum_version.split('_') : [];
+    const versionYear = versionParts.length > 0 ? parseInt(versionParts[0], 10) : null;
+    const versionSem = versionParts.length > 1 ? parseInt(versionParts[1], 10) : null;
+    
+    // Get program title from metadata or first course
+    const programTitle = metadata.program_name || (courses.length > 0 ? courses[0].program_title : null);
+    
+    return {
+      deg_code: deg_code,
+      program_code: program_code,
+      program_title: programTitle,
+      version_year: versionYear,
+      version_sem: versionSem,
+      courses: transformedCourses
+    };
+  }
+
+  /**
    * Send curriculum batch(es) to Supabase
    * 
    * Supports two modes:
@@ -735,9 +766,10 @@ export class SupabaseManager {
       return false;
     }
     
-    // Single batch mode (original behavior)
+    // Single batch mode (updated for consistency with programs format)
     if (batches.length === 1) {
-      const { deg_code, program_code, curriculum_version, courses, metadata } = batches[0];
+      const batch = batches[0];
+      const { deg_code, program_code, curriculum_version, courses, metadata } = batch;
 
       if (!deg_code || !courses || courses.length === 0) {
         console.warn(`   ⚠️ Skipping empty batch for ${deg_code || 'unknown program'}`);
@@ -749,13 +781,13 @@ export class SupabaseManager {
       console.log(`      Courses: ${courses.length}`);
       console.log(`      Metadata: scraped=${metadata.total_courses_scraped}, deduped=${metadata.deduplication_removed}, invalid=${metadata.invalid_courses_count}`);
 
-      // Transform courses to match the Supabase schema
-      const transformedCourses = courses.map(row => this._transformCurriculumCourse(row));
+      // Build program object using helper method
+      const programObj = this._buildProgramObject(batch);
 
-      // Build the payload with program-level grouping
+      // Build the payload with new programs array format (single program wrapped in array)
       const payload = {
         data_type: 'curriculum',
-        records: transformedCourses,
+        programs: [programObj],
         metadata: {
           ...metadata,
           // Add GitHub Actions context
@@ -798,12 +830,12 @@ export class SupabaseManager {
     }
     
     // Grouped batches mode (new behavior)
-    // Aggregate all courses and metadata from multiple programs into a single request
+    // Build a programs array where each program has its own metadata and courses
     let totalCoursesScraped = 0;
     let totalDeduplicationRemoved = 0;
     let totalInvalidCourses = 0;
     let totalCourses = 0;
-    const allTransformedCourses = [];
+    const programs = [];
     const programCodes = [];
     
     for (const batch of batches) {
@@ -822,25 +854,24 @@ export class SupabaseManager {
       totalDeduplicationRemoved += metadata.deduplication_removed || 0;
       totalInvalidCourses += metadata.invalid_courses_count || 0;
       
-      // Transform and collect courses
-      const transformedCourses = courses.map(row => this._transformCurriculumCourse(row));
-      
-      allTransformedCourses.push(...transformedCourses);
+      // Build program object using helper method
+      const programObj = this._buildProgramObject(batch);
+      programs.push(programObj);
     }
     
-    if (allTransformedCourses.length === 0) {
-      console.warn(`   ⚠️ No valid courses in grouped batch`);
+    if (programs.length === 0) {
+      console.warn(`   ⚠️ No valid programs in grouped batch`);
       return false;
     }
     
     console.log(`   📤 Sending grouped batch...`);
-    console.log(`      Programs: ${batches.length}`);
+    console.log(`      Programs: ${programs.length}`);
     console.log(`      Total courses: ${totalCourses}`);
     console.log(`      Metadata: scraped=${totalCoursesScraped}, deduped=${totalDeduplicationRemoved}, invalid=${totalInvalidCourses}`);
     
     // Build aggregated metadata
     const aggregatedMetadata = {
-      total_programs: batches.length,
+      total_programs: programs.length,
       total_courses_scraped: totalCoursesScraped,
       deduplication_removed: totalDeduplicationRemoved,
       invalid_courses_count: totalInvalidCourses,
@@ -849,10 +880,10 @@ export class SupabaseManager {
       ...this.buildMetadata(null, null, MULTI_PROGRAM_LABEL, totalCourses)
     };
     
-    // Build the payload
+    // Build the payload with new programs array format
     const payload = {
       data_type: 'curriculum',
-      records: allTransformedCourses,
+      programs: programs,
       metadata: aggregatedMetadata
     };
     
