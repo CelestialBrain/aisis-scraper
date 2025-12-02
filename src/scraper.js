@@ -298,7 +298,7 @@ function performDepartmentSanityChecks(deptCode, courses, html, term) {
       return {
         passed: false,
         reason,
-        details: { nstpCount, minRequired: 1, prefixCounts, totalCourses: courses.length }
+        details: { nstpCount, minRequired, prefixCounts, totalCourses: courses.length }
       };
     }
     

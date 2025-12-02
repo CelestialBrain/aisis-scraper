@@ -89,7 +89,7 @@ export class SupabaseManager {
     // Log configuration (without exposing secrets)
     console.log(`   🔧 Supabase configuration:`);
     console.log(`      URL: ${baseUrl.substring(0, 30)}... (${baseUrl.length} chars)`);
-    console.log(`      Token: ${ingestToken.substring(0, 10)}... (${ingestToken.length} chars)`);
+    console.log(`      Token: [REDACTED] (${ingestToken.length} chars)`);
     console.log(`      Endpoint: ${this.url}`);
     
     // Multi-university support: read university code from environment, default to ADMU
@@ -530,7 +530,7 @@ export class SupabaseManager {
             console.error(`      - The SUPABASE_URL may be incorrect`);
             console.error(`      Configuration being used (secrets masked):`);
             console.error(`      - SUPABASE_URL: ${process.env.SUPABASE_URL ? process.env.SUPABASE_URL.substring(0, 30) + '...' : 'NOT SET'}`);
-            console.error(`      - DATA_INGEST_TOKEN: ${this.ingestToken ? this.ingestToken.substring(0, 10) + '... (' + this.ingestToken.length + ' chars)' : 'NOT SET'}`);
+            console.error(`      - DATA_INGEST_TOKEN: ${this.ingestToken ? '[REDACTED] (' + this.ingestToken.length + ' chars)' : 'NOT SET'}`);
             console.error(`      Response: ${text}`);
             return false;
           }
