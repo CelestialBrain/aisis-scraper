@@ -149,6 +149,59 @@ export class SupabaseManager {
     return { safe: true, reason: 'No critical regressions', failedDepartments: [] };
   }
 
+  /**
+   * Compute term-level aggregates for pre-flight validation
+   * This provides a summary of the entire term's data before batching,
+   * allowing the Edge Function to validate the full dataset even when
+   * receiving data in chunks.
+   * 
+   * @param {Array} data - Array of normalized schedule records
+   * @returns {Object} Term aggregates with structure:
+   *   {
+   *     total_records: number,
+   *     departments: {
+   *       "DEPT": { count: number, prefixes: { "PREFIX": count } }
+   *     },
+   *     computed_at: ISO timestamp
+   *   }
+   */
+  computeTermAggregates(data) {
+    const aggregates = {
+      total_records: data.length,
+      departments: {},
+      computed_at: new Date().toISOString()
+    };
+
+    // Group by department and extract subject prefixes
+    for (const record of data) {
+      const dept = record.department || 'UNKNOWN';
+      const subjectCode = record.subject_code || '';
+      
+      // Initialize department if not exists
+      if (!aggregates.departments[dept]) {
+        aggregates.departments[dept] = {
+          count: 0,
+          prefixes: {}
+        };
+      }
+      
+      // Increment department count
+      aggregates.departments[dept].count++;
+      
+      // Extract subject prefix (e.g., "MATH" from "MATH101")
+      // Common patterns: MATH101, EN101, PEPC101, etc.
+      // Take alphabetic prefix before first digit
+      const prefixMatch = subjectCode.match(/^([A-Z]+)/);
+      if (prefixMatch) {
+        const prefix = prefixMatch[1];
+        aggregates.departments[dept].prefixes[prefix] = 
+          (aggregates.departments[dept].prefixes[prefix] || 0) + 1;
+      }
+    }
+
+    return aggregates;
+  }
+
   async syncToSupabase(dataType, data, termCode = null, department = null, programCode = null, healthCheck = null) {
     console.log(`   ☁️ Supabase: Syncing ${data.length} ${dataType} records...`);
 
@@ -189,6 +242,15 @@ export class SupabaseManager {
 
     let successCount = 0;
     let failureCount = 0;
+
+    // Compute term aggregates for schedule data BEFORE batching
+    // This provides Edge Function with full term context for validation
+    // Only compute for schedules data type with multiple batches
+    let termAggregates = null;
+    if (dataType === 'schedules' && batches.length > 1) {
+      termAggregates = this.computeTermAggregates(normalizedData);
+      console.log(`   📊 Computed term aggregates: ${termAggregates.total_records} total records across ${Object.keys(termAggregates.departments).length} departments`);
+    }
 
     // Check if we should block replace_existing based on health check
     // If health check failed (critical department regressions), abort sync to prevent data loss
@@ -239,7 +301,9 @@ export class SupabaseManager {
       
       // Pass chunk metadata for observability - allows edge function to reason about multi-chunk uploads
       // chunk_index is zero-based, total_chunks is the total number of chunks for this term
-      const success = await this.sendRequest(dataType, batch, termCode, department, programCode, replaceExisting, batchIndex, totalBatches);
+      // For first batch of chunked schedules upload, include term aggregates
+      const batchTermAggregates = (isFirstBatchForTerm && termAggregates) ? termAggregates : null;
+      const success = await this.sendRequest(dataType, batch, termCode, department, programCode, replaceExisting, batchIndex, totalBatches, batchTermAggregates);
       
       if (success) {
         successCount += batch.length;
@@ -312,9 +376,10 @@ export class SupabaseManager {
    * @param {boolean|null} replaceExisting - Whether to replace existing records (schedules only)
    * @param {number|null} chunkIndex - Zero-based index of this chunk (for multi-chunk uploads)
    * @param {number|null} totalChunks - Total number of chunks being uploaded
+   * @param {Object|null} termAggregates - Term-level aggregates for validation (schedules only, first batch)
    * @returns {Object} Metadata object with all available context
    */
-  buildMetadata(termCode = null, department = null, programCode = null, recordCount = null, replaceExisting = null, chunkIndex = null, totalChunks = null) {
+  buildMetadata(termCode = null, department = null, programCode = null, recordCount = null, replaceExisting = null, chunkIndex = null, totalChunks = null, termAggregates = null) {
     const metadata = {};
     
     // Add university code for multi-university support (critical for Edge Function to scope deletions)
@@ -335,6 +400,15 @@ export class SupabaseManager {
     }
     if (totalChunks !== null) {
       metadata.total_chunks = totalChunks;
+    }
+    // Add is_chunked_upload flag when we have multiple chunks
+    if (totalChunks !== null && totalChunks > 1) {
+      metadata.is_chunked_upload = true;
+    }
+    // Add term aggregates for first batch of chunked uploads
+    // This allows Edge Function to validate against full term data
+    if (termAggregates !== null) {
+      metadata.term_aggregates = termAggregates;
     }
     
     // Add GitHub Actions context if available
@@ -386,11 +460,12 @@ export class SupabaseManager {
    * @param {boolean|null} replaceExisting - Whether to replace existing records (schedules only)
    * @param {number|null} chunkIndex - Zero-based index of this chunk (for multi-chunk uploads)
    * @param {number|null} totalChunks - Total number of chunks being uploaded
+   * @param {Object|null} termAggregates - Term-level aggregates for validation (schedules only, first batch)
    * @returns {Promise<boolean>} True if successful, false if all retries failed
    */
-  async sendRequest(dataType, records, termCode = null, department = null, programCode = null, replaceExisting = null, chunkIndex = null, totalChunks = null) {
+  async sendRequest(dataType, records, termCode = null, department = null, programCode = null, replaceExisting = null, chunkIndex = null, totalChunks = null, termAggregates = null) {
     // Build metadata with GitHub Actions context, record count, replace_existing flag, and chunk info
-    const metadata = this.buildMetadata(termCode, department, programCode, records.length, replaceExisting, chunkIndex, totalChunks);
+    const metadata = this.buildMetadata(termCode, department, programCode, records.length, replaceExisting, chunkIndex, totalChunks, termAggregates);
 
     const payload = {
       data_type: dataType,
