@@ -142,12 +142,16 @@ const SANITY_CHECK_CONFIG = {
     requiredPrefixes: ['PEPC', 'PHYED']
   },
   // NSTP departments sanity checks
+  // NSTP (ADAST) is a small department - only requires 1 course minimum
+  // but warns if below 10 (which was historically expected)
   'NSTP (ADAST)': {
-    minNstpCourses: parseInt(process.env.SCRAPER_MIN_NSTP_COURSES || '10', 10),
+    minNstpCourses: parseInt(process.env.SCRAPER_MIN_NSTP_ADAST_COURSES || '1', 10),
+    warnBelow: parseInt(process.env.SCRAPER_WARN_NSTP_ADAST_COURSES || '10', 10),
     requiredPrefixes: ['NSTP']
   },
+  // NSTP (OSCI) remains a large department with strict minimum
   'NSTP (OSCI)': {
-    minNstpCourses: parseInt(process.env.SCRAPER_MIN_NSTP_COURSES || '10', 10),
+    minNstpCourses: parseInt(process.env.SCRAPER_MIN_NSTP_OSCI_COURSES || '10', 10),
     requiredPrefixes: ['NSTP']
   }
 };
@@ -284,6 +288,7 @@ function performDepartmentSanityChecks(deptCode, courses, html, term) {
   if (deptCode.startsWith('NSTP')) {
     const nstpCount = prefixCounts['NSTP'] || 0;
     const minRequired = config.minNstpCourses;
+    const warnThreshold = config.warnBelow;
     
     if (nstpCount === 0) {
       const reason = `${deptCode} sanity check failed: no NSTP courses found`;
@@ -308,8 +313,13 @@ function performDepartmentSanityChecks(deptCode, courses, html, term) {
       };
     }
     
+    // Check if we should warn about low course count (but still pass)
+    if (warnThreshold && nstpCount < warnThreshold) {
+      console.warn(`   ⚠️  [${deptCode}] Low course count warning: ${nstpCount} NSTP courses (< ${warnThreshold} expected, but >= ${minRequired} minimum)`);
+    }
+    
     console.log(`   ✅ [${deptCode}] Sanity check passed: ${nstpCount} NSTP courses (>= ${minRequired})`);
-    return { passed: true, reason: 'NSTP sanity checks passed', details: { nstpCount, minRequired } };
+    return { passed: true, reason: 'NSTP sanity checks passed', details: { nstpCount, minRequired, warnThreshold } };
   }
   
   return { passed: true, reason: 'No applicable sanity checks' };

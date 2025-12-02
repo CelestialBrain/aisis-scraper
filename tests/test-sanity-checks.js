@@ -93,6 +93,57 @@ describe('Department Sanity Checks', () => {
     });
   });
 
+  describe('NSTP (ADAST) Department', () => {
+    it('should pass sanity check with 1 NSTP course (minimum)', () => {
+      const html = fs.readFileSync(
+        path.join(process.cwd(), 'tests/fixtures/nstp-adast-one-course.html'),
+        'utf-8'
+      );
+
+      const courses = scraper._parseCourses(html, 'NSTP (ADAST)');
+      
+      // Verify we have exactly 1 course
+      assert.strictEqual(courses.length, 1, 'Should have exactly 1 course');
+      
+      // Verify it's an NSTP course
+      const nstpCourses = courses.filter(c => c.subjectCode.startsWith('NSTP'));
+      assert.strictEqual(nstpCourses.length, 1, 'Should have 1 NSTP course');
+      
+      // Verify the course details
+      const course = courses[0];
+      assert.ok(course.subjectCode.startsWith('NSTP'), 'Course should be NSTP');
+      assert.ok(course.title.includes('ROTC'), 'Course should be ROTC');
+    });
+
+    it('should fail sanity check with 0 NSTP courses', () => {
+      const html = fs.readFileSync(
+        path.join(process.cwd(), 'tests/fixtures/nstp-adast-zero-courses.html'),
+        'utf-8'
+      );
+
+      const courses = scraper._parseCourses(html, 'NSTP (ADAST)');
+      
+      // Verify we have 0 courses
+      assert.strictEqual(courses.length, 0, 'Should have 0 courses');
+    });
+
+    it('should pass sanity check with 5 NSTP courses (below warning threshold)', () => {
+      const html = fs.readFileSync(
+        path.join(process.cwd(), 'tests/fixtures/nstp-adast-five-courses.html'),
+        'utf-8'
+      );
+
+      const courses = scraper._parseCourses(html, 'NSTP (ADAST)');
+      
+      // Verify we have 5 courses
+      assert.strictEqual(courses.length, 5, 'Should have exactly 5 courses');
+      
+      // Verify all are NSTP courses
+      const nstpCourses = courses.filter(c => c.subjectCode.startsWith('NSTP'));
+      assert.strictEqual(nstpCourses.length, 5, 'All 5 courses should be NSTP');
+    });
+  });
+
   describe('Sanity Check Thresholds', () => {
     it('should respect SCRAPER_MIN_MA_MATH environment variable', () => {
       // Test that configuration is loaded correctly

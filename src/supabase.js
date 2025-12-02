@@ -73,13 +73,24 @@ export { ALL_DEPARTMENTS_LABEL };
 
 export class SupabaseManager {
   constructor(ingestToken, supabaseUrl = null) {
+    // Validate ingest token
+    if (!ingestToken || ingestToken.trim() === '') {
+      throw new Error('DATA_INGEST_TOKEN is required but was not provided or is empty. Please set it in your environment variables or GitHub secrets.');
+    }
     this.ingestToken = ingestToken;
+    
     // Read from argument or environment variable - no hardcoded fallback
     const baseUrl = supabaseUrl || process.env.SUPABASE_URL;
-    if (!baseUrl) {
-      throw new Error('SUPABASE_URL is required. Please set it in your environment variables.');
+    if (!baseUrl || baseUrl.trim() === '') {
+      throw new Error('SUPABASE_URL is required but was not provided or is empty. Please set it in your environment variables or GitHub secrets.');
     }
     this.url = `${baseUrl}/functions/v1/github-data-ingest`;
+    
+    // Log configuration (without exposing secrets)
+    console.log(`   🔧 Supabase configuration:`);
+    console.log(`      URL: ${baseUrl.substring(0, 30)}... (${baseUrl.length} chars)`);
+    console.log(`      Token: ${ingestToken.substring(0, 10)}... (${ingestToken.length} chars)`);
+    console.log(`      Endpoint: ${this.url}`);
     
     // Multi-university support: read university code from environment, default to ADMU
     const envUniversityCode = process.env.UNIVERSITY_CODE || DEFAULT_UNIVERSITY_CODE;
@@ -509,6 +520,20 @@ export class SupabaseManager {
         } else {
           const text = await response.text();
           const isRetryable = RETRYABLE_STATUS_CODES.includes(response.status);
+          
+          // Provide specific diagnostics for authentication errors
+          if (response.status === 401) {
+            console.error(`   ❌ Authentication Error (401 Unauthorized): Invalid JWT or missing token`);
+            console.error(`      This typically means:`);
+            console.error(`      - The DATA_INGEST_TOKEN secret is invalid, expired, or malformed`);
+            console.error(`      - The token does not have proper permissions for the Supabase edge function`);
+            console.error(`      - The SUPABASE_URL may be incorrect`);
+            console.error(`      Configuration being used (secrets masked):`);
+            console.error(`      - SUPABASE_URL: ${process.env.SUPABASE_URL ? process.env.SUPABASE_URL.substring(0, 30) + '...' : 'NOT SET'}`);
+            console.error(`      - DATA_INGEST_TOKEN: ${this.ingestToken ? this.ingestToken.substring(0, 10) + '... (' + this.ingestToken.length + ' chars)' : 'NOT SET'}`);
+            console.error(`      Response: ${text}`);
+            return false;
+          }
           
           if (isRetryable && attempt < MAX_RETRIES) {
             const delayMs = Math.min(INITIAL_DELAY_MS * Math.pow(2, attempt), MAX_DELAY_MS);
