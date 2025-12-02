@@ -395,4 +395,223 @@ export class BaselineManager {
       hasWarnings: warnings.length > 0
     };
   }
+
+  /**
+   * Get per-department baseline file path for a term
+   * @param {string} term - Term code (e.g., '2025-1')
+   * @returns {string} File path
+   */
+  getDepartmentBaselinePath(term) {
+    return path.join(this.baselineDir, `baseline-${term}-departments.json`);
+  }
+
+  /**
+   * Load per-department baseline for a term, if it exists
+   * @param {string} term - Term code
+   * @returns {object|null} Per-department baseline data or null
+   */
+  loadDepartmentBaseline(term) {
+    const baselinePath = this.getDepartmentBaselinePath(term);
+    
+    if (!fs.existsSync(baselinePath)) {
+      return null;
+    }
+
+    try {
+      const data = fs.readFileSync(baselinePath, 'utf-8');
+      return JSON.parse(data);
+    } catch (error) {
+      console.warn(`   ⚠️ Failed to load department baseline for ${term}: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Save per-department baseline for a term
+   * @param {string} term - Term code
+   * @param {object} departmentData - Map from deptCode to { row_count, prefix_breakdown }
+   *   Example: { 'MA': { row_count: 305, prefix_breakdown: { 'MATH': 305 } }, ... }
+   */
+  saveDepartmentBaseline(term, departmentData) {
+    const baselinePath = this.getDepartmentBaselinePath(term);
+    
+    const baseline = {
+      term,
+      timestamp: new Date().toISOString(),
+      departments: departmentData,
+      metadata: {
+        githubRun: process.env.GITHUB_RUN_ID || null,
+        githubSha: process.env.GITHUB_SHA || null
+      }
+    };
+    
+    try {
+      fs.writeFileSync(baselinePath, JSON.stringify(baseline, null, 2));
+      console.log(`   💾 Saved per-department baseline for ${term} to ${baselinePath}`);
+    } catch (error) {
+      console.error(`   ❌ Failed to save department baseline for ${term}: ${error.message}`);
+    }
+  }
+
+  /**
+   * Compare current per-department data with baseline
+   * Detects significant drops in department row counts or missing critical subject prefixes
+   * 
+   * @param {string} term - Term code
+   * @param {object} currentDeptData - Current per-department data
+   *   Format: { 'MA': { row_count: 305, prefix_breakdown: { 'MATH': 305 } }, ... }
+   * @returns {object} Comparison results with regression flags
+   */
+  compareWithDepartmentBaseline(term, currentDeptData) {
+    const previous = this.loadDepartmentBaseline(term);
+    
+    if (!previous) {
+      console.log(`\n📊 Per-Department Baseline Comparison:`);
+      console.log(`   No previous per-department baseline found for term ${term}`);
+      console.log(`   This is the first run or baseline file was not saved.`);
+      
+      return {
+        hasPrevious: false,
+        regressions: [],
+        warnings: [],
+        hasCriticalRegressions: false,
+        message: 'No previous per-department baseline for comparison'
+      };
+    }
+
+    // Get configured drop threshold (fraction, 0.0-1.0)
+    const dropThreshold = parseFloat(process.env.BASELINE_DEPT_DROP_THRESHOLD || '0.5');
+    
+    console.log(`\n📊 Per-Department Baseline Comparison:`);
+    console.log(`   Term: ${term}`);
+    console.log(`   Previous run: ${previous.timestamp}`);
+    console.log(`   Drop threshold: ${(dropThreshold * 100).toFixed(0)}%`);
+    
+    const regressions = [];
+    const warnings = [];
+    const previousDepts = previous.departments || {};
+    
+    // Critical departments that should trigger failures on regression
+    const criticalDepts = ['MA', 'PE', 'NSTP (ADAST)', 'NSTP (OSCI)'];
+    
+    // Check each department in current data
+    for (const [deptCode, currentData] of Object.entries(currentDeptData)) {
+      const prevData = previousDepts[deptCode];
+      
+      if (!prevData) {
+        // New department appeared - this is fine
+        console.log(`   ℹ️  [${deptCode}] New department: ${currentData.row_count} rows`);
+        continue;
+      }
+      
+      const prevCount = prevData.row_count || 0;
+      const currCount = currentData.row_count || 0;
+      const diff = currCount - prevCount;
+      const dropFraction = prevCount > 0 ? Math.abs(diff) / prevCount : 0;
+      
+      // Check for significant drop
+      if (diff < 0 && dropFraction > dropThreshold) {
+        const percentDrop = (dropFraction * 100).toFixed(1);
+        const isCritical = criticalDepts.includes(deptCode);
+        
+        const regression = {
+          department: deptCode,
+          previousCount: prevCount,
+          currentCount: currCount,
+          diff,
+          percentDrop,
+          isCritical,
+          reason: `Row count dropped by ${percentDrop}% (${prevCount} → ${currCount})`
+        };
+        
+        regressions.push(regression);
+        
+        if (isCritical) {
+          console.error(`   ❌ [${deptCode}] CRITICAL REGRESSION: ${regression.reason}`);
+        } else {
+          console.warn(`   ⚠️  [${deptCode}] Regression: ${regression.reason}`);
+        }
+        
+        // Check prefix breakdown for additional insights
+        if (currentData.prefix_breakdown && prevData.prefix_breakdown) {
+          const currPrefixes = Object.keys(currentData.prefix_breakdown);
+          const prevPrefixes = Object.keys(prevData.prefix_breakdown);
+          const missingPrefixes = prevPrefixes.filter(p => !currPrefixes.includes(p));
+          
+          if (missingPrefixes.length > 0) {
+            console.warn(`      Missing subject prefixes: ${missingPrefixes.join(', ')}`);
+            regression.missingPrefixes = missingPrefixes;
+          }
+        }
+      } else if (diff < 0) {
+        // Small drop - log as info
+        const percentDrop = (dropFraction * 100).toFixed(1);
+        console.log(`   ℹ️  [${deptCode}] Small drop: ${percentDrop}% (${prevCount} → ${currCount})`);
+      } else if (diff > 0) {
+        console.log(`   ✅ [${deptCode}] Increase: +${diff} rows (${prevCount} → ${currCount})`);
+      }
+    }
+    
+    // Check for departments that disappeared entirely
+    for (const [deptCode, prevData] of Object.entries(previousDepts)) {
+      if (!currentDeptData[deptCode]) {
+        const warning = {
+          department: deptCode,
+          previousCount: prevData.row_count || 0,
+          currentCount: 0,
+          reason: 'Department disappeared entirely'
+        };
+        warnings.push(warning);
+        console.warn(`   ⚠️  [${deptCode}] WARNING: ${warning.reason} (had ${warning.previousCount} rows)`);
+      }
+    }
+    
+    // Summary
+    if (regressions.length > 0) {
+      console.log(`\n   ⚠️  Found ${regressions.length} department regression(s)`);
+      const criticalCount = regressions.filter(r => r.isCritical).length;
+      if (criticalCount > 0) {
+        console.error(`      ${criticalCount} critical department(s) affected: ${regressions.filter(r => r.isCritical).map(r => r.department).join(', ')}`);
+      }
+    } else {
+      console.log(`\n   ✅ No significant per-department regressions detected`);
+    }
+    
+    return {
+      hasPrevious: true,
+      previousTimestamp: previous.timestamp,
+      regressions,
+      warnings,
+      threshold: dropThreshold,
+      hasCriticalRegressions: regressions.some(r => r.isCritical),
+      message: regressions.length > 0 
+        ? `Found ${regressions.length} department regression(s)`
+        : 'No significant regressions'
+    };
+  }
+
+  /**
+   * Build per-department baseline data from scrape results
+   * @param {Array} departmentsArray - Array of { department, courses } objects
+   * @returns {object} Per-department data suitable for saveDepartmentBaseline
+   */
+  buildDepartmentBaselineData(departmentsArray) {
+    const result = {};
+    
+    for (const { department, courses } of departmentsArray) {
+      // Count courses by subject prefix
+      const prefixBreakdown = {};
+      for (const course of courses) {
+        const prefix = course.subjectCode ? course.subjectCode.split(/[\s.\/]/)[0] : 'UNKNOWN';
+        prefixBreakdown[prefix] = (prefixBreakdown[prefix] || 0) + 1;
+      }
+      
+      result[department] = {
+        row_count: courses.length,
+        prefix_breakdown: prefixBreakdown
+      };
+    }
+    
+    return result;
+  }
 }

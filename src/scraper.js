@@ -128,6 +128,193 @@ const EXCLUDED_DEPT_CODES = [
   'SELECT'    // Possible placeholder text
 ];
 
+// Department sanity check configuration
+// These thresholds prevent data loss from AISIS misrouting or HTML quirks
+const SANITY_CHECK_CONFIG = {
+  // MA (Mathematics) department sanity checks
+  MA: {
+    minMathCourses: parseInt(process.env.SCRAPER_MIN_MA_MATH || '50', 10),
+    requiredPrefixes: ['MATH']
+  },
+  // PE (Physical Education) department sanity checks
+  PE: {
+    minTotalCourses: parseInt(process.env.SCRAPER_MIN_PE_COURSES || '20', 10),
+    requiredPrefixes: ['PEPC', 'PHYED']
+  },
+  // NSTP departments sanity checks
+  'NSTP (ADAST)': {
+    minNstpCourses: parseInt(process.env.SCRAPER_MIN_NSTP_COURSES || '10', 10),
+    requiredPrefixes: ['NSTP']
+  },
+  'NSTP (OSCI)': {
+    minNstpCourses: parseInt(process.env.SCRAPER_MIN_NSTP_COURSES || '10', 10),
+    requiredPrefixes: ['NSTP']
+  }
+};
+
+/**
+ * Save raw HTML response to file for debugging
+ * @param {string} html - Raw HTML content
+ * @param {string} term - Term code
+ * @param {string} deptCode - Department code
+ * @param {string} reason - Reason for saving (e.g., 'sanity-check-failed')
+ */
+function saveRawHtml(html, term, deptCode, reason) {
+  try {
+    const logsDir = 'logs';
+    if (!fs.existsSync(logsDir)) {
+      fs.mkdirSync(logsDir, { recursive: true });
+    }
+    
+    const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
+    const filename = `${logsDir}/raw-${reason}-${term}-${deptCode}-${timestamp}.html`;
+    fs.writeFileSync(filename, html);
+    console.log(`   💾 Saved raw HTML to: ${filename}`);
+  } catch (error) {
+    console.error(`   ⚠️  Failed to save raw HTML: ${error.message}`);
+  }
+}
+
+/**
+ * Perform department-specific sanity checks on scraped courses
+ * Detects AISIS misrouting, HTML quirks, or missing critical subjects
+ * 
+ * @param {string} deptCode - Department code (e.g., 'MA', 'PE')
+ * @param {Array} courses - Array of parsed course objects
+ * @param {string} html - Raw HTML response for debugging
+ * @param {string} term - Term code
+ * @returns {Object} { passed: boolean, reason: string, details: object }
+ */
+function performDepartmentSanityChecks(deptCode, courses, html, term) {
+  const config = SANITY_CHECK_CONFIG[deptCode];
+  
+  // No specific sanity checks for this department - pass by default
+  if (!config) {
+    return { passed: true, reason: 'No sanity checks configured for this department' };
+  }
+  
+  const debugMode = process.env.DEBUG_SCRAPER === 'true';
+  
+  // Count courses by subject prefix
+  const prefixCounts = {};
+  for (const course of courses) {
+    const prefix = getSubjectPrefix(course.subjectCode);
+    prefixCounts[prefix] = (prefixCounts[prefix] || 0) + 1;
+  }
+  
+  if (debugMode) {
+    const breakdown = Object.entries(prefixCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([prefix, count]) => `${prefix}=${count}`)
+      .join(', ');
+    console.log(`   🔍 [${deptCode}] Sanity check: Subject prefix breakdown: ${breakdown}`);
+  }
+  
+  // MA (Mathematics) department checks
+  if (deptCode === 'MA') {
+    const mathCount = prefixCounts['MATH'] || 0;
+    const minRequired = config.minMathCourses;
+    
+    if (mathCount === 0) {
+      const reason = `MA sanity check failed: expected many MATH courses, got ${mathCount} (0 MATH courses found)`;
+      console.error(`   ❌ ${reason}`);
+      console.error(`   📊 Found prefixes: ${Object.keys(prefixCounts).join(', ') || 'none'}`);
+      saveRawHtml(html, term, deptCode, 'sanity-check-failed');
+      return {
+        passed: false,
+        reason,
+        details: { mathCount, minRequired, prefixCounts, totalCourses: courses.length }
+      };
+    }
+    
+    if (mathCount < minRequired) {
+      const reason = `MA sanity check failed: expected >= ${minRequired} MATH courses, got ${mathCount}`;
+      console.error(`   ❌ ${reason}`);
+      console.error(`   📊 Found prefixes: ${Object.entries(prefixCounts).map(([p, c]) => `${p}=${c}`).join(', ')}`);
+      saveRawHtml(html, term, deptCode, 'sanity-check-failed');
+      return {
+        passed: false,
+        reason,
+        details: { mathCount, minRequired, prefixCounts, totalCourses: courses.length }
+      };
+    }
+    
+    console.log(`   ✅ [${deptCode}] Sanity check passed: ${mathCount} MATH courses (>= ${minRequired})`);
+    return { passed: true, reason: 'MA sanity checks passed', details: { mathCount, minRequired } };
+  }
+  
+  // PE (Physical Education) department checks
+  if (deptCode === 'PE') {
+    const pepcCount = prefixCounts['PEPC'] || 0;
+    const phyedCount = prefixCounts['PHYED'] || 0;
+    const totalCourses = courses.length;
+    const minRequired = config.minTotalCourses;
+    
+    // Check for required prefixes
+    if (pepcCount === 0 && phyedCount === 0) {
+      const reason = `PE sanity check failed: no PEPC or PHYED courses found`;
+      console.error(`   ❌ ${reason}`);
+      console.error(`   📊 Found prefixes: ${Object.keys(prefixCounts).join(', ') || 'none'}`);
+      saveRawHtml(html, term, deptCode, 'sanity-check-failed');
+      return {
+        passed: false,
+        reason,
+        details: { pepcCount, phyedCount, totalCourses, prefixCounts }
+      };
+    }
+    
+    // Check minimum total courses
+    if (totalCourses < minRequired) {
+      const reason = `PE sanity check failed: expected >= ${minRequired} courses, got ${totalCourses}`;
+      console.error(`   ❌ ${reason}`);
+      console.error(`   📊 PEPC=${pepcCount}, PHYED=${phyedCount}`);
+      saveRawHtml(html, term, deptCode, 'sanity-check-failed');
+      return {
+        passed: false,
+        reason,
+        details: { pepcCount, phyedCount, totalCourses, minRequired, prefixCounts }
+      };
+    }
+    
+    console.log(`   ✅ [${deptCode}] Sanity check passed: PEPC=${pepcCount}, PHYED=${phyedCount}, total=${totalCourses}`);
+    return { passed: true, reason: 'PE sanity checks passed', details: { pepcCount, phyedCount, totalCourses } };
+  }
+  
+  // NSTP department checks
+  if (deptCode.startsWith('NSTP')) {
+    const nstpCount = prefixCounts['NSTP'] || 0;
+    const minRequired = config.minNstpCourses;
+    
+    if (nstpCount === 0) {
+      const reason = `${deptCode} sanity check failed: no NSTP courses found`;
+      console.error(`   ❌ ${reason}`);
+      console.error(`   📊 Found prefixes: ${Object.keys(prefixCounts).join(', ') || 'none'}`);
+      saveRawHtml(html, term, deptCode, 'sanity-check-failed');
+      return {
+        passed: false,
+        reason,
+        details: { nstpCount, minRequired: 1, prefixCounts, totalCourses: courses.length }
+      };
+    }
+    
+    if (nstpCount < minRequired) {
+      const reason = `${deptCode} sanity check failed: expected >= ${minRequired} NSTP courses, got ${nstpCount}`;
+      console.error(`   ❌ ${reason}`);
+      saveRawHtml(html, term, deptCode, 'sanity-check-failed');
+      return {
+        passed: false,
+        reason,
+        details: { nstpCount, minRequired, prefixCounts, totalCourses: courses.length }
+      };
+    }
+    
+    console.log(`   ✅ [${deptCode}] Sanity check passed: ${nstpCount} NSTP courses (>= ${minRequired})`);
+    return { passed: true, reason: 'NSTP sanity checks passed', details: { nstpCount, minRequired } };
+  }
+  
+  return { passed: true, reason: 'No applicable sanity checks' };
+}
+
 /**
  * Compare two AISIS term codes for sorting and filtering
  * 
@@ -1209,6 +1396,14 @@ export class AISISScraper {
         if (cellCount !== expectedCells) {
           console.log(`   ℹ️  ${deptCode}: ${courses.length} courses parsed from ${cellCount} cells (expected ${expectedCells})`);
         }
+      }
+      
+      // Perform department-specific sanity checks to prevent data loss
+      // from AISIS misrouting or HTML quirks (e.g., MA returning KRN courses instead of MATH)
+      const sanityCheck = performDepartmentSanityChecks(deptCode, courses, html, term);
+      if (!sanityCheck.passed) {
+        // Sanity check failed - throw error to mark department as failed
+        throw new Error(`${deptCode} sanity check failed: ${sanityCheck.reason}`);
       }
       
       return courses;

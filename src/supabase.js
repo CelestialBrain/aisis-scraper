@@ -103,7 +103,53 @@ export class SupabaseManager {
     return !isNaN(envValue) && envValue > 0 ? envValue : defaultValue;
   }
 
-  async syncToSupabase(dataType, data, termCode = null, department = null, programCode = null) {
+  /**
+   * Validate per-department health before syncing with replace_existing=true
+   * Checks for department-level regressions that could indicate bad data
+   * 
+   * @param {string} termCode - Term code
+   * @param {Array} departmentsArray - Array of { department, courses } objects from scrape
+   * @param {object} baselineManager - BaselineManager instance (optional)
+   * @returns {object} { safe: boolean, reason: string, failedDepartments: Array }
+   */
+  validateDepartmentHealth(termCode, departmentsArray, baselineManager = null) {
+    console.log(`\n🏥 Department Health Check for term ${termCode}...`);
+    
+    // If no baseline manager provided, skip regression checks
+    if (!baselineManager) {
+      console.log(`   ℹ️  No baseline manager provided - skipping regression checks`);
+      return { safe: true, reason: 'No baseline manager', failedDepartments: [] };
+    }
+    
+    // Build current per-department data
+    const currentDeptData = baselineManager.buildDepartmentBaselineData(departmentsArray);
+    
+    // Compare with baseline
+    const comparison = baselineManager.compareWithDepartmentBaseline(termCode, currentDeptData);
+    
+    // Check for critical regressions
+    if (comparison.hasCriticalRegressions) {
+      const criticalDepts = comparison.regressions
+        .filter(r => r.isCritical)
+        .map(r => r.department);
+      
+      const reason = `Critical department regressions detected: ${criticalDepts.join(', ')}`;
+      console.error(`   ❌ ${reason}`);
+      console.error(`   🚫 Will NOT use replace_existing=true to prevent data loss`);
+      
+      return {
+        safe: false,
+        reason,
+        failedDepartments: criticalDepts,
+        regressions: comparison.regressions
+      };
+    }
+    
+    console.log(`   ✅ Department health check passed`);
+    return { safe: true, reason: 'No critical regressions', failedDepartments: [] };
+  }
+
+  async syncToSupabase(dataType, data, termCode = null, department = null, programCode = null, healthCheck = null) {
     console.log(`   ☁️ Supabase: Syncing ${data.length} ${dataType} records...`);
 
     // Defensive: ensure each record has necessary metadata if missing
@@ -144,6 +190,19 @@ export class SupabaseManager {
     let successCount = 0;
     let failureCount = 0;
 
+    // Check if we should block replace_existing based on health check
+    // If health check failed (critical department regressions), abort sync to prevent data loss
+    let allowReplaceExisting = true;
+    if (dataType === 'schedules' && healthCheck && !healthCheck.safe) {
+      console.error(`\n   🚫 SYNC ABORTED: ${healthCheck.reason}`);
+      console.error(`   Failed departments: ${healthCheck.failedDepartments.join(', ')}`);
+      console.error(`   Will NOT sync this term to prevent data loss from bad department data`);
+      
+      // Option: could use append-only mode instead of aborting
+      // For now, abort to be safe
+      throw new Error(`Sync aborted for term ${termCode}: ${healthCheck.reason}`);
+    }
+
     // Track first batch for term-based replace_existing logic
     // For schedules: only the first batch should delete existing records (replace_existing=true)
     // Subsequent batches should append/upsert (replace_existing=false) to avoid data loss
@@ -161,11 +220,19 @@ export class SupabaseManager {
       
       // For schedules data type, control replace_existing behavior per batch
       // Only first batch deletes old data, subsequent batches append
+      // UNLESS health check failed, in which case we never use replace_existing
       // For other data types, pass null to omit replace_existing from metadata
-      const replaceExisting = (dataType === 'schedules') ? isFirstBatchForTerm : null;
+      let replaceExisting = null;
+      if (dataType === 'schedules') {
+        replaceExisting = isFirstBatchForTerm && allowReplaceExisting;
+      }
       
       if (dataType === 'schedules' && isFirstBatchForTerm) {
-        console.log(`   🔄 First batch for term ${termCode}: replace_existing=true (will clear old schedule data for ${this.universityCode})`);
+        if (allowReplaceExisting) {
+          console.log(`   🔄 First batch for term ${termCode}: replace_existing=true (will clear old schedule data for ${this.universityCode})`);
+        } else {
+          console.log(`   ⚠️  First batch for term ${termCode}: replace_existing=false (blocked by health check - append mode)`);
+        }
       } else if (dataType === 'schedules' && !isFirstBatchForTerm) {
         console.log(`   ➕ Subsequent batch: replace_existing=false (append mode)`);
       }
