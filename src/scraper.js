@@ -1835,6 +1835,7 @@ export class AISISScraper {
     
     // Balanced defaults: optimized for reliability while maintaining reasonable performance
     // Fast mode uses 500ms, normal mode uses 500ms (balanced mode from production testing)
+    // Note: Both modes use same delay now, but structure preserved for future tuning flexibility
     const defaultCurriculumDelay = fastMode ? 500 : 500;
     const curriculumDelayEnv = parseInt(process.env.CURRICULUM_DELAY_MS, 10);
     const curriculumDelayMs = isNaN(curriculumDelayEnv) 
