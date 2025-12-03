@@ -1695,7 +1695,7 @@ export class AISISScraper {
    * 
    * @param {string} degCode - Curriculum version identifier (e.g., 'BS CS_2024_1')
    * @param {string} label - Program label (e.g., 'BS Computer Science (2024-1)')
-   * @param {number} maxAttempts - Maximum number of attempts (default: 2)
+   * @param {number} maxAttempts - Maximum number of attempts (default: 3)
    * @returns {Promise<string>} Validated HTML for the curriculum
    * @throws {Error} If validation fails after all attempts
    */
@@ -1797,9 +1797,9 @@ export class AISISScraper {
    * Supports filtering and limiting via environment variables:
    * - CURRICULUM_LIMIT: Take first N degree codes (e.g., "10" for first 10 programs)
    * - CURRICULUM_SAMPLE: Select specific degree codes (e.g., "BS CS_2024_1,BS ME_2023_1")
-   * - CURRICULUM_DELAY_MS: Delay between requests (default: 300ms)
+   * - CURRICULUM_DELAY_MS: Delay between requests (default: 500ms)
    *   ⚠️ WARNING: Very low delays (<300ms) increase risk of AISIS session bleed
-   * - CURRICULUM_CONCURRENCY: Number of programs to scrape in parallel (default: 6, max: 10)
+   * - CURRICULUM_CONCURRENCY: Number of programs to scrape in parallel (default: 4, max: 10)
    *   ⚠️ WARNING: Very high concurrency (>6) increases risk of AISIS session bleed
    * 
    * Workflow:
