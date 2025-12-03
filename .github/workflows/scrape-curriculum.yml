@@ -40,9 +40,9 @@ jobs:
           # See CURRICULUM_PERFORMANCE_FIX.md and README.md for details
           FAST_MODE: 'true'
           # Skip validation passes, use minimal delays
-          CURRICULUM_DELAY_MS: '300'
+          CURRICULUM_DELAY_MS: '500'
           # Fast mode default - 40% faster than previous 500ms
-          CURRICULUM_CONCURRENCY: '6'
+          CURRICULUM_CONCURRENCY: '4'
           # Scrape 6 programs in parallel - 50% more parallelism,
           # well within AISIS limits (max 10)
 
