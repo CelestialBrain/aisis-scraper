@@ -27,11 +27,12 @@ let totalTests = 0;
 // Test 1: Verify default curriculum delay is 500ms for balanced mode
 totalTests++;
 console.log('Test 1: Default curriculum delay should be 500ms (balanced mode)');
-const delayMatch = scraperContent.match(/const defaultCurriculumDelay = fastMode \? 500 : (\d+);/);
+const delayMatch = scraperContent.match(/const defaultCurriculumDelay = fastMode \? (\d+) : (\d+);/);
 if (delayMatch) {
-  const normalModeDelay = parseInt(delayMatch[1], 10);
+  const fastModeDelay = parseInt(delayMatch[1], 10);
+  const normalModeDelay = parseInt(delayMatch[2], 10);
   if (normalModeDelay === 500) {
-    console.log('   ✅ PASS: Default delay is 500ms\n');
+    console.log(`   ✅ PASS: Default delay is 500ms (fast mode: ${fastModeDelay}ms)\n`);
     passedTests++;
   } else {
     console.log(`   ❌ FAIL: Expected 500ms, got ${normalModeDelay}ms\n`);
@@ -76,7 +77,7 @@ if (maxAttemptsMatch) {
 totalTests++;
 console.log('Test 4: Fast mode delay should remain 500ms');
 if (delayMatch) {
-  const fastModeDelay = 500; // Hard-coded in the regex pattern
+  const fastModeDelay = parseInt(delayMatch[1], 10);
   if (fastModeDelay === 500) {
     console.log('   ✅ PASS: Fast mode delay is 500ms\n');
     passedTests++;
