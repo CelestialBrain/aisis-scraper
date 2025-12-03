@@ -1,12 +1,22 @@
-# CURRICULUM SCRAPING PERFORMANCE - Balanced Defaults
+# CURRICULUM SCRAPING PERFORMANCE - Balanced Defaults (Reverted from Aggressive)
 
-## Current Status (v3.3+)
+## Current Status (v3.4+)
 
-The curriculum scraper now uses **balanced defaults** that provide good performance while maintaining safety:
-- **1000ms delay** between requests (was 2000ms ultra-conservative)
-- **Concurrency 2** for parallel scraping (was 1 sequential)
-- **Combined: ~4x speedup** over previous ultra-conservative defaults
-- **Safety maintained**: All requests validated via `_scrapeDegreeWithValidation`
+The curriculum scraper has been **reverted to balanced defaults** after session bleed issues were observed with aggressive settings:
+- **1000ms delay** between requests (reverted from 300ms aggressive default)
+- **Concurrency 2** for parallel scraping (reverted from 6)
+- **Expected time: ~10-15 minutes** for all curricula (acceptable, well under 20-30 minute threshold)
+- **Safety restored**: Minimal to zero AISIS session bleed errors
+
+## Why We Reverted
+
+The aggressive defaults introduced in v3.3 (concurrency=6, delay=300ms) caused significant **AISIS session bleed issues**:
+- 6-7 curricula failed permanently after exhausting retries
+- Many more required retry attempts before succeeding
+- Runtime improved to ~3.5 minutes but at unacceptable reliability cost
+- Examples: Requested `M ED-EA_2013_0` but got `MASTER IN EDUCATION... (Ver Year 2021)`
+
+**The speed gains were not worth the reliability loss.**
 
 ## Performance Comparison
 
@@ -14,32 +24,33 @@ The curriculum scraper now uses **balanced defaults** that provide good performa
 |---------------|----------------------|-------|
 | Ultra-conservative (concurrency=1, delay=2000ms) | ~35-40 minutes | Maximum safety, very slow |
 | **Balanced default (concurrency=2, delay=1000ms)** | **~10-15 minutes** | **Good performance + safety (CURRENT)** |
-| Fast mode (concurrency=2, delay=500ms) | ~6-8 minutes | Faster, still validated |
-| Aggressive (concurrency=4, delay=0ms) | ~3-5 minutes | Fastest, higher risk |
+| Fast mode (concurrency=2, delay=500ms) | ~6-10 minutes | Faster, still validated |
+| Aggressive (concurrency=6, delay=300ms) | ~3-5 minutes | Fastest but UNRELIABLE - causes session bleed |
+| Maximum aggressive (concurrency=4, delay=0ms) | ~2-4 minutes | Very fast, very high risk |
 
-## What Changed (v3.3)
+## What Changed (v3.4 - Revert)
 
-### New Defaults (Automatic - No Action Required!)
+### Reverted to Balanced Defaults (Automatic - No Action Required!)
 
 ```javascript
-// PREVIOUS ultra-conservative defaults (slow)
-CURRICULUM_DELAY_MS: 2000ms
-CURRICULUM_CONCURRENCY: 1 (sequential)
+// AGGRESSIVE defaults that caused session bleed (v3.3 - REMOVED)
+CURRICULUM_DELAY_MS: 300ms
+CURRICULUM_CONCURRENCY: 6 (parallel)
 
-// NEW balanced defaults (faster but still safe)
-CURRICULUM_DELAY_MS: 1000ms
+// REVERTED to balanced defaults (v3.4 - CURRENT)
+CURRICULUM_DELAY_MS: 1000ms (normal), 500ms (fast mode)
 CURRICULUM_CONCURRENCY: 2 (parallel)
 ```
 
 ### Expected Performance
 
-| Programs | Old Time (conservative) | New Time (balanced) | Speedup |
-|----------|------------------------|---------------------|---------|
-| 50 | ~3-4 minutes | ~1 minute | ~3-4x |
-| 100 | ~6-7 minutes | ~2 minutes | ~3-3.5x |
-| 459 | ~35-40 minutes | ~10-15 minutes | ~2.5-4x |
+| Programs | Aggressive (UNRELIABLE) | Balanced (CURRENT) | Speedup vs Ultra-Conservative |
+|----------|------------------------|---------------------|-------------------------------|
+| 50 | ~30-45 seconds | ~1-2 minutes | ~2-4x |
+| 100 | ~1-1.5 minutes | ~2-3 minutes | ~2-3.5x |
+| 459 | ~3-5 minutes | ~10-15 minutes | ~2.5-4x |
 
-*Note: Actual speedup depends on network conditions and AISIS server response times. The 4x combined theoretical speedup (2x from concurrency + 2x from delay reduction) is achieved in optimal conditions.*
+*Note: The aggressive settings (v3.3) were faster but caused unacceptable session bleed errors. The balanced settings provide a good compromise between speed and reliability.*
 
 ## Safety Features (Unchanged)
 
@@ -71,7 +82,7 @@ The current defaults already provide a good balance:
 npm run curriculum
 ```
 
-### For Faster Scraping (FAST_MODE)
+### For Faster Scraping (FAST_MODE - Use with Caution)
 
 Use FAST_MODE for quicker scraping while maintaining validation:
 
@@ -80,17 +91,21 @@ Use FAST_MODE for quicker scraping while maintaining validation:
 FAST_MODE=true npm run curriculum
 ```
 
-### For Maximum Speed (Higher Risk)
+**Warning**: Even fast mode settings should be used with caution. Do not increase concurrency beyond 2-4 or decrease delay below 500ms without careful monitoring for session bleed errors.
 
-For local development or one-time scrapes where speed is critical:
+### For Maximum Speed (NOT RECOMMENDED - High Risk)
+
+For local development or one-time scrapes where speed is critical **and you can tolerate failures**:
 
 ```bash
-# Aggressive: no delay, higher concurrency
-FAST_MODE=true CURRICULUM_CONCURRENCY=4 npm run curriculum
+# Aggressive: low delay, higher concurrency (RISKY - session bleed likely)
+CURRICULUM_DELAY_MS=300 CURRICULUM_CONCURRENCY=4 npm run curriculum
 
-# Or custom settings
-CURRICULUM_DELAY_MS=0 CURRICULUM_CONCURRENCY=3 npm run curriculum
+# Or custom settings (at your own risk)
+CURRICULUM_DELAY_MS=200 CURRICULUM_CONCURRENCY=3 npm run curriculum
 ```
+
+**Warning**: Settings more aggressive than the balanced defaults (concurrency>2, delay<500ms) are known to cause AISIS session bleed issues and permanent curriculum scraping failures.
 
 ## Backward Compatibility
 
@@ -126,7 +141,7 @@ Watch your curriculum scrape logs - you should see:
 ```
 ⚡ Curriculum scraping configuration:
    ⏱  CURRICULUM_DELAY_MS: 1000ms (default - balanced mode)
-   📊 CURRICULUM_CONCURRENCY: 2 (default - parallel scraping with validation)
+   📊 CURRICULUM_CONCURRENCY: 2 (default - balanced mode with validation)
 
    ⚡ Using concurrent scraping with concurrency 2
       ℹ️  All requests validated via _scrapeDegreeWithValidation to prevent session bleed
@@ -140,33 +155,44 @@ Watch your curriculum scrape logs - you should see:
       Requested: 459
       Successful: 459
       Failed: 0
-      Total time: ~10-15 minutes  # ← Key improvement over 35-40 minutes!
+      Total time: ~10-15 minutes  # ← Acceptable performance with high reliability!
 ```
 
 ## Rollback (if needed)
 
-If you need to revert to ultra-conservative settings:
+If you need to experiment with different settings:
 
 ```bash
-# In your .env file or GitHub Actions secrets:
-CURRICULUM_DELAY_MS=2000
-CURRICULUM_CONCURRENCY=1
+# Ultra-conservative (slowest, safest):
+CURRICULUM_DELAY_MS=2000 CURRICULUM_CONCURRENCY=1
+
+# Balanced (current default):
+# No need to set - these are the defaults
+
+# Fast mode (faster, still relatively safe):
+FAST_MODE=true  # Uses 500ms delay, concurrency 2
+
+# Aggressive (NOT RECOMMENDED - known to cause session bleed):
+CURRICULUM_DELAY_MS=300 CURRICULUM_CONCURRENCY=6
 ```
 
 ## Questions?
 
-- **Is this safe?** Yes, 1000ms delay with concurrency 2 is well-tested, and all requests are validated via `_scrapeDegreeWithValidation`
+- **Is this safe?** Yes, 1000ms delay with concurrency 2 is well-tested and reliable
 - **Will it break anything?** No, all tests pass and it's backward compatible
-- **Can I go faster?** Yes, use FAST_MODE or custom env vars (at your own risk)
+- **Can I go faster?** Yes, use FAST_MODE (500ms delay) or custom env vars, but monitor for session bleed
 - **Can I go slower?** Yes, set CURRICULUM_DELAY_MS=2000 and CURRICULUM_CONCURRENCY=1 for ultra-safe mode
-- **What about session bleed?** All requests are validated to prevent contaminated data, even with concurrency enabled
+- **What about session bleed?** The balanced defaults minimize session bleed; aggressive settings (concurrency=6, delay=300ms) are known to cause it
+- **Why revert from v3.3?** The aggressive defaults caused 6-7 permanent failures and many retries due to session bleed - not worth the speed gain
 
 ## Summary
 
-🎉 **Curriculum scraping is now ~4x faster with balanced defaults!**
+🎉 **Curriculum scraping uses balanced defaults for reliability!**
 
-- Old ultra-conservative: ~35-40 minutes for 459 programs
-- New balanced default: ~10-15 minutes for 459 programs
+- Aggressive settings (v3.3): ~3-5 minutes but UNRELIABLE (session bleed issues)
+- **Balanced defaults (v3.4 - CURRENT): ~10-15 minutes with HIGH RELIABILITY**
 - Action required: None (automatic improvement)
 - Backward compatible: Yes (can adjust via env vars)
-- Safety maintained: Yes (all validation features active)
+- Safety restored: Yes (minimal session bleed errors)
+
+**Key Lesson**: Speed optimizations must not compromise reliability. The ~10-15 minute runtime is acceptable and well under the 20-30 minute threshold, while the aggressive settings caused unacceptable data quality issues.
