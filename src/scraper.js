@@ -1695,11 +1695,11 @@ export class AISISScraper {
    * 
    * @param {string} degCode - Curriculum version identifier (e.g., 'BS CS_2024_1')
    * @param {string} label - Program label (e.g., 'BS Computer Science (2024-1)')
-   * @param {number} maxAttempts - Maximum number of attempts (default: 2)
+   * @param {number} maxAttempts - Maximum number of attempts (default: 3)
    * @returns {Promise<string>} Validated HTML for the curriculum
    * @throws {Error} If validation fails after all attempts
    */
-  async _scrapeDegreeWithValidation(degCode, label, maxAttempts = 2) {
+  async _scrapeDegreeWithValidation(degCode, label, maxAttempts = 3) {
     // Import validation functions from curriculum-parser
     // Note: Dynamic import to avoid circular dependencies
     const { extractProgramTitle, isProgramMatch } = await import('./curriculum-parser.js');
@@ -1797,9 +1797,9 @@ export class AISISScraper {
    * Supports filtering and limiting via environment variables:
    * - CURRICULUM_LIMIT: Take first N degree codes (e.g., "10" for first 10 programs)
    * - CURRICULUM_SAMPLE: Select specific degree codes (e.g., "BS CS_2024_1,BS ME_2023_1")
-   * - CURRICULUM_DELAY_MS: Delay between requests (default: 300ms)
+   * - CURRICULUM_DELAY_MS: Delay between requests (default: 500ms)
    *   ⚠️ WARNING: Very low delays (<300ms) increase risk of AISIS session bleed
-   * - CURRICULUM_CONCURRENCY: Number of programs to scrape in parallel (default: 6, max: 10)
+   * - CURRICULUM_CONCURRENCY: Number of programs to scrape in parallel (default: 4, max: 10)
    *   ⚠️ WARNING: Very high concurrency (>6) increases risk of AISIS session bleed
    * 
    * Workflow:
@@ -1834,17 +1834,18 @@ export class AISISScraper {
       : null;
     
     // Balanced defaults: optimized for reliability while maintaining reasonable performance
-    // Fast mode uses 500ms, normal mode uses 1000ms (previous stable balanced settings)
-    const defaultCurriculumDelay = fastMode ? 500 : 1000;
+    // Fast mode uses 500ms, normal mode uses 500ms (balanced mode from production testing)
+    // Note: Both modes use same delay now, but structure preserved for future tuning flexibility
+    const defaultCurriculumDelay = fastMode ? 500 : 500;
     const curriculumDelayEnv = parseInt(process.env.CURRICULUM_DELAY_MS, 10);
     const curriculumDelayMs = isNaN(curriculumDelayEnv) 
       ? defaultCurriculumDelay 
       : Math.max(0, curriculumDelayEnv);
     
     // Balanced defaults: Conservative concurrency to prevent AISIS session bleed
-    // Concurrency 2 provides parallel scraping while minimizing session bleed issues
+    // Concurrency 4 provides better throughput while maintaining reliability (production tested)
     // All requests use _scrapeDegreeWithValidation to prevent AISIS session bleed
-    const defaultCurriculumConcurrency = 2;
+    const defaultCurriculumConcurrency = 4;
     const curriculumConcurrencyEnv = parseInt(process.env.CURRICULUM_CONCURRENCY, 10);
     const curriculumConcurrency = isNaN(curriculumConcurrencyEnv) 
       ? defaultCurriculumConcurrency 
