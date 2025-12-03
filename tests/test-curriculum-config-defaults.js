@@ -27,7 +27,7 @@ let totalTests = 0;
 // Test 1: Verify default curriculum delay is 500ms for balanced mode
 totalTests++;
 console.log('Test 1: Default curriculum delay should be 500ms (balanced mode)');
-const delayMatch = scraperContent.match(/const defaultCurriculumDelay = fastMode \? (\d+) : (\d+);/);
+const delayMatch = scraperContent.match(/const\s+defaultCurriculumDelay\s*=\s*fastMode\s*\?\s*(\d+)\s*:\s*(\d+);/);
 if (delayMatch) {
   const fastModeDelay = parseInt(delayMatch[1], 10);
   const normalModeDelay = parseInt(delayMatch[2], 10);
@@ -44,7 +44,7 @@ if (delayMatch) {
 // Test 2: Verify default curriculum concurrency is 4
 totalTests++;
 console.log('Test 2: Default curriculum concurrency should be 4');
-const concurrencyMatch = scraperContent.match(/const defaultCurriculumConcurrency = (\d+);/);
+const concurrencyMatch = scraperContent.match(/const\s+defaultCurriculumConcurrency\s*=\s*(\d+);/);
 if (concurrencyMatch) {
   const defaultConcurrency = parseInt(concurrencyMatch[1], 10);
   if (defaultConcurrency === 4) {
@@ -60,7 +60,7 @@ if (concurrencyMatch) {
 // Test 3: Verify max retry attempts is 3
 totalTests++;
 console.log('Test 3: Max retry attempts should be 3 in _scrapeDegreeWithValidation');
-const maxAttemptsMatch = scraperContent.match(/async _scrapeDegreeWithValidation\(degCode, label, maxAttempts = (\d+)\)/);
+const maxAttemptsMatch = scraperContent.match(/async\s+_scrapeDegreeWithValidation\s*\(\s*degCode\s*,\s*label\s*,\s*maxAttempts\s*=\s*(\d+)\s*\)/);
 if (maxAttemptsMatch) {
   const maxAttempts = parseInt(maxAttemptsMatch[1], 10);
   if (maxAttempts === 3) {
