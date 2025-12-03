@@ -1699,7 +1699,7 @@ export class AISISScraper {
    * @returns {Promise<string>} Validated HTML for the curriculum
    * @throws {Error} If validation fails after all attempts
    */
-  async _scrapeDegreeWithValidation(degCode, label, maxAttempts = 2) {
+  async _scrapeDegreeWithValidation(degCode, label, maxAttempts = 3) {
     // Import validation functions from curriculum-parser
     // Note: Dynamic import to avoid circular dependencies
     const { extractProgramTitle, isProgramMatch } = await import('./curriculum-parser.js');
@@ -1834,17 +1834,17 @@ export class AISISScraper {
       : null;
     
     // Balanced defaults: optimized for reliability while maintaining reasonable performance
-    // Fast mode uses 500ms, normal mode uses 1000ms (previous stable balanced settings)
-    const defaultCurriculumDelay = fastMode ? 500 : 1000;
+    // Fast mode uses 500ms, normal mode uses 500ms (balanced mode from production testing)
+    const defaultCurriculumDelay = fastMode ? 500 : 500;
     const curriculumDelayEnv = parseInt(process.env.CURRICULUM_DELAY_MS, 10);
     const curriculumDelayMs = isNaN(curriculumDelayEnv) 
       ? defaultCurriculumDelay 
       : Math.max(0, curriculumDelayEnv);
     
     // Balanced defaults: Conservative concurrency to prevent AISIS session bleed
-    // Concurrency 2 provides parallel scraping while minimizing session bleed issues
+    // Concurrency 4 provides better throughput while maintaining reliability (production tested)
     // All requests use _scrapeDegreeWithValidation to prevent AISIS session bleed
-    const defaultCurriculumConcurrency = 2;
+    const defaultCurriculumConcurrency = 4;
     const curriculumConcurrencyEnv = parseInt(process.env.CURRICULUM_CONCURRENCY, 10);
     const curriculumConcurrency = isNaN(curriculumConcurrencyEnv) 
       ? defaultCurriculumConcurrency 
