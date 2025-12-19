@@ -17,14 +17,14 @@ export class BaselineManager {
   static DEFAULT_DROP_THRESHOLD = 5.0;  // 5% drop threshold
   static MIN_THRESHOLD = 0.0;
   static MAX_THRESHOLD = 100.0;
-  
+
   constructor(baselineDir = 'logs/baselines') {
     this.baselineDir = baselineDir;
     this.ensureBaselineDir();
-    
+
     // Configuration with validation
     const rawThreshold = parseFloat(process.env.BASELINE_DROP_THRESHOLD || BaselineManager.DEFAULT_DROP_THRESHOLD.toString());
-    
+
     // Validate threshold is within reasonable bounds (0-100%)
     if (isNaN(rawThreshold) || rawThreshold < BaselineManager.MIN_THRESHOLD || rawThreshold > BaselineManager.MAX_THRESHOLD) {
       console.warn(`   ⚠️ Invalid BASELINE_DROP_THRESHOLD: ${process.env.BASELINE_DROP_THRESHOLD}`);
@@ -33,9 +33,9 @@ export class BaselineManager {
     } else {
       this.dropThresholdPercent = rawThreshold;
     }
-    
+
     this.warnOnly = process.env.BASELINE_WARN_ONLY !== 'false'; // Default to warn-only mode
-    
+
     // REQUIRE_BASELINES: If true, fail when no baseline exists (prevents data loss from race conditions)
     // This should be enabled for production workflows after the first successful run
     this.requireBaselines = process.env.REQUIRE_BASELINES === 'true';
@@ -79,7 +79,7 @@ export class BaselineManager {
         `The REQUIRE_BASELINES environment variable is set to 'true', but no baseline files were found.\n` +
         `This typically means the baselines artifact failed to download from previous runs.\n` +
         `Without baselines, we cannot detect data regressions and may risk data loss.`;
-      
+
       if (this.warnOnly) {
         // Bootstrap mode: warn but continue
         console.warn(`\n⚠️ WARNING: ${message}`);
@@ -94,12 +94,12 @@ export class BaselineManager {
           `1. Check if the 'baselines' artifact exists from previous workflow runs\n` +
           `2. Manually download and restore baselines from a known good run\n` +
           `3. Set REQUIRE_BASELINES=false to allow first-time runs (not recommended for production)`;
-        
+
         console.error(`\n❌ ${errorMessage}`);
         throw new Error(errorMessage);
       }
     }
-    
+
     if (this.requireBaselines) {
       console.log(`   ✅ Baselines validation passed: baseline files exist`);
     }
@@ -119,7 +119,7 @@ export class BaselineManager {
    */
   loadBaseline(term) {
     const baselinePath = this.getBaselinePath(term);
-    
+
     if (!fs.existsSync(baselinePath)) {
       return null;
     }
@@ -143,14 +143,14 @@ export class BaselineManager {
    */
   saveBaseline(term, data) {
     const baselinePath = this.getBaselinePath(term);
-    
+
     // Optionally track subject prefix counts if TRACK_SUBJECT_PREFIXES is enabled
     const trackSubjectPrefixes = process.env.TRACK_SUBJECT_PREFIXES === 'true';
-    
+
     if (trackSubjectPrefixes && data.subjectPrefixCounts) {
       console.log(`   📊 Saving subject prefix tracking for ${term}`);
     }
-    
+
     try {
       fs.writeFileSync(baselinePath, JSON.stringify(data, null, 2));
       console.log(`   💾 Saved new baseline for ${term} to ${baselinePath}`);
@@ -168,13 +168,13 @@ export class BaselineManager {
    */
   compareWithBaseline(term, currentTotal, currentDeptCounts = {}) {
     const previous = this.loadBaseline(term);
-    
+
     if (!previous) {
       console.log(`\n📊 Baseline Comparison:`);
       console.log(`   No previous baseline found for term ${term}`);
       console.log(`   This is the first run or baseline file was not saved.`);
       console.log(`   Current total: ${currentTotal} records`);
-      
+
       return {
         hasPrevious: false,
         currentTotal,
@@ -187,10 +187,10 @@ export class BaselineManager {
 
     const previousTotal = previous.totalRecords;
     const diff = currentTotal - previousTotal;
-    const percentChange = previousTotal > 0 
+    const percentChange = previousTotal > 0
       ? ((diff / previousTotal) * 100).toFixed(2)
       : 0;
-    
+
     const isSignificantDrop = diff < 0 && Math.abs(parseFloat(percentChange)) > this.dropThresholdPercent;
 
     console.log(`\n📊 Baseline Comparison:`);
@@ -199,11 +199,11 @@ export class BaselineManager {
     console.log(`   Previous total: ${previousTotal} records`);
     console.log(`   Current total: ${currentTotal} records`);
     console.log(`   Change: ${diff >= 0 ? '+' : ''}${diff} records (${percentChange >= 0 ? '+' : ''}${percentChange}%)`);
-    
+
     if (isSignificantDrop) {
       console.log(`   ⚠️ WARNING: Record count dropped by ${Math.abs(diff)} records (${Math.abs(percentChange)}%)`);
       console.log(`   This exceeds the configured threshold of ${this.dropThresholdPercent}%`);
-      
+
       // Show per-department comparison if available
       if (previous.departmentCounts && currentDeptCounts) {
         this.compareDepartmentCounts(previous.departmentCounts, currentDeptCounts);
@@ -226,7 +226,7 @@ export class BaselineManager {
       threshold: this.dropThresholdPercent,
       warnOnly: this.warnOnly,
       previousTimestamp: previous.timestamp,
-      message: isSignificantDrop 
+      message: isSignificantDrop
         ? `Significant drop detected: ${Math.abs(diff)} records (${Math.abs(percentChange)}%)`
         : 'No significant regression detected'
     };
@@ -239,19 +239,19 @@ export class BaselineManager {
    */
   compareDepartmentCounts(previousDepts, currentDepts) {
     console.log(`\n   📋 Per-Department Changes:`);
-    
+
     const allDepts = new Set([
       ...Object.keys(previousDepts),
       ...Object.keys(currentDepts)
     ]);
 
     const changes = [];
-    
+
     for (const dept of allDepts) {
       const prev = previousDepts[dept] || 0;
       const curr = currentDepts[dept] || 0;
       const diff = curr - prev;
-      
+
       if (diff !== 0) {
         changes.push({ dept, prev, curr, diff });
       }
@@ -293,7 +293,7 @@ export class BaselineManager {
     };
 
     this.saveBaseline(term, baseline);
-    
+
     return baseline;
   }
 
@@ -345,7 +345,7 @@ export class BaselineManager {
     if (!trackSubjectPrefixes) {
       return { enabled: false };
     }
-    
+
     // If previousCounts not provided, try to load from baseline
     if (!previousCounts) {
       const baseline = this.loadBaseline(term);
@@ -353,26 +353,26 @@ export class BaselineManager {
         previousCounts = baseline.subjectPrefixCounts;
       }
     }
-    
+
     if (!previousCounts) {
       console.log(`\n📊 Subject Prefix Tracking: No previous data for comparison`);
       return { enabled: true, hasPrevious: false };
     }
-    
+
     console.log(`\n📊 Subject Prefix Comparison:`);
-    
+
     const warnings = [];
     const criticalDepts = ['PE', 'NSTP']; // Departments where missing subjects are critical
-    
+
     // Check for subjects that dropped to zero
     for (const dept of criticalDepts) {
       const currentDeptPrefixes = currentCounts[dept] || {};
       const previousDeptPrefixes = previousCounts[dept] || {};
-      
+
       // Find prefixes that existed before but are now at zero
       for (const [prefix, prevCount] of Object.entries(previousDeptPrefixes)) {
         const currCount = currentDeptPrefixes[prefix] || 0;
-        
+
         if (prevCount > 0 && currCount === 0) {
           const warning = `${dept}: ${prefix} dropped to zero (was ${prevCount})`;
           warnings.push(warning);
@@ -383,11 +383,11 @@ export class BaselineManager {
         }
       }
     }
-    
+
     if (warnings.length === 0) {
       console.log(`   ✅ No critical subject prefix regressions detected`);
     }
-    
+
     return {
       enabled: true,
       hasPrevious: true,
@@ -412,7 +412,7 @@ export class BaselineManager {
    */
   loadDepartmentBaseline(term) {
     const baselinePath = this.getDepartmentBaselinePath(term);
-    
+
     if (!fs.existsSync(baselinePath)) {
       return null;
     }
@@ -434,7 +434,7 @@ export class BaselineManager {
    */
   saveDepartmentBaseline(term, departmentData) {
     const baselinePath = this.getDepartmentBaselinePath(term);
-    
+
     const baseline = {
       term,
       timestamp: new Date().toISOString(),
@@ -444,7 +444,7 @@ export class BaselineManager {
         githubSha: process.env.GITHUB_SHA || null
       }
     };
-    
+
     try {
       fs.writeFileSync(baselinePath, JSON.stringify(baseline, null, 2));
       console.log(`   💾 Saved per-department baseline for ${term} to ${baselinePath}`);
@@ -464,12 +464,12 @@ export class BaselineManager {
    */
   compareWithDepartmentBaseline(term, currentDeptData) {
     const previous = this.loadDepartmentBaseline(term);
-    
+
     if (!previous) {
       console.log(`\n📊 Per-Department Baseline Comparison:`);
       console.log(`   No previous per-department baseline found for term ${term}`);
       console.log(`   This is the first run or baseline file was not saved.`);
-      
+
       return {
         hasPrevious: false,
         regressions: [],
@@ -481,39 +481,39 @@ export class BaselineManager {
 
     // Get configured drop threshold (fraction, 0.0-1.0)
     const dropThreshold = parseFloat(process.env.BASELINE_DEPT_DROP_THRESHOLD || '0.5');
-    
+
     console.log(`\n📊 Per-Department Baseline Comparison:`);
     console.log(`   Term: ${term}`);
     console.log(`   Previous run: ${previous.timestamp}`);
     console.log(`   Drop threshold: ${(dropThreshold * 100).toFixed(0)}%`);
-    
+
     const regressions = [];
     const warnings = [];
     const previousDepts = previous.departments || {};
-    
+
     // Critical departments that should trigger failures on regression
     const criticalDepts = ['MA', 'PE', 'NSTP (ADAST)', 'NSTP (OSCI)'];
-    
+
     // Check each department in current data
     for (const [deptCode, currentData] of Object.entries(currentDeptData)) {
       const prevData = previousDepts[deptCode];
-      
+
       if (!prevData) {
         // New department appeared - this is fine
         console.log(`   ℹ️  [${deptCode}] New department: ${currentData.row_count} rows`);
         continue;
       }
-      
+
       const prevCount = prevData.row_count || 0;
       const currCount = currentData.row_count || 0;
       const diff = currCount - prevCount;
       const dropFraction = prevCount > 0 ? Math.abs(diff) / prevCount : 0;
-      
+
       // Check for significant drop
       if (diff < 0 && dropFraction > dropThreshold) {
         const percentDrop = (dropFraction * 100).toFixed(1);
         const isCritical = criticalDepts.includes(deptCode);
-        
+
         const regression = {
           department: deptCode,
           previousCount: prevCount,
@@ -523,21 +523,21 @@ export class BaselineManager {
           isCritical,
           reason: `Row count dropped by ${percentDrop}% (${prevCount} → ${currCount})`
         };
-        
+
         regressions.push(regression);
-        
+
         if (isCritical) {
           console.error(`   ❌ [${deptCode}] CRITICAL REGRESSION: ${regression.reason}`);
         } else {
           console.warn(`   ⚠️  [${deptCode}] Regression: ${regression.reason}`);
         }
-        
+
         // Check prefix breakdown for additional insights
         if (currentData.prefix_breakdown && prevData.prefix_breakdown) {
           const currPrefixes = Object.keys(currentData.prefix_breakdown);
           const prevPrefixes = Object.keys(prevData.prefix_breakdown);
           const missingPrefixes = prevPrefixes.filter(p => !currPrefixes.includes(p));
-          
+
           if (missingPrefixes.length > 0) {
             console.warn(`      Missing subject prefixes: ${missingPrefixes.join(', ')}`);
             regression.missingPrefixes = missingPrefixes;
@@ -551,7 +551,7 @@ export class BaselineManager {
         console.log(`   ✅ [${deptCode}] Increase: +${diff} rows (${prevCount} → ${currCount})`);
       }
     }
-    
+
     // Check for departments that disappeared entirely
     for (const [deptCode, prevData] of Object.entries(previousDepts)) {
       if (!currentDeptData[deptCode]) {
@@ -565,7 +565,7 @@ export class BaselineManager {
         console.warn(`   ⚠️  [${deptCode}] WARNING: ${warning.reason} (had ${warning.previousCount} rows)`);
       }
     }
-    
+
     // Summary
     if (regressions.length > 0) {
       console.log(`\n   ⚠️  Found ${regressions.length} department regression(s)`);
@@ -576,7 +576,7 @@ export class BaselineManager {
     } else {
       console.log(`\n   ✅ No significant per-department regressions detected`);
     }
-    
+
     return {
       hasPrevious: true,
       previousTimestamp: previous.timestamp,
@@ -584,7 +584,7 @@ export class BaselineManager {
       warnings,
       threshold: dropThreshold,
       hasCriticalRegressions: regressions.some(r => r.isCritical),
-      message: regressions.length > 0 
+      message: regressions.length > 0
         ? `Found ${regressions.length} department regression(s)`
         : 'No significant regressions'
     };
@@ -597,21 +597,24 @@ export class BaselineManager {
    */
   buildDepartmentBaselineData(departmentsArray) {
     const result = {};
-    
+
     for (const { department, courses } of departmentsArray) {
       // Count courses by subject prefix
       const prefixBreakdown = {};
       for (const course of courses) {
-        const prefix = course.subjectCode ? course.subjectCode.split(/[\s.\/]/)[0] : 'UNKNOWN';
+        // Extract subject prefix (e.g., "MATH" from "MATH 101")
+        // Handle both camelCase (legacy) and snake_case (new) keys just in case
+        const code = course.subject_code || course.subjectCode || '';
+        const prefix = code ? code.split(/[\s.\/]/)[0] : 'UNKNOWN';
         prefixBreakdown[prefix] = (prefixBreakdown[prefix] || 0) + 1;
       }
-      
+
       result[department] = {
         row_count: courses.length,
         prefix_breakdown: prefixBreakdown
       };
     }
-    
+
     return result;
   }
 }

@@ -23,7 +23,7 @@ export function chunkArray(items, size) {
   if (!Number.isInteger(size) || size <= 0) {
     throw new RangeError('size must be a positive integer');
   }
-  
+
   const chunks = [];
   for (let i = 0; i < items.length; i += size) {
     chunks.push(items.slice(i, i + size));
@@ -48,24 +48,24 @@ export async function processWithConcurrency(items, concurrency, fn) {
   if (typeof fn !== 'function') {
     throw new TypeError('fn must be a function');
   }
-  
+
   const results = [];
   const executing = new Set();
-  
+
   for (const [index, item] of items.entries()) {
     const promise = fn(item, index).then(result => {
       executing.delete(promise);
       return result;
     });
-    
+
     results.push(promise);
     executing.add(promise);
-    
+
     if (executing.size >= concurrency) {
       await Promise.race(executing);
     }
   }
-  
+
   return Promise.all(results);
 }
 
@@ -78,20 +78,20 @@ export class SupabaseManager {
       throw new Error('DATA_INGEST_TOKEN is required but was not provided or is empty. Please set it in your environment variables or GitHub secrets.');
     }
     this.ingestToken = ingestToken;
-    
+
     // Read from argument or environment variable - no hardcoded fallback
     const baseUrl = supabaseUrl || process.env.SUPABASE_URL;
     if (!baseUrl || baseUrl.trim() === '') {
       throw new Error('SUPABASE_URL is required but was not provided or is empty. Please set it in your environment variables or GitHub secrets.');
     }
     this.url = `${baseUrl}/functions/v1/github-data-ingest`;
-    
+
     // Log configuration (without exposing secrets)
     console.log(`   🔧 Supabase configuration:`);
     console.log(`      URL: ${baseUrl.substring(0, 30)}... (${baseUrl.length} chars)`);
     console.log(`      Token: [REDACTED] (${ingestToken.length} chars)`);
     console.log(`      Endpoint: ${this.url}`);
-    
+
     // Multi-university support: read university code from environment, default to ADMU
     const envUniversityCode = process.env.UNIVERSITY_CODE || DEFAULT_UNIVERSITY_CODE;
     if (!VALID_UNIVERSITY_CODES.includes(envUniversityCode)) {
@@ -101,6 +101,35 @@ export class SupabaseManager {
       this.universityCode = envUniversityCode;
     }
     console.log(`   🏫 SupabaseManager initialized for university: ${this.universityCode}`);
+  }
+
+  async logEvent(level, message, eventType = 'external_scraper_event', details = {}) {
+    const payload = {
+      data_type: 'logs',
+      records: [{
+        function_name: 'aisis-scraper-external',
+        level,
+        event_message: message,
+        event_type: eventType,
+        details: details,
+        metadata: {
+          university_code: this.universityCode,
+          timestamp: new Date().toISOString()
+        }
+      }]
+    };
+    try {
+      await fetch(this.url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.ingestToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+    } catch (e) {
+      console.error('Failed to send log to Supabase:', e.message);
+    }
   }
 
   /**
@@ -125,29 +154,29 @@ export class SupabaseManager {
    */
   validateDepartmentHealth(termCode, departmentsArray, baselineManager = null) {
     console.log(`\n🏥 Department Health Check for term ${termCode}...`);
-    
+
     // If no baseline manager provided, skip regression checks
     if (!baselineManager) {
       console.log(`   ℹ️  No baseline manager provided - skipping regression checks`);
       return { safe: true, reason: 'No baseline manager', failedDepartments: [] };
     }
-    
+
     // Build current per-department data
     const currentDeptData = baselineManager.buildDepartmentBaselineData(departmentsArray);
-    
+
     // Compare with baseline
     const comparison = baselineManager.compareWithDepartmentBaseline(termCode, currentDeptData);
-    
+
     // Check for critical regressions
     if (comparison.hasCriticalRegressions) {
       const criticalDepts = comparison.regressions
         .filter(r => r.isCritical)
         .map(r => r.department);
-      
+
       const reason = `Critical department regressions detected: ${criticalDepts.join(', ')}`;
       console.error(`   ❌ ${reason}`);
       console.error(`   🚫 Will NOT use replace_existing=true to prevent data loss`);
-      
+
       return {
         safe: false,
         reason,
@@ -155,7 +184,7 @@ export class SupabaseManager {
         regressions: comparison.regressions
       };
     }
-    
+
     console.log(`   ✅ Department health check passed`);
     return { safe: true, reason: 'No critical regressions', failedDepartments: [] };
   }
@@ -187,7 +216,7 @@ export class SupabaseManager {
     for (const record of data) {
       const dept = record.department || 'UNKNOWN';
       const subjectCode = record.subject_code || '';
-      
+
       // Initialize department if not exists
       if (!aggregates.departments[dept]) {
         aggregates.departments[dept] = {
@@ -195,17 +224,17 @@ export class SupabaseManager {
           prefixes: {}
         };
       }
-      
+
       // Increment department count
       aggregates.departments[dept].count++;
-      
+
       // Extract subject prefix (e.g., "MATH" from "MATH101")
       // Common patterns: MATH101, EN101, PEPC101, etc.
       // Take alphabetic prefix before first digit
       const prefixMatch = subjectCode.match(/^([A-Z]+)/);
       if (prefixMatch) {
         const prefix = prefixMatch[1];
-        aggregates.departments[dept].prefixes[prefix] = 
+        aggregates.departments[dept].prefixes[prefix] =
           (aggregates.departments[dept].prefixes[prefix] || 0) + 1;
       }
     }
@@ -239,13 +268,13 @@ export class SupabaseManager {
     const CLIENT_BATCH_SIZE = this._parseBatchSize('SUPABASE_CLIENT_BATCH_SIZE', defaultBatchSize);
     const totalRecords = normalizedData.length;
     const batches = [];
-    
+
     for (let i = 0; i < totalRecords; i += CLIENT_BATCH_SIZE) {
       batches.push(normalizedData.slice(i, i + CLIENT_BATCH_SIZE));
     }
 
     console.log(`   📦 Split into ${batches.length} client-side batch(es) of up to ${CLIENT_BATCH_SIZE} records each`);
-    
+
     const customBatchSize = process.env.SUPABASE_CLIENT_BATCH_SIZE;
     if (customBatchSize && !isNaN(parseInt(customBatchSize, 10)) && parseInt(customBatchSize, 10) > 0) {
       console.log(`   ℹ️  Using custom batch size from SUPABASE_CLIENT_BATCH_SIZE: ${CLIENT_BATCH_SIZE}`);
@@ -270,7 +299,7 @@ export class SupabaseManager {
       console.error(`\n   🚫 SYNC ABORTED: ${healthCheck.reason}`);
       console.error(`   Failed departments: ${healthCheck.failedDepartments.join(', ')}`);
       console.error(`   Will NOT sync this term to prevent data loss from bad department data`);
-      
+
       // Option: could use append-only mode instead of aborting
       // For now, abort to be safe
       throw new Error(`Sync aborted for term ${termCode}: ${healthCheck.reason}`);
@@ -288,9 +317,9 @@ export class SupabaseManager {
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
       const batch = batches[batchIndex];
       const batchNum = batchIndex + 1;
-      
+
       console.log(`   📤 Sending batch ${batchNum}/${batches.length} (${batch.length} records) to Supabase...`);
-      
+
       // For schedules data type, control replace_existing behavior per batch
       // Only first batch deletes old data, subsequent batches append
       // UNLESS health check failed, in which case we never use replace_existing
@@ -299,7 +328,7 @@ export class SupabaseManager {
       if (dataType === 'schedules') {
         replaceExisting = isFirstBatchForTerm && allowReplaceExisting;
       }
-      
+
       if (dataType === 'schedules' && isFirstBatchForTerm) {
         if (allowReplaceExisting) {
           console.log(`   🔄 First batch for term ${termCode}: replace_existing=true (will clear old schedule data for ${this.universityCode})`);
@@ -309,17 +338,17 @@ export class SupabaseManager {
       } else if (dataType === 'schedules' && !isFirstBatchForTerm) {
         console.log(`   ➕ Subsequent batch: replace_existing=false (append mode)`);
       }
-      
+
       // Pass chunk metadata for observability - allows edge function to reason about multi-chunk uploads
       // chunk_index is zero-based, total_chunks is the total number of chunks for this term
       // For first batch of chunked schedules upload, include term aggregates
       const batchTermAggregates = (isFirstBatchForTerm && termAggregates) ? termAggregates : null;
       const success = await this.sendRequest(dataType, batch, termCode, department, programCode, replaceExisting, batchIndex, totalBatches, batchTermAggregates);
-      
+
       if (success) {
         successCount += batch.length;
         console.log(`   ✅ Batch ${batchNum}/${batches.length}: Successfully synced ${batch.length} records`);
-        
+
         // After first successful batch, disable replace_existing for remaining batches
         if (isFirstBatchForTerm) {
           isFirstBatchForTerm = false;
@@ -336,7 +365,7 @@ export class SupabaseManager {
     console.log(`      Successful: ${successCount}`);
     console.log(`      Failed: ${failureCount}`);
     console.log(`      Batches: ${batches.length}`);
-    
+
     // Enhanced: Show per-department breakdown
     if (dataType === 'schedules' && normalizedData.length > 0) {
       const deptCounts = {};
@@ -344,27 +373,27 @@ export class SupabaseManager {
         const dept = record.department || 'UNKNOWN';
         deptCounts[dept] = (deptCounts[dept] || 0) + 1;
       }
-      
+
       const sortedDepts = Object.entries(deptCounts)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 10); // Top 10 departments
-      
+
       if (sortedDepts.length > 0) {
         console.log(`\n      📋 Top ${sortedDepts.length} Departments by Record Count:`);
         for (const [dept, count] of sortedDepts) {
           console.log(`         ${dept.padEnd(20)}: ${count.toString().padStart(4)} records`);
         }
-        
+
         if (Object.keys(deptCounts).length > 10) {
           console.log(`         ... and ${Object.keys(deptCounts).length - 10} more departments`);
         }
-        
+
         console.log(`         Total departments: ${Object.keys(deptCounts).length}`);
       }
     }
-    
+
     console.log(); // Empty line for readability
-    
+
     if (failureCount === 0) {
       console.log(`   ✅ Supabase: All ${totalRecords} records synced successfully`);
       return true;
@@ -392,10 +421,10 @@ export class SupabaseManager {
    */
   buildMetadata(termCode = null, department = null, programCode = null, recordCount = null, replaceExisting = null, chunkIndex = null, totalChunks = null, termAggregates = null) {
     const metadata = {};
-    
+
     // Add university code for multi-university support (critical for Edge Function to scope deletions)
     metadata.university_code = this.universityCode;
-    
+
     // Add context-specific metadata
     if (termCode) metadata.term_code = termCode;
     if (department) metadata.department = department;
@@ -421,7 +450,7 @@ export class SupabaseManager {
     if (termAggregates !== null) {
       metadata.term_aggregates = termAggregates;
     }
-    
+
     // Add GitHub Actions context if available
     if (process.env.GITHUB_WORKFLOW) {
       metadata.workflow_name = process.env.GITHUB_WORKFLOW;
@@ -438,7 +467,7 @@ export class SupabaseManager {
     if (process.env.GITHUB_SHA) {
       metadata.commit_sha = process.env.GITHUB_SHA;
     }
-    
+
     // Determine trigger type
     if (process.env.GITHUB_EVENT_NAME === 'schedule') {
       metadata.trigger = 'schedule';
@@ -449,7 +478,7 @@ export class SupabaseManager {
     } else {
       metadata.trigger = 'manual';
     }
-    
+
     return metadata;
   }
 
@@ -489,7 +518,7 @@ export class SupabaseManager {
     const INITIAL_DELAY_MS = 1000; // 1 second
     const MAX_DELAY_MS = 32000; // 32 seconds cap
     const RETRYABLE_STATUS_CODES = [500, 502, 503, 504, 522, 524];
-    
+
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
         const response = await fetch(this.url, {
@@ -505,7 +534,7 @@ export class SupabaseManager {
           if (attempt > 0) {
             console.log(`   ✅ Request succeeded on retry attempt ${attempt}`);
           }
-          
+
           // Parse and log response for better visibility
           try {
             const responseData = await response.json();
@@ -515,12 +544,12 @@ export class SupabaseManager {
           } catch (e) {
             // Response might not be JSON, that's ok
           }
-          
+
           return true;
         } else {
           const text = await response.text();
           const isRetryable = RETRYABLE_STATUS_CODES.includes(response.status);
-          
+
           // Provide specific diagnostics for authentication errors
           if (response.status === 401) {
             console.error(`   ❌ Authentication Error (401 Unauthorized): Invalid JWT or missing token`);
@@ -534,7 +563,7 @@ export class SupabaseManager {
             console.error(`      Response: ${text}`);
             return false;
           }
-          
+
           if (isRetryable && attempt < MAX_RETRIES) {
             const delayMs = Math.min(INITIAL_DELAY_MS * Math.pow(2, attempt), MAX_DELAY_MS);
             const message = text.substring(0, 100); // Truncate for logging
@@ -584,28 +613,32 @@ export class SupabaseManager {
     const headerRecordSamples = [];
     let totalHeadersFiltered = 0;
     let totalInvalidFiltered = 0;
-    
+
     for (const item of scheduleItems) {
       // Transform schedule item, excluding unused time/delivery fields
       // Note: start_time, end_time, days_of_week, and delivery_mode are not meaningfully
       // populated by the scraper (always defaults/empty) so we exclude them from the export
       const record = {
-        subject_code: item.subjectCode,
+        subject_code: item.subject_code,
         section: item.section,
-        course_title: item.title, 
+        course_title: item.course_title,
         units: this.safeFloat(item.units),
-        time_pattern: item.time,
+        time_pattern: item.time_pattern,
         room: item.room,
         instructor: item.instructor,
         department: item.department,
         language: item.language,
         level: item.level,
         remarks: item.remarks,
-        max_capacity: this.safeInt(item.maxSlots),
+        max_capacity: this.safeInt(item.max_capacity),
+        available_slots: this.safeInt(item.available_slots),
+        enrolled_count: this.safeInt(item.enrolled_count),
+        s_marker: item.s_marker,
+        p_marker: item.p_marker,
         term_code: item.term_code,  // Preserve term_code from enriched record
         university_code: this.universityCode  // Multi-university support
       };
-      
+
       // Check for header/placeholder rows
       if (isHeaderLikeRecord(record)) {
         totalHeadersFiltered++;
@@ -618,7 +651,7 @@ export class SupabaseManager {
         }
         continue;
       }
-      
+
       // Validate required fields
       if (!validateScheduleRecord(record)) {
         totalInvalidFiltered++;
@@ -633,10 +666,10 @@ export class SupabaseManager {
         }
         continue;
       }
-      
+
       transformed.push(record);
     }
-    
+
     // Log validation results if any records were filtered
     if (totalHeadersFiltered > 0) {
       console.log(`   ℹ️  Filtered ${totalHeadersFiltered} header/placeholder record(s)`);
@@ -644,14 +677,14 @@ export class SupabaseManager {
         console.log(`   🔍 Sample header records (showing ${headerRecordSamples.length}):`, headerRecordSamples);
       }
     }
-    
+
     if (totalInvalidFiltered > 0) {
       console.log(`   ⚠️  Filtered ${totalInvalidFiltered} invalid record(s) (missing required fields)`);
       if (invalidRecordSamples.length > 0) {
         console.log(`   📋 Sample invalid records (showing ${invalidRecordSamples.length}):`, invalidRecordSamples);
       }
     }
-    
+
     return transformed;
   }
 
@@ -719,19 +752,19 @@ export class SupabaseManager {
    */
   _buildProgramObject(batch) {
     const { deg_code, program_code, curriculum_version, courses, metadata } = batch;
-    
+
     // Transform courses to match the Supabase schema
     const transformedCourses = courses.map(row => this._transformCurriculumCourse(row));
-    
+
     // Parse version into year and semester
     // curriculum_version format: "2024_1" -> year: 2024, sem: 1
     const versionParts = curriculum_version ? curriculum_version.split('_') : [];
     const versionYear = versionParts.length > 0 ? parseInt(versionParts[0], 10) : null;
     const versionSem = versionParts.length > 1 ? parseInt(versionParts[1], 10) : null;
-    
+
     // Get program title from metadata or first course
     const programTitle = metadata.program_name || (courses.length > 0 ? courses[0].program_title : null);
-    
+
     return {
       deg_code: deg_code,
       program_code: program_code,
@@ -760,12 +793,12 @@ export class SupabaseManager {
   async sendCurriculumBatch(batchOrBatches) {
     // Handle both single batch and array of batches
     const batches = Array.isArray(batchOrBatches) ? batchOrBatches : [batchOrBatches];
-    
+
     if (batches.length === 0) {
       console.warn(`   ⚠️ Skipping empty batch array`);
       return false;
     }
-    
+
     // Single batch mode (updated for consistency with programs format)
     if (batches.length === 1) {
       const batch = batches[0];
@@ -828,7 +861,7 @@ export class SupabaseManager {
         return false;
       }
     }
-    
+
     // Grouped batches mode (new behavior)
     // Build a programs array where each program has its own metadata and courses
     let totalCoursesScraped = 0;
@@ -837,15 +870,15 @@ export class SupabaseManager {
     let totalCourses = 0;
     const programs = [];
     const programCodes = [];
-    
+
     for (const batch of batches) {
       const { deg_code, courses, metadata } = batch;
-      
+
       if (!deg_code || !courses || courses.length === 0) {
         console.warn(`   ⚠️ Skipping empty batch for ${deg_code || 'unknown program'} in group`);
         continue;
       }
-      
+
       programCodes.push(deg_code);
       totalCourses += courses.length;
       // Fallback to courses.length if metadata is missing (e.g., old batch format)
@@ -853,22 +886,22 @@ export class SupabaseManager {
       totalCoursesScraped += metadata.total_courses_scraped || courses.length;
       totalDeduplicationRemoved += metadata.deduplication_removed || 0;
       totalInvalidCourses += metadata.invalid_courses_count || 0;
-      
+
       // Build program object using helper method
       const programObj = this._buildProgramObject(batch);
       programs.push(programObj);
     }
-    
+
     if (programs.length === 0) {
       console.warn(`   ⚠️ No valid programs in grouped batch`);
       return false;
     }
-    
+
     console.log(`   📤 Sending grouped batch...`);
     console.log(`      Programs: ${programs.length}`);
     console.log(`      Total courses: ${totalCourses}`);
     console.log(`      Metadata: scraped=${totalCoursesScraped}, deduped=${totalDeduplicationRemoved}, invalid=${totalInvalidCourses}`);
-    
+
     // Build aggregated metadata
     const aggregatedMetadata = {
       total_programs: programs.length,
@@ -879,14 +912,14 @@ export class SupabaseManager {
       // Add GitHub Actions context with synthetic label
       ...this.buildMetadata(null, null, MULTI_PROGRAM_LABEL, totalCourses)
     };
-    
+
     // Build the payload with new programs array format
     const payload = {
       data_type: 'curriculum',
       programs: programs,
       metadata: aggregatedMetadata
     };
-    
+
     try {
       const response = await fetch(this.url, {
         method: 'POST',

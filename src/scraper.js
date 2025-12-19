@@ -61,30 +61,30 @@ export function isLoginPage(html) {
   if (!html || typeof html !== 'string') {
     return false;
   }
-  
+
   // Convert to lowercase for case-insensitive matching
   const lowerHtml = html.toLowerCase();
-  
+
   // Count matches for primary markers
   const primaryMatches = LOGIN_PAGE_MARKERS.primary.filter(
     marker => lowerHtml.includes(marker.toLowerCase())
   );
-  
+
   // Count matches for secondary markers
   const secondaryMatches = LOGIN_PAGE_MARKERS.secondary.filter(
     marker => lowerHtml.includes(marker.toLowerCase())
   );
-  
+
   // High confidence: primary + secondary marker
   if (primaryMatches.length > 0 && secondaryMatches.length > 0) {
     return true;
   }
-  
+
   // Medium confidence: multiple primary markers
   if (primaryMatches.length >= MIN_PRIMARY_MARKERS_FOR_DETECTION) {
     return true;
   }
-  
+
   return false;
 }
 
@@ -109,10 +109,10 @@ const DEFAULT_SCRAPE_CONFIG = {
 function getScrapeConfig() {
   const concurrencyEnv = parseInt(process.env.AISIS_CONCURRENCY, 10);
   const concurrency = isNaN(concurrencyEnv) ? DEFAULT_SCRAPE_CONFIG.CONCURRENCY : concurrencyEnv;
-  
+
   const batchDelayEnv = parseInt(process.env.AISIS_BATCH_DELAY_MS, 10);
   const batchDelayMs = isNaN(batchDelayEnv) ? DEFAULT_SCRAPE_CONFIG.BATCH_DELAY_MS : batchDelayEnv;
-  
+
   return {
     CONCURRENCY: Math.max(1, Math.min(concurrency, 50)), // Clamp between 1 and 50 (increased from 20)
     BATCH_DELAY_MS: Math.max(0, Math.min(batchDelayMs, 5000)) // Clamp between 0 and 5000ms
@@ -169,7 +169,7 @@ function saveRawHtml(html, term, deptCode, reason) {
     if (!fs.existsSync(logsDir)) {
       fs.mkdirSync(logsDir, { recursive: true });
     }
-    
+
     const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
     const filename = `${logsDir}/raw-${reason}-${term}-${deptCode}-${timestamp}.html`;
     fs.writeFileSync(filename, html);
@@ -191,21 +191,21 @@ function saveRawHtml(html, term, deptCode, reason) {
  */
 function performDepartmentSanityChecks(deptCode, courses, html, term) {
   const config = SANITY_CHECK_CONFIG[deptCode];
-  
+
   // No specific sanity checks for this department - pass by default
   if (!config) {
     return { passed: true, reason: 'No sanity checks configured for this department' };
   }
-  
+
   const debugMode = process.env.DEBUG_SCRAPER === 'true';
-  
+
   // Count courses by subject prefix
   const prefixCounts = {};
   for (const course of courses) {
-    const prefix = getSubjectPrefix(course.subjectCode);
+    const prefix = getSubjectPrefix(course.subject_code);
     prefixCounts[prefix] = (prefixCounts[prefix] || 0) + 1;
   }
-  
+
   if (debugMode) {
     const breakdown = Object.entries(prefixCounts)
       .sort((a, b) => b[1] - a[1])
@@ -213,12 +213,12 @@ function performDepartmentSanityChecks(deptCode, courses, html, term) {
       .join(', ');
     console.log(`   🔍 [${deptCode}] Sanity check: Subject prefix breakdown: ${breakdown}`);
   }
-  
+
   // MA (Mathematics) department checks
   if (deptCode === 'MA') {
     const mathCount = prefixCounts['MATH'] || 0;
     const minRequired = config.minMathCourses;
-    
+
     if (mathCount === 0) {
       const reason = `MA sanity check failed: expected many MATH courses, got ${mathCount} (0 MATH courses found)`;
       console.error(`   ❌ ${reason}`);
@@ -230,7 +230,7 @@ function performDepartmentSanityChecks(deptCode, courses, html, term) {
         details: { mathCount, minRequired, prefixCounts, totalCourses: courses.length }
       };
     }
-    
+
     if (mathCount < minRequired) {
       const reason = `MA sanity check failed: expected >= ${minRequired} MATH courses, got ${mathCount}`;
       console.error(`   ❌ ${reason}`);
@@ -242,18 +242,18 @@ function performDepartmentSanityChecks(deptCode, courses, html, term) {
         details: { mathCount, minRequired, prefixCounts, totalCourses: courses.length }
       };
     }
-    
+
     console.log(`   ✅ [${deptCode}] Sanity check passed: ${mathCount} MATH courses (>= ${minRequired})`);
     return { passed: true, reason: 'MA sanity checks passed', details: { mathCount, minRequired } };
   }
-  
+
   // PE (Physical Education) department checks
   if (deptCode === 'PE') {
     const pepcCount = prefixCounts['PEPC'] || 0;
     const phyedCount = prefixCounts['PHYED'] || 0;
     const totalCourses = courses.length;
     const minRequired = config.minTotalCourses;
-    
+
     // Check for required prefixes
     if (pepcCount === 0 && phyedCount === 0) {
       const reason = `PE sanity check failed: no PEPC or PHYED courses found`;
@@ -266,7 +266,7 @@ function performDepartmentSanityChecks(deptCode, courses, html, term) {
         details: { pepcCount, phyedCount, totalCourses, prefixCounts }
       };
     }
-    
+
     // Check minimum total courses
     if (totalCourses < minRequired) {
       const reason = `PE sanity check failed: expected >= ${minRequired} courses, got ${totalCourses}`;
@@ -279,17 +279,17 @@ function performDepartmentSanityChecks(deptCode, courses, html, term) {
         details: { pepcCount, phyedCount, totalCourses, minRequired, prefixCounts }
       };
     }
-    
+
     console.log(`   ✅ [${deptCode}] Sanity check passed: PEPC=${pepcCount}, PHYED=${phyedCount}, total=${totalCourses}`);
     return { passed: true, reason: 'PE sanity checks passed', details: { pepcCount, phyedCount, totalCourses } };
   }
-  
+
   // NSTP department checks
   if (deptCode.startsWith('NSTP')) {
     const nstpCount = prefixCounts['NSTP'] || 0;
     const minRequired = config.minNstpCourses;
     const warnThreshold = config.warnBelow;
-    
+
     if (nstpCount === 0) {
       const reason = `${deptCode} sanity check failed: no NSTP courses found`;
       console.error(`   ❌ ${reason}`);
@@ -301,7 +301,7 @@ function performDepartmentSanityChecks(deptCode, courses, html, term) {
         details: { nstpCount, minRequired, prefixCounts, totalCourses: courses.length }
       };
     }
-    
+
     if (nstpCount < minRequired) {
       const reason = `${deptCode} sanity check failed: expected >= ${minRequired} NSTP courses, got ${nstpCount}`;
       console.error(`   ❌ ${reason}`);
@@ -312,16 +312,16 @@ function performDepartmentSanityChecks(deptCode, courses, html, term) {
         details: { nstpCount, minRequired, prefixCounts, totalCourses: courses.length }
       };
     }
-    
+
     // Check if we should warn about low course count (but still pass)
     if (warnThreshold && nstpCount < warnThreshold) {
       console.warn(`   ⚠️  [${deptCode}] Low course count warning: ${nstpCount} NSTP courses (< ${warnThreshold} expected, but >= ${minRequired} minimum)`);
     }
-    
+
     console.log(`   ✅ [${deptCode}] Sanity check passed: ${nstpCount} NSTP courses (>= ${minRequired})`);
     return { passed: true, reason: 'NSTP sanity checks passed', details: { nstpCount, minRequired, warnThreshold } };
   }
-  
+
   return { passed: true, reason: 'No applicable sanity checks' };
 }
 
@@ -355,23 +355,23 @@ export function compareTermCodes(a, b) {
     }
     const year = parseInt(parts[0], 10);
     const semester = parseInt(parts[1], 10);
-    
+
     if (isNaN(year) || isNaN(semester)) {
       throw new Error(`Invalid term code: ${termCode}. Year and semester must be numbers`);
     }
-    
+
     return { year, semester };
   };
-  
+
   try {
     const termA = parseTermCode(a);
     const termB = parseTermCode(b);
-    
+
     // Compare year first
     if (termA.year !== termB.year) {
       return termA.year - termB.year;
     }
-    
+
     // If years are equal, compare semester
     return termA.semester - termB.semester;
   } catch (error) {
@@ -388,7 +388,7 @@ export class AISISScraper {
     this.baseUrl = 'https://aisis.ateneo.edu';
     this.cookieJar = new CookieJar();
     this.loggedIn = false;
-    
+
     // Define the file path for saving cookies
     this.cookieFile = 'cookies.json';
   }
@@ -452,7 +452,7 @@ export class AISISScraper {
 
     try {
       let response = await fetch(url, opts);
-      
+
       // Store cookies from response - handle multiple Set-Cookie headers
       // node-fetch's headers.raw() returns an array for Set-Cookie
       let setCookies = [];
@@ -468,7 +468,7 @@ export class AISISScraper {
           setCookies = [setCookie];
         }
       }
-      
+
       // Process all cookies
       if (setCookies.length > 0) {
         for (const cookie of setCookies) {
@@ -504,13 +504,13 @@ export class AISISScraper {
         // Try to access a protected page to see if cookies are still valid
         const response = await this._request(`${this.baseUrl}/j_aisis/J_VMCS.do`);
         const text = await response.text();
-        
+
         if (LOGIN_SUCCESS_MARKERS.some(marker => text.includes(marker))) {
-            console.log('   ✅ Existing session is valid!');
-            return true;
+          console.log('   ✅ Existing session is valid!');
+          return true;
         } else {
-            console.log('   ⚠️ Existing session expired. Re-logging in...');
-            this.loggedIn = false;
+          console.log('   ⚠️ Existing session expired. Re-logging in...');
+          this.loggedIn = false;
         }
       } catch (e) {
         console.log('   ⚠️ Session validation failed. Re-logging in...');
@@ -519,7 +519,7 @@ export class AISISScraper {
     }
 
     console.log('🔐 Logging into AISIS...');
-    
+
     try {
       // Generate random token like Python version
       const rnd = this._generateRandom();
@@ -543,36 +543,36 @@ export class AISISScraper {
       });
 
       const responseText = await loginResponse.text();
-      
+
       // Check for successful login markers in HTML
       if (LOGIN_SUCCESS_MARKERS.some(marker => responseText.includes(marker))) {
-        
+
         console.log('   ✅ Login response contains success markers');
-        
+
         // Force save after successful login
         await this._saveCookies();
 
         // Validation 1: Verify we have session cookies
         const cookies = await this.cookieJar.getCookies(this.baseUrl);
         console.log(`   🍪 Session cookies after login: ${cookies.length}`);
-        
+
         if (cookies.length === 0) {
           console.error('❌ Login failed: no session cookies were set');
           return false;
         }
-        
+
         // Validation 2: Test protected page to confirm session is valid
         console.log('   🔍 Verifying session with protected page...');
         try {
           const protectedPageUrl = new URL('/j_aisis/J_VMCS.do', this.baseUrl).toString();
           const testResponse = await this._request(protectedPageUrl);
           const testText = await testResponse.text();
-          
+
           if (LOGIN_FAILURE_MARKERS.some(marker => testText.includes(marker))) {
             console.error('❌ Post-login protected page still shows login screen');
             return false;
           }
-          
+
           if (LOGIN_SUCCESS_MARKERS.some(marker => testText.includes(marker))) {
             console.log('   ✅ Post-login protected page check passed');
           } else {
@@ -582,11 +582,11 @@ export class AISISScraper {
           console.error(`   ⚠️ Protected page check failed: ${error.message}`);
           console.error('   Proceeding with login anyway as cookies were set');
         }
-        
+
         // All validations passed
         this.loggedIn = true;
         console.log('✅ Login successful');
-        
+
         return true;
       } else {
         console.error('❌ Login failed');
@@ -648,7 +648,7 @@ export class AISISScraper {
 
       // Try to find the selected option first
       let selectedOption = select.find('option[selected]');
-      
+
       // If no option is explicitly selected, use the first option
       if (selectedOption.length === 0) {
         selectedOption = select.find('option').first();
@@ -724,7 +724,7 @@ export class AISISScraper {
       select.find('option').each((_, option) => {
         const value = $(option).attr('value');
         const label = $(option).text().trim();
-        
+
         // Skip excluded department codes (placeholders and special values)
         // See EXCLUDED_DEPT_CODES constant for the list of excluded values
         if (value && value.trim() !== '') {
@@ -795,12 +795,12 @@ export class AISISScraper {
 
       // Use a Map to deduplicate by value while preserving order
       const termsMap = new Map();
-      
+
       select.find('option').each((_, option) => {
         const value = $(option).attr('value');
         const label = $(option).text().trim();
         const selected = $(option).attr('selected') !== undefined;
-        
+
         if (value && value.trim() !== '') {
           const trimmedValue = value.trim();
           // Only add if not already in map, or update if this one is selected
@@ -815,13 +815,13 @@ export class AISISScraper {
       });
 
       const terms = Array.from(termsMap.values());
-      
+
       console.log(`   ✅ Found ${terms.length} unique terms in AISIS`);
       const selectedTerm = terms.find(t => t.selected);
       if (selectedTerm) {
         console.log(`   📌 Current term: ${selectedTerm.value} (${selectedTerm.label})`);
       }
-      
+
       return terms;
 
     } catch (error) {
@@ -849,22 +849,22 @@ export class AISISScraper {
     }
 
     console.log(`\n📅 Scraping ${terms.length} term(s): ${terms.join(', ')}`);
-    
+
     const results = [];
-    
+
     for (let i = 0; i < terms.length; i++) {
       const term = terms[i];
       console.log(`\n${'='.repeat(60)}`);
       console.log(`📅 Scraping term ${i + 1}/${terms.length}: ${term}`);
       console.log(`${'='.repeat(60)}`);
-      
+
       try {
         const scrapeResult = await this.scrapeSchedule(term);
         results.push({
           term: term,
           ...scrapeResult
         });
-        
+
         console.log(`   ✅ Completed scraping for term ${term}: ${scrapeResult.courses.length} courses`);
       } catch (error) {
         console.error(`   ❌ Failed to scrape term ${term}: ${error.message}`);
@@ -877,10 +877,10 @@ export class AISISScraper {
         });
       }
     }
-    
+
     const totalCourses = results.reduce((sum, r) => sum + r.courses.length, 0);
     console.log(`\n✅ Multi-term scraping complete: ${totalCourses} total courses across ${terms.length} terms`);
-    
+
     return results;
   }
 
@@ -895,7 +895,7 @@ export class AISISScraper {
     // Check for FAST_MODE and custom configuration
     const fastMode = process.env.FAST_MODE === 'true';
     const SCRAPE_CONFIG = getScrapeConfig();
-    
+
     // Log active configuration
     if (fastMode || process.env.AISIS_CONCURRENCY || process.env.AISIS_BATCH_DELAY_MS) {
       console.log('\n⚡ Custom scraping configuration active:');
@@ -922,7 +922,7 @@ export class AISISScraper {
     this.lastUsedTerm = term;
 
     console.log(`\n📅 Using applicablePeriod term: ${term}`);
-    
+
     // Fetch available departments from AISIS for flexible mapping
     // This allows us to adapt to AISIS changes while maintaining stable canonical list
     let availableDepartments = [];
@@ -935,29 +935,29 @@ export class AISISScraper {
       console.warn(`   ⚠️  Could not fetch available departments: ${error.message}`);
       console.warn(`   Proceeding with canonical DEPARTMENTS list only`);
     }
-    
+
     // Build a map of available department codes for quick lookup
     const availableDeptSet = new Set(availableDepartments.map(d => d.value));
-    
+
     // Use dynamic departments from AISIS as the authoritative set to scrape
     // Falls back to canonical DEPARTMENTS list if AISIS fetch failed
     // This allows automatic discovery of new departments (e.g., IE, LCS)
     // Filter by AISIS_DEPARTMENTS env var if provided (for local/dev runs)
-    let departments = availableDepartments.length > 0 
+    let departments = availableDepartments.length > 0
       ? availableDepartments.map(d => d.value)
       : DEPARTMENTS;
     // Store original list before filtering for logging
     const originalDepartments = departments;
-    
+
     if (process.env.AISIS_DEPARTMENTS) {
       const requestedDepts = process.env.AISIS_DEPARTMENTS.split(',').map(d => d.trim()).filter(d => d);
       const validDepts = requestedDepts.filter(d => departments.includes(d));
       const invalidDepts = requestedDepts.filter(d => !departments.includes(d));
-      
+
       if (invalidDepts.length > 0) {
         console.warn(`   ⚠️  Invalid departments in AISIS_DEPARTMENTS (not in current list): ${invalidDepts.join(', ')}`);
       }
-      
+
       if (validDepts.length > 0) {
         departments = validDepts;
         console.log(`   🎯 AISIS_DEPARTMENTS filter active: scraping ${departments.length} of ${originalDepartments.length} departments`);
@@ -969,10 +969,10 @@ export class AISISScraper {
 
     // Initialize indexed accumulator for deterministic ordering
     const perDeptCourses = new Array(departments.length).fill(null);
-    
+
     // Track per-department status for summary report
     const departmentStatus = {};
-    
+
     // Log which source was used for departments
     if (availableDepartments.length > 0) {
       console.log(`   ✅ Using ${departments.length} departments from AISIS dropdown (dynamic discovery)`);
@@ -983,7 +983,7 @@ export class AISISScraper {
     } else {
       console.log(`   ℹ️  Using ${departments.length} departments from fallback list (AISIS fetch failed)`);
     }
-    
+
     // Log structured START message with finalized configuration
     console.log('\n📥 SCHEDULE SCRAPE START', {
       term,
@@ -992,34 +992,34 @@ export class AISISScraper {
       concurrency: SCRAPE_CONFIG.CONCURRENCY,
       batch_delay_ms: SCRAPE_CONFIG.BATCH_DELAY_MS
     });
-    
+
     // In FAST_MODE, skip the test department pass and go straight to batched scraping
     if (fastMode) {
       console.log('   ⚡ FAST_MODE: Skipping test department pass, proceeding directly to batch scraping');
-      
+
       // Process all departments using batched concurrent scraping
       const totalBatches = Math.ceil(departments.length / SCRAPE_CONFIG.CONCURRENCY);
-      
+
       for (let i = 0; i < departments.length; i += SCRAPE_CONFIG.CONCURRENCY) {
         const batch = departments.slice(i, i + SCRAPE_CONFIG.CONCURRENCY);
         const batchNum = Math.floor(i / SCRAPE_CONFIG.CONCURRENCY) + 1;
-        
+
         console.log(`   📦 Processing batch ${batchNum}/${totalBatches} (${batch.join(', ')})...`);
         const batchStart = Date.now();
-        
+
         // Scrape all departments in this batch concurrently with retry tracking
         const batchPromises = batch.map(async (dept, localIndex) => {
           const globalIndex = i + localIndex;
           console.log(`   📚 Scraping ${dept}...`);
-          
+
           // Retry failed departments up to MAX_DEPT_RETRIES times
           const MAX_DEPT_RETRIES = 2;
           let lastError = null;
-          
+
           for (let attempt = 0; attempt <= MAX_DEPT_RETRIES; attempt++) {
             try {
               const courses = await this._scrapeDepartment(term, dept);
-              
+
               if (courses && courses.length > 0) {
                 console.log(`   ✅ ${dept}: ${courses.length} courses`);
                 departmentStatus[dept] = {
@@ -1057,21 +1057,21 @@ export class AISISScraper {
               }
             }
           }
-          
+
           return { globalIndex, courses: [] };
         });
-        
+
         // Wait for all departments in this batch to complete
         const batchResults = await Promise.all(batchPromises);
-        
+
         // Store results in indexed accumulator for deterministic ordering
         for (const { globalIndex, courses } of batchResults) {
           perDeptCourses[globalIndex] = courses || [];
         }
-        
+
         const batchTime = Date.now() - batchStart;
         console.log(`   ⏱  Batch ${batchNum}: ${formatTime(batchTime)}`);
-        
+
         // Add delay between batches (but not after the last batch)
         if (i + SCRAPE_CONFIG.CONCURRENCY < departments.length && SCRAPE_CONFIG.BATCH_DELAY_MS > 0) {
           await this._delay(SCRAPE_CONFIG.BATCH_DELAY_MS);
@@ -1082,12 +1082,12 @@ export class AISISScraper {
       console.log('   🧪 Testing with first department...');
       const testDeptStart = Date.now();
       const testDept = departments[0];
-    
+
       try {
         const testCourses = await this._scrapeDepartment(term, testDept);
         const testDeptTime = Date.now() - testDeptStart;
         console.log(`   ⏱  Test department: ${formatTime(testDeptTime)}`);
-        
+
         if (testCourses && testCourses.length > 0) {
           console.log(`   ✅ Test successful: ${testCourses.length} courses found in ${testDept}`);
           perDeptCourses[0] = testCourses;
@@ -1107,32 +1107,32 @@ export class AISISScraper {
             error: null
           };
         }
-        
+
         // Continue with remaining departments using batched concurrent scraping
         const remainingDepts = departments.slice(1);
         const totalBatches = Math.ceil(remainingDepts.length / SCRAPE_CONFIG.CONCURRENCY);
-        
+
         // Split remaining departments into batches for concurrent processing
         for (let i = 0; i < remainingDepts.length; i += SCRAPE_CONFIG.CONCURRENCY) {
           const batch = remainingDepts.slice(i, i + SCRAPE_CONFIG.CONCURRENCY);
           const batchNum = Math.floor(i / SCRAPE_CONFIG.CONCURRENCY) + 1;
-          
+
           console.log(`   📦 Processing batch ${batchNum}/${totalBatches} (${batch.join(', ')})...`);
           const batchStart = Date.now();
-          
+
           // Scrape all departments in this batch concurrently with retry tracking
           const batchPromises = batch.map(async (dept, localIndex) => {
             const globalIndex = i + 1 + localIndex; // +1 to skip test department
             console.log(`   📚 Scraping ${dept}...`);
-            
+
             // Retry failed departments up to MAX_DEPT_RETRIES times
             const MAX_DEPT_RETRIES = 2;
             let lastError = null;
-            
+
             for (let attempt = 0; attempt <= MAX_DEPT_RETRIES; attempt++) {
               try {
                 const courses = await this._scrapeDepartment(term, dept);
-                
+
                 if (courses && courses.length > 0) {
                   console.log(`   ✅ ${dept}: ${courses.length} courses`);
                   departmentStatus[dept] = {
@@ -1170,21 +1170,21 @@ export class AISISScraper {
                 }
               }
             }
-            
+
             return { globalIndex, courses: [] };
           });
-          
+
           // Wait for all departments in this batch to complete
           const batchResults = await Promise.all(batchPromises);
-          
+
           // Store results in indexed accumulator for deterministic ordering
           for (const { globalIndex, courses } of batchResults) {
             perDeptCourses[globalIndex] = courses || [];
           }
-          
+
           const batchTime = Date.now() - batchStart;
           console.log(`   ⏱  Batch ${batchNum}: ${formatTime(batchTime)}`);
-          
+
           // Add delay between batches (but not after the last batch)
           if (i + SCRAPE_CONFIG.CONCURRENCY < remainingDepts.length && SCRAPE_CONFIG.BATCH_DELAY_MS > 0) {
             await this._delay(SCRAPE_CONFIG.BATCH_DELAY_MS);
@@ -1210,23 +1210,23 @@ export class AISISScraper {
     // This helps identify when specific subject families (like PEPC) drop to zero
     const debugMode = process.env.DEBUG_SCRAPER === 'true';
     const criticalDepts = ['PE', 'NSTP']; // Departments where missing subjects are critical
-    
+
     if (debugMode || criticalDepts.some(dept => departments.includes(dept))) {
       console.log(`\n📊 Per-Department Subject Prefix Breakdown:`);
-      
+
       for (let i = 0; i < departments.length; i++) {
         const dept = departments[i];
         const courseList = perDeptCourses[i] || [];
-        
+
         if (courseList.length === 0) continue;
-        
+
         // Compute subject prefix counts for this department
         const subjectPrefixCounts = {};
         for (const course of courseList) {
-          const prefix = getSubjectPrefix(course.subjectCode);
+          const prefix = getSubjectPrefix(course.subject_code);
           subjectPrefixCounts[prefix] = (subjectPrefixCounts[prefix] || 0) + 1;
         }
-        
+
         // Log breakdown for critical departments or in debug mode
         if (debugMode || criticalDepts.includes(dept)) {
           const breakdown = Object.entries(subjectPrefixCounts)
@@ -1251,7 +1251,7 @@ export class AISISScraper {
         failed: Object.values(departmentStatus).filter(d => d.status === 'failed').length
       }
     };
-    
+
     // Print textual summary block (similar to curriculum)
     console.log(`\n   📊 Schedule Scraping Summary:`);
     console.log(`      Term: ${summary.term}`);
@@ -1260,13 +1260,13 @@ export class AISISScraper {
     console.log(`      Empty: ${summary.statistics.empty}`);
     console.log(`      Failed: ${summary.statistics.failed}`);
     console.log(`      Total courses: ${summary.total_courses}`);
-    
+
     // Save summary to logs directory
     if (!fs.existsSync('logs')) fs.mkdirSync('logs');
     const summaryPath = `logs/schedule_summary-${term}.json`;
     fs.writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
     console.log(`\n📋 Scrape summary saved to ${summaryPath}`);
-    
+
     // Print summary statistics
     console.log(`\n📊 Department Summary:`);
     console.log(`   Total departments: ${summary.statistics.total_departments}`);
@@ -1275,7 +1275,7 @@ export class AISISScraper {
     console.log(`   ❌ Failed: ${summary.statistics.failed}`);
 
     console.log(`\n📚 Total courses: ${allCourses.length}`);
-    
+
     // Structured completion log for easier grepping and alignment with curriculum
     console.log('✅ SCHEDULE SCRAPE COMPLETE', {
       term: summary.term,
@@ -1285,13 +1285,13 @@ export class AISISScraper {
       failed_departments: summary.statistics.failed,
       total_courses: summary.total_courses
     });
-    
+
     // Build per-department result array for structured sync
     const departmentsArray = departments.map((dept, index) => ({
       department: dept,
       courses: perDeptCourses[index] || []
     }));
-    
+
     // Return structured object with both flat courses (backward compat) and per-department grouping
     return {
       term: summary.term,
@@ -1320,32 +1320,32 @@ export class AISISScraper {
 
       if (!response.ok) {
         const errorMsg = `HTTP ${response.status} for dept ${deptCode}, term ${term}`;
-        
+
         // Retry once on 5xx errors (server errors)
         if (response.status >= 500 && response.status < 600 && retryCount < RETRY_CONFIG.MAX_RETRIES) {
           console.log(`   ⚠️  ${errorMsg} - retrying in ${RETRY_CONFIG.RETRY_DELAY_MS / 1000} seconds...`);
           await this._delay(RETRY_CONFIG.RETRY_DELAY_MS);
           return this._scrapeDepartment(term, deptCode, retryCount + 1);
         }
-        
+
         throw new Error(errorMsg);
       }
 
       const html = await response.text();
-      
+
       // Check for login page detection (session expired or not authenticated)
       // This is more robust than the simple marker check - detects full login page HTML
       if (isLoginPage(html)) {
         console.error(`   🔒 [${deptCode}] Received AISIS login page HTML; session expired or not authenticated`);
-        
+
         // Attempt re-authentication if we haven't retried yet
         if (retryCount < RETRY_CONFIG.MAX_RETRIES) {
           console.log(`   🔄 [${deptCode}] Attempting re-authentication (attempt ${retryCount + 1}/${RETRY_CONFIG.MAX_RETRIES + 1})...`);
-          
+
           // Mark as logged out and try to re-login
           this.loggedIn = false;
           const loginSuccess = await this.login();
-          
+
           if (loginSuccess) {
             console.log(`   ✅ [${deptCode}] Re-authentication successful, retrying department scrape...`);
             await this._delay(RETRY_CONFIG.RETRY_DELAY_MS);
@@ -1354,30 +1354,30 @@ export class AISISScraper {
             throw new Error(`${deptCode} scrape failed: received AISIS login page instead of schedule; re-authentication failed`);
           }
         }
-        
+
         // Max retries exceeded - fail fast with clear error
         throw new Error(`${deptCode} scrape failed: received AISIS login page instead of schedule after ${retryCount + 1} attempts`);
       }
-      
+
       // Legacy check for session expiry (kept for backwards compatibility)
       // This catches simpler cases that might not be caught by isLoginPage
       // Note: This check is largely redundant now but kept for safety
       if (LOGIN_FAILURE_MARKERS.some(marker => html.includes(marker))) {
         console.error(`   🔒 [${deptCode}] Session expiry detected via legacy markers`);
-        
+
         // Apply same retry logic as isLoginPage detection for consistency
         if (retryCount < RETRY_CONFIG.MAX_RETRIES) {
           console.log(`   🔄 [${deptCode}] Attempting re-authentication (attempt ${retryCount + 1}/${RETRY_CONFIG.MAX_RETRIES + 1})...`);
           this.loggedIn = false;
           const loginSuccess = await this.login();
-          
+
           if (loginSuccess) {
             console.log(`   ✅ [${deptCode}] Re-authentication successful, retrying department scrape...`);
             await this._delay(RETRY_CONFIG.RETRY_DELAY_MS);
             return this._scrapeDepartment(term, deptCode, retryCount + 1);
           }
         }
-        
+
         throw new Error(`${deptCode} scrape failed: session expired`);
       }
 
@@ -1391,9 +1391,9 @@ export class AISISScraper {
       // Enhanced logging: count td.text02 cells before parsing
       const $ = cheerio.load(html);
       const cellCount = $('td.text02').length;
-      
+
       const courses = this._parseCourses(html, deptCode);
-      
+
       // Enhanced logging for data validation
       if (courses.length === 0) {
         if (cellCount === 0) {
@@ -1407,7 +1407,7 @@ export class AISISScraper {
           console.log(`   ℹ️  ${deptCode}: ${courses.length} courses parsed from ${cellCount} cells (expected ${expectedCells})`);
         }
       }
-      
+
       // Perform department-specific sanity checks to prevent data loss
       // from AISIS misrouting or HTML quirks (e.g., MA returning KRN courses instead of MATH)
       const sanityCheck = performDepartmentSanityChecks(deptCode, courses, html, term);
@@ -1415,7 +1415,7 @@ export class AISISScraper {
         // Sanity check failed - throw error to mark department as failed
         throw new Error(`${deptCode} sanity check failed: ${sanityCheck.reason}`);
       }
-      
+
       return courses;
     } catch (error) {
       // Re-throw with more context if not already detailed
@@ -1429,7 +1429,7 @@ export class AISISScraper {
   _parseCourses(html, deptCode) {
     const $ = cheerio.load(html);
     const courses = [];
-    
+
     /**
      * AISIS Schedule Table Structure Assumptions:
      * - Schedule data is in an HTML table with class 'needspadding'
@@ -1441,16 +1441,16 @@ export class AISISScraper {
      *   falling back to 'td.text02' for compatibility with older HTML or test fixtures
      */
     const CELLS_PER_ROW = 14;
-    
+
     // Try tightened selector first (preferred for production), fall back to broader selector
     // This ensures we work with both real AISIS HTML and test fixtures
     let courseCells = $('table.needspadding td.text02');
-    
+
     if (courseCells.length === 0) {
       // Fallback to broader selector for compatibility
       courseCells = $('td.text02');
     }
-    
+
     if (courseCells.length === 0) {
       return courses;
     }
@@ -1458,15 +1458,15 @@ export class AISISScraper {
     const totalCells = courseCells.length;
     const expectedRows = Math.floor(totalCells / CELLS_PER_ROW);
     const remainder = totalCells % CELLS_PER_ROW;
-    
+
     // Debug mode configuration
     const debugMode = process.env.DEBUG_SCRAPER === 'true';
-    
+
     // Defensive logging: warn if cells don't align to CELLS_PER_ROW chunks
     if (remainder !== 0) {
       console.log(`   ⚠️  ${deptCode}: ${totalCells} cells found (expected multiple of ${CELLS_PER_ROW}). Remainder: ${remainder} cells.`);
       console.log(`   ℹ️  ${deptCode}: Processing ${expectedRows} complete rows, ${remainder} cells will be skipped.`);
-      
+
       // In debug mode, show a sample of the first raw cell to help diagnose selector issues
       if (debugMode && courseCells.length > 0) {
         const firstCellText = $(courseCells[0]).text().trim();
@@ -1490,7 +1490,7 @@ export class AISISScraper {
         }
         break;
       }
-      
+
       const cells = courseCells.slice(i, i + CELLS_PER_ROW);
       // Extract text from each cell, handling <br> tags by replacing them with spaces
       const cellTexts = cells.map((_, cell) => {
@@ -1506,7 +1506,7 @@ export class AISISScraper {
         text = text.replace(/\s+/g, ' ').trim();
         return text;
       }).get();
-      
+
       // Enhanced time parsing to preserve TBA and special markers
       // Note: <br> tags already normalized above, now just clean up modality markers
       let timeField = cellTexts[4];
@@ -1514,32 +1514,39 @@ export class AISISScraper {
       timeField = timeField.replace(/\(FULLY ONSITE\)|\(FULLY ONLINE\)/g, '').trim();
       // Preserve (~) marker for special courses but remove empty ()
       timeField = timeField.replace(/\(\)\s*$/g, '').trim();
-      
+
+      // Calculate availability and capacity
+      const maxCapacity = cellTexts[7] ? parseInt(this._cleanText(cellTexts[7]), 10) : null;
+      const availableSlots = cellTexts[10] ? parseInt(this._cleanText(cellTexts[10]), 10) : null;
+      const enrolledCount = (maxCapacity !== null && availableSlots !== null) ? (maxCapacity - availableSlots) : null;
+
       const course = {
         department: deptCode,
-        subjectCode: this._cleanText(cellTexts[0]),
+        subject_code: this._cleanText(cellTexts[0]),
         section: this._cleanText(cellTexts[1]),
-        title: this._cleanText(cellTexts[2]),
-        units: this._cleanText(cellTexts[3]),
-        time: timeField,
+        course_title: this._cleanText(cellTexts[2]),
+        units: parseFloat(this._cleanText(cellTexts[3])) || 3,
+        time_pattern: timeField,
         room: cellTexts[5].includes('TBA') ? 'TBA' : this._cleanText(cellTexts[5]),
         instructor: this._cleanText(cellTexts[6]),
-        maxSlots: this._cleanText(cellTexts[7] || ''),
+        max_capacity: maxCapacity,
         language: this._cleanText(cellTexts[8] || ''),
         level: this._cleanText(cellTexts[9] || ''),
-        freeSlots: this._cleanText(cellTexts[10] || ''),
+        available_slots: availableSlots,
+        enrolled_count: enrolledCount,
         remarks: this._cleanText(cellTexts[11] || ''),
-        s: this._cleanText(cellTexts[12] || ''),
-        p: this._cleanText(cellTexts[13] || '')
+        s_marker: this._cleanText(cellTexts[12] || ''), // S column
+        p_marker: this._cleanText(cellTexts[13] || ''), // P column
+        university_code: this.universityCode || 'ADMU'
       };
 
       // Check for header/placeholder rows
       if (isHeaderLikeRecord(course)) {
         if (debugMode && headerRows < SAMPLE_INVALID_RECORDS_COUNT) {
           console.log(`   🔍 ${deptCode}: Header row detected at index ${i}:`, {
-            subjectCode: course.subjectCode,
+            subjectCode: course.subject_code,
             section: course.section,
-            title: course.title
+            title: course.course_title
           });
         }
         headerRows++;
@@ -1548,12 +1555,12 @@ export class AISISScraper {
       }
 
       // Validate required fields before adding
-      if (!course.subjectCode || !course.subjectCode.trim()) {
+      if (!course.subject_code || !course.subject_code.trim()) {
         if (invalidRows.length < SAMPLE_INVALID_RECORDS_COUNT) {
           invalidRows.push({
             index: i,
             reason: 'missing subject code',
-            data: { section: course.section, title: course.title }
+            data: { section: course.section, title: course.course_title }
           });
         }
         skippedRows++;
@@ -1579,18 +1586,18 @@ export class AISISScraper {
       const sampleSize = Math.min(3, courses.length);
       console.log(`   🔍 ${deptCode}: First ${sampleSize} parsed course(s):`);
       courses.slice(0, sampleSize).forEach(c => {
-        console.log(`      - ${c.subjectCode} ${c.section}: ${c.title}`);
+        console.log(`      - ${c.subject_code} ${c.section}: ${c.course_title}`);
       });
     }
-    
+
     // Compute per-subject prefix counts for diagnostic purposes
     // Subject prefix is the first "word" of subjectCode (e.g., "PEPC" from "PEPC 10", "NSTP" from "NSTP 11/CWTS")
     const subjectPrefixCounts = {};
     for (const course of courses) {
-      const prefix = getSubjectPrefix(course.subjectCode);
+      const prefix = getSubjectPrefix(course.subject_code);
       subjectPrefixCounts[prefix] = (subjectPrefixCounts[prefix] || 0) + 1;
     }
-    
+
     // Log subject prefix breakdown in debug mode or always for critical departments
     const criticalDepts = ['PE', 'NSTP']; // Departments where missing subjects are critical
     if (debugMode || criticalDepts.includes(deptCode)) {
@@ -1661,11 +1668,11 @@ export class AISISScraper {
       select.find('option').each((_, option) => {
         const rawValue = $(option).attr('value');
         const rawText = $(option).text();
-        
+
         if (rawValue) {
           const value = rawValue.trim();
           const text = rawText.trim();
-          
+
           if (value !== '') {
             programs.push({
               degCode: value,
@@ -1703,16 +1710,16 @@ export class AISISScraper {
     // Import validation functions from curriculum-parser
     // Note: Dynamic import to avoid circular dependencies
     const { extractProgramTitle, isProgramMatch } = await import('./curriculum-parser.js');
-    
+
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         // Fetch HTML from AISIS
         const html = await this._scrapeDegree(degCode);
-        
+
         // Check for AISIS system error page
         // Note: Using substring match for robustness - the key phrase is unlikely to change
         const isAisisErrorPage = html.includes(AISIS_ERROR_PAGE_MARKER);
-        
+
         if (isAisisErrorPage) {
           if (attempt < maxAttempts) {
             // Retry with exponential backoff
@@ -1730,15 +1737,15 @@ export class AISISScraper {
             throw new Error(`AISIS_ERROR_PAGE:${degCode}`);
           }
         }
-        
+
         // Parse and validate program title
         const $ = cheerio.load(html);
         const programTitle = extractProgramTitle($) || label;
-        
+
         // Validate that HTML matches requested program
         if (!isProgramMatch(degCode, label, programTitle)) {
           const errorMsg = `Validation failed for ${degCode} (attempt ${attempt}/${maxAttempts}): HTML contains "${programTitle}" but expected "${label}"`;
-          
+
           if (attempt < maxAttempts) {
             // Retry with exponential backoff
             const backoffMs = 2000 * Math.pow(2, attempt - 1);
@@ -1756,34 +1763,34 @@ export class AISISScraper {
             throw new Error(`Curriculum HTML mismatch for ${degCode} after ${maxAttempts} attempts: got "${programTitle}"`);
           }
         }
-        
+
         // Validation passed
         if (attempt > 1) {
           console.log(`   ✅ ${degCode}: Validation passed on attempt ${attempt}`);
         }
         return html;
-        
+
       } catch (error) {
         // If error is AISIS error page, handle specially
         if (error.message.startsWith('AISIS_ERROR_PAGE:')) {
           throw error; // Propagate to mark as unavailable
         }
-        
+
         // If error is NOT a validation failure, throw immediately (network errors, etc.)
-        if (!error.message.includes('Curriculum HTML mismatch') && 
-            !error.message.includes('Validation failed')) {
+        if (!error.message.includes('Curriculum HTML mismatch') &&
+          !error.message.includes('Validation failed')) {
           throw error;
         }
-        
+
         // If this was the last attempt and it's a validation error, re-throw
         if (attempt === maxAttempts) {
           throw error;
         }
-        
+
         // Otherwise, the validation failure will trigger retry in the next iteration
       }
     }
-    
+
     // Should never reach here, but just in case
     throw new Error(`Failed to scrape ${degCode} after ${maxAttempts} attempts`);
   }
@@ -1828,35 +1835,35 @@ export class AISISScraper {
     // Parse environment variables for curriculum scraping control
     const curriculumLimitEnv = parseInt(process.env.CURRICULUM_LIMIT, 10);
     const curriculumLimit = isNaN(curriculumLimitEnv) ? null : curriculumLimitEnv;
-    
-    const curriculumSample = process.env.CURRICULUM_SAMPLE 
+
+    const curriculumSample = process.env.CURRICULUM_SAMPLE
       ? process.env.CURRICULUM_SAMPLE.split(',').map(s => s.trim()).filter(s => s)
       : null;
-    
+
     // Balanced defaults: optimized for reliability while maintaining reasonable performance
     // Fast mode uses 500ms, normal mode uses 500ms (balanced mode from production testing)
     // Note: Both modes use same delay now, but structure preserved for future tuning flexibility
     const defaultCurriculumDelay = fastMode ? 500 : 500;
     const curriculumDelayEnv = parseInt(process.env.CURRICULUM_DELAY_MS, 10);
-    const curriculumDelayMs = isNaN(curriculumDelayEnv) 
-      ? defaultCurriculumDelay 
+    const curriculumDelayMs = isNaN(curriculumDelayEnv)
+      ? defaultCurriculumDelay
       : Math.max(0, curriculumDelayEnv);
-    
+
     // Balanced defaults: Conservative concurrency to prevent AISIS session bleed
     // Concurrency 4 provides better throughput while maintaining reliability (production tested)
     // All requests use _scrapeDegreeWithValidation to prevent AISIS session bleed
     const defaultCurriculumConcurrency = 4;
     const curriculumConcurrencyEnv = parseInt(process.env.CURRICULUM_CONCURRENCY, 10);
-    const curriculumConcurrency = isNaN(curriculumConcurrencyEnv) 
-      ? defaultCurriculumConcurrency 
+    const curriculumConcurrency = isNaN(curriculumConcurrencyEnv)
+      ? defaultCurriculumConcurrency
       : Math.max(1, Math.min(curriculumConcurrencyEnv, 10));
-    
+
     // Log active configuration
     console.log('⚡ Curriculum scraping configuration:');
     if (fastMode) console.log('   🚀 FAST_MODE enabled');
     if (curriculumLimit) console.log(`   🔢 CURRICULUM_LIMIT: ${curriculumLimit}`);
     if (curriculumSample) console.log(`   🎯 CURRICULUM_SAMPLE: ${curriculumSample.length} specific programs`);
-    
+
     // Show delay configuration with warnings
     if (process.env.CURRICULUM_DELAY_MS !== undefined) {
       console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (override)`);
@@ -1868,7 +1875,7 @@ export class AISISScraper {
     } else {
       console.log(`   ⏱  CURRICULUM_DELAY_MS: ${curriculumDelayMs}ms (default - balanced mode)`);
     }
-    
+
     // Show concurrency configuration with warnings
     if (process.env.CURRICULUM_CONCURRENCY !== undefined) {
       console.log(`   📊 CURRICULUM_CONCURRENCY: ${curriculumConcurrency} (override, max: 10)`);
@@ -1890,18 +1897,18 @@ export class AISISScraper {
 
     // Filter degree programs based on environment variables
     let degreePrograms = allDegreePrograms;
-    
+
     // Apply sampling filter first (most specific)
     if (curriculumSample && curriculumSample.length > 0) {
       const sampleSet = new Set(curriculumSample);
       degreePrograms = allDegreePrograms.filter(p => sampleSet.has(p.degCode));
-      
+
       const notFound = curriculumSample.filter(code => !allDegreePrograms.some(p => p.degCode === code));
       if (notFound.length > 0) {
         console.warn(`   ⚠️ CURRICULUM_SAMPLE: ${notFound.length} requested codes not found in AISIS:`);
         console.warn(`      ${notFound.join(', ')}`);
       }
-      
+
       console.log(`   🎯 Filtered to ${degreePrograms.length} programs via CURRICULUM_SAMPLE`);
     }
     // Apply limit filter (less specific)
@@ -1909,7 +1916,7 @@ export class AISISScraper {
       degreePrograms = allDegreePrograms.slice(0, curriculumLimit);
       console.log(`   🔢 Limited to first ${degreePrograms.length} programs via CURRICULUM_LIMIT`);
     }
-    
+
     if (degreePrograms.length === 0) {
       console.warn('   ⚠️ No programs match filters - returning empty array');
       return [];
@@ -1940,15 +1947,15 @@ export class AISISScraper {
     const logProgress = (index, total, force = false) => {
       const now = Date.now();
       if (!force && now - lastProgressLog < PROGRESS_LOG_INTERVAL_MS) return;
-      
+
       lastProgressLog = now;
       const elapsed = now - startTime;
       const rate = index / elapsed; // programs per ms
       const remaining = total - index;
       const etaMs = remaining / rate;
       const etaSec = Math.round(etaMs / 1000);
-      
-      console.log(`   📊 Progress: ${index}/${total} (${Math.round(index/total*100)}%) - ETA: ${etaSec}s`);
+
+      console.log(`   📊 Progress: ${index}/${total} (${Math.round(index / total * 100)}%) - ETA: ${etaSec}s`);
     };
 
     // Scrape degree programs with configurable concurrency
@@ -2004,23 +2011,23 @@ export class AISISScraper {
       // Concurrent scraping with validation (balanced default mode)
       console.log(`   ⚡ Using concurrent scraping with concurrency ${curriculumConcurrency}`);
       console.log(`      ℹ️  All requests validated via _scrapeDegreeWithValidation to prevent session bleed`);
-      
+
       for (let i = 0; i < degreePrograms.length; i += curriculumConcurrency) {
         const batch = degreePrograms.slice(i, i + curriculumConcurrency);
         const batchNum = Math.floor(i / curriculumConcurrency) + 1;
         const totalBatches = Math.ceil(degreePrograms.length / curriculumConcurrency);
-        
+
         console.log(`   📦 Batch ${batchNum}/${totalBatches} (${batch.map(p => p.degCode).join(', ')})...`);
-        
+
         const batchPromises = batch.map(async ({ degCode, label }, batchIndex) => {
           const globalIndex = i + batchIndex;
           try {
             // Use validation wrapper even in concurrent mode
             const html = await this._scrapeDegreeWithValidation(degCode, label);
             const rawText = this._flattenCurriculumHtmlToText(html);
-            
+
             console.log(`   ✅ [${globalIndex + 1}/${degreePrograms.length}] ${degCode}: ${html.length} chars HTML`);
-            
+
             return {
               success: true,
               globalIndex,
@@ -2056,9 +2063,9 @@ export class AISISScraper {
             }
           }
         });
-        
+
         const batchResults = await Promise.all(batchPromises);
-        
+
         // Store results in indexed accumulator for deterministic ordering
         for (const result of batchResults) {
           if (result.success) {
@@ -2072,10 +2079,10 @@ export class AISISScraper {
             failureCount++;
           }
         }
-        
+
         // Log periodic progress
         logProgress(i + batch.length, degreePrograms.length);
-        
+
         // Delay between batches (but not after the last batch)
         if (i + curriculumConcurrency < degreePrograms.length && curriculumDelayMs > 0) {
           await this._delay(curriculumDelayMs);
@@ -2135,14 +2142,14 @@ export class AISISScraper {
 
       if (!response.ok) {
         const errorMsg = `HTTP ${response.status} for degCode ${degCode}`;
-        
+
         // Retry on 5xx errors (server errors)
         if (response.status >= 500 && response.status < 600 && retryCount < RETRY_CONFIG.MAX_RETRIES) {
           console.log(`   ⚠️ ${errorMsg} - retrying in ${RETRY_CONFIG.RETRY_DELAY_MS / 1000} seconds...`);
           await this._delay(RETRY_CONFIG.RETRY_DELAY_MS);
           return this._scrapeDegree(degCode, retryCount + 1);
         }
-        
+
         throw new Error(errorMsg);
       }
 
@@ -2192,7 +2199,7 @@ export class AISISScraper {
     // Traverse all table rows
     $('tr').each((_, row) => {
       const $row = $(row);
-      
+
       // Check if this row contains header cells (year/semester headers)
       const headerCells = $row.find('td.text04, th.text04');
       if (headerCells.length > 0) {
@@ -2201,7 +2208,7 @@ export class AISISScraper {
           .join(' ')
           .replace(/\s+/g, ' ')
           .trim();
-        
+
         if (headerText) {
           lines.push(headerText);
         }
@@ -2215,7 +2222,7 @@ export class AISISScraper {
         const cellTexts = dataCells.map((_, cell) => $(cell).text().trim())
           .get()
           .filter(text => text !== ''); // Filter out empty cells
-        
+
         if (cellTexts.length > 0) {
           // Join with tabs for structured parsing
           lines.push(cellTexts.join('\t'));

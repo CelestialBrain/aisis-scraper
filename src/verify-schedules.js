@@ -43,8 +43,8 @@ class ScheduleVerifier {
   }
 
   async init() {
-    const { 
-      AISIS_USERNAME, 
+    const {
+      AISIS_USERNAME,
       AISIS_PASSWORD,
       SUPABASE_URL,
       SUPABASE_SERVICE_ROLE_KEY
@@ -74,10 +74,11 @@ class ScheduleVerifier {
     // Step 1: Scrape from AISIS
     console.log(`   📥 Scraping ${department} from AISIS...`);
     const scrapedCourses = await this.scraper._scrapeDepartment(term, department);
-    
+
+    // Create set of unique identifiers for scraped courses
     // Create set of unique identifiers for scraped courses
     const scrapedKeys = new Set(
-      scrapedCourses.map(c => `${c.subjectCode}|${c.section}`)
+      scrapedCourses.map(c => `${c.subject_code}|${c.section}`)
     );
 
     console.log(`   ✅ Found ${scrapedCourses.length} courses in AISIS`);
@@ -113,11 +114,11 @@ class ScheduleVerifier {
       match: missingInDb.length === 0 && extraInDb.length === 0,
       missing_in_db: missingInDb.map(key => {
         const [subject, section] = key.split('|');
-        const course = scrapedCourses.find(c => c.subjectCode === subject && c.section === section);
+        const course = scrapedCourses.find(c => c.subject_code === subject && c.section === section);
         return {
           subject_code: subject,
           section: section,
-          title: course?.title || 'Unknown'
+          title: course?.course_title || 'Unknown'
         };
       }),
       extra_in_db: extraInDb.map(key => {
@@ -144,7 +145,7 @@ class ScheduleVerifier {
           console.log(`      ... and ${missingInDb.length - 5} more`);
         }
       }
-      
+
       if (extraInDb.length > 0) {
         console.log(`   ⚠️  ${extraInDb.length} courses in DB but NOT in current AISIS:`);
         result.extra_in_db.slice(0, 5).forEach(c => {
@@ -175,7 +176,7 @@ class ScheduleVerifier {
       try {
         const result = await this.verifyDepartment(term, dept);
         results.push(result);
-        
+
         if (result.match) {
           matchCount++;
         } else {
@@ -235,12 +236,12 @@ class ScheduleVerifier {
    */
   generateMarkdownReport(summary, path) {
     const lines = [];
-    
+
     lines.push(`# AISIS Schedule Verification Report`);
     lines.push(`**Term:** ${summary.term}  `);
     lines.push(`**Date:** ${new Date(summary.timestamp).toLocaleString()}  `);
     lines.push(``);
-    
+
     lines.push(`## Summary`);
     lines.push(`- Total departments: ${summary.total_departments}`);
     lines.push(`- ✅ Matched: ${summary.matched}`);
@@ -254,16 +255,16 @@ class ScheduleVerifier {
     if (mismatched.length > 0) {
       lines.push(`## Mismatched Departments (${mismatched.length})`);
       lines.push(``);
-      
+
       for (const dept of mismatched) {
         lines.push(`### ${dept.department}`);
-        
+
         if (dept.error) {
           lines.push(`**Error:** ${dept.error}`);
         } else {
           lines.push(`- AISIS: ${dept.aisis_count} courses`);
           lines.push(`- DB: ${dept.db_count} courses`);
-          
+
           if (dept.missing_in_db && dept.missing_in_db.length > 0) {
             lines.push(``);
             lines.push(`**Missing in DB (${dept.missing_in_db.length}):**`);
@@ -271,7 +272,7 @@ class ScheduleVerifier {
               lines.push(`- ${c.subject_code} ${c.section}: ${c.title}`);
             });
           }
-          
+
           if (dept.extra_in_db && dept.extra_in_db.length > 0) {
             lines.push(``);
             lines.push(`**Extra in DB (${dept.extra_in_db.length}):**`);
@@ -280,7 +281,7 @@ class ScheduleVerifier {
             });
           }
         }
-        
+
         lines.push(``);
       }
     }
@@ -310,7 +311,7 @@ async function main() {
   console.log('═══════════════════════════════════════════════════════\n');
 
   const verifier = new ScheduleVerifier();
-  
+
   try {
     await verifier.init();
 

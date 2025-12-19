@@ -21,16 +21,16 @@ async function main() {
   console.log('🎓 AISIS Schedule Scraper');
   console.log('═══════════════════════════════════════════════════════\n');
 
-  const { 
-    AISIS_USERNAME, 
-    AISIS_PASSWORD, 
-    DATA_INGEST_TOKEN, 
-    GOOGLE_SERVICE_ACCOUNT, 
+  const {
+    AISIS_USERNAME,
+    AISIS_PASSWORD,
+    DATA_INGEST_TOKEN,
+    GOOGLE_SERVICE_ACCOUNT,
     SPREADSHEET_ID,
     APPLICABLE_PERIOD,  // Optional override for term (legacy)
     AISIS_TERM          // Optional override for term (preferred)
   } = process.env;
-  
+
   if (!AISIS_USERNAME || !AISIS_PASSWORD) {
     console.error('❌ FATAL: Missing AISIS credentials in environment variables');
     console.error('   Please set AISIS_USERNAME and AISIS_PASSWORD');
@@ -48,7 +48,7 @@ async function main() {
 
   const scraper = new AISISScraper(AISIS_USERNAME, AISIS_PASSWORD);
   const supabase = DATA_INGEST_TOKEN ? new SupabaseManager(DATA_INGEST_TOKEN) : null;
-  
+
   let sheets = null;
   if (GOOGLE_SERVICE_ACCOUNT && SPREADSHEET_ID) {
     try {
@@ -62,7 +62,7 @@ async function main() {
   try {
     const startTime = Date.now();
     const phaseTimings = {};
-    
+
     console.log('🚀 Initializing scraper...');
     const initStart = Date.now();
     await scraper.init();
@@ -71,7 +71,7 @@ async function main() {
     console.log('🔐 Logging in...');
     const loginStart = Date.now();
     const loginSuccess = await scraper.login();
-    
+
     if (!loginSuccess) {
       throw new Error('Login failed - check credentials');
     }
@@ -86,10 +86,10 @@ async function main() {
     // 'year' - scrape all terms in the current term's academic year
     const scrapeMode = process.env.AISIS_SCRAPE_MODE || 'current_next';
     console.log(`\n📋 Scrape mode: ${scrapeMode}`);
-    
+
     let termsToScrape = [];
     let multiTermResults = [];
-    
+
     if (scrapeMode === 'current') {
       // Single-term mode (existing behavior)
       console.log('📥 Scraping schedule data (current term only)...');
@@ -97,7 +97,7 @@ async function main() {
       const scrapeResult = await scraper.scrapeSchedule(termOverride);
       phaseTimings.scraping = Date.now() - scrapeStart;
       console.log(`   ⏱  AISIS scraping: ${formatTime(phaseTimings.scraping)}`);
-      
+
       // Wrap in array for unified processing
       multiTermResults = [scrapeResult];
     } else {
@@ -107,26 +107,26 @@ async function main() {
       const availableTerms = await scraper.getAvailableTerms();
       phaseTimings.termDiscovery = Date.now() - termsDiscoveryStart;
       console.log(`   ⏱  Term discovery: ${formatTime(phaseTimings.termDiscovery)}`);
-      
+
       // Find current term
       const currentTermObj = availableTerms.find(t => t.selected) || availableTerms[0];
       const currentTerm = currentTermObj ? currentTermObj.value : null;
-      
+
       if (!currentTerm) {
         throw new Error('Could not determine current term from available terms');
       }
-      
+
       console.log(`   📌 Current term: ${currentTerm} (${currentTermObj.label})`);
-      
+
       // Filter terms based on mode
       if (scrapeMode === 'current_next') {
         // Current + Next term mode: scrape current term and the next term in sequence
         // This is the recommended mode for high-frequency scheduled runs
         const nextTermInAisis = findNextAvailableTerm(availableTerms, currentTerm);
-        
+
         // Start with current term
         termsToScrape = [currentTerm];
-        
+
         // Add next term if it exists in AISIS
         if (nextTermInAisis) {
           termsToScrape.push(nextTermInAisis);
@@ -138,7 +138,7 @@ async function main() {
             console.log(`   ℹ️  Next term ${expectedNextTerm} not yet available in AISIS (will be scraped when published)`);
           }
         }
-        
+
         console.log(`   📅 Current + Next terms to scrape: ${termsToScrape.join(', ')}`);
       } else if (scrapeMode === 'future') {
         termsToScrape = availableTerms
@@ -167,13 +167,13 @@ async function main() {
       } else {
         throw new Error(`Invalid AISIS_SCRAPE_MODE: ${scrapeMode}. Valid values: current, current_next, future, all, year`);
       }
-      
+
       if (termsToScrape.length === 0) {
         console.warn(`   ⚠️ No terms to scrape based on mode '${scrapeMode}'`);
         console.log('\n✅ No schedule data to process');
         process.exit(0);
       }
-      
+
       // Scrape multiple terms
       console.log('📥 Scraping schedule data (multi-term mode)...');
       const scrapeStart = Date.now();
@@ -181,14 +181,14 @@ async function main() {
       phaseTimings.scraping = Date.now() - scrapeStart;
       console.log(`   ⏱  AISIS scraping: ${formatTime(phaseTimings.scraping)}`);
     }
-    
+
     // Process results for each term
     // For backward compatibility, if single term, extract to old variables
     const { term: resolvedTerm, courses: scheduleData, departments: deptResults } = multiTermResults[0];
-    
+
     // Get the actual term that was used (either override or auto-detected)
     const usedTerm = resolvedTerm;
-    
+
     // Initialize baseline manager for regression detection
     const baselineManager = new BaselineManager();
     const baselineConfig = baselineManager.getConfigSummary();
@@ -208,25 +208,25 @@ async function main() {
     // Process each term's data
     let regressionFailed = false;
     const allTermsData = [];
-    
+
     for (const termResult of multiTermResults) {
       const { term, courses: scheduleData, departments: deptResults } = termResult;
-      
+
       if (scheduleData.length === 0) {
         console.warn(`\n⚠️ No schedule data found for term ${term}.`);
         continue;
       }
-      
+
       console.log(`\n💾 Processing ${scheduleData.length} courses from term ${term}...`);
-      
+
       // Add term_code to each course record before transformation
       const enrichedSchedule = scheduleData.map(course => ({
         ...course,
         term_code: term
       }));
-      
+
       const cleanSchedule = supabase ? supabase.transformScheduleData(enrichedSchedule) : enrichedSchedule;
-      
+
       // Store for later use (Sheets and local backup)
       allTermsData.push({
         term,
@@ -234,37 +234,37 @@ async function main() {
         deptResults,
         cleanSchedule
       });
-      
+
       // 1. Baseline comparison and regression detection (per term)
       // NOTE: We check for regression BEFORE syncing to Supabase
       // This allows us to detect data loss issues early and decide whether to proceed
       // The baseline is still recorded even if we decide not to sync bad data
-      
+
       // Extract per-department counts for detailed analysis
       const deptCounts = {};
       for (const course of scheduleData) {
         const dept = course.department || 'UNKNOWN';
         deptCounts[dept] = (deptCounts[dept] || 0) + 1;
       }
-      
+
       // Compare with previous baseline
       const comparisonResult = baselineManager.compareWithBaseline(
         term,
         scheduleData.length,
         deptCounts
       );
-      
+
       // Record new baseline for future comparisons
       // This happens regardless of regression detection to maintain continuity
       baselineManager.recordBaseline(term, scheduleData.length, deptCounts, {
         scrapeTime: phaseTimings.scraping,
         departmentCount: Object.keys(deptCounts).length
       });
-      
+
       // Also save per-department baseline for granular regression detection
       const deptBaselineData = baselineManager.buildDepartmentBaselineData(deptResults);
       baselineManager.saveDepartmentBaseline(term, deptBaselineData);
-      
+
       // Check if we should fail the job due to regression
       if (baselineManager.shouldFailJob(comparisonResult)) {
         console.error(`\n❌ REGRESSION DETECTED for term ${term}: Total record count dropped significantly`);
@@ -273,16 +273,16 @@ async function main() {
         regressionFailed = true;
       }
     }
-    
+
     // Save local backups (combined for all terms in multi-term mode)
     if (allTermsData.length > 0) {
       if (multiTermResults.length === 1) {
         // Single-term mode: use legacy format
         const { cleanSchedule, term, deptResults } = allTermsData[0];
-        
+
         fs.writeFileSync('data/courses.json', JSON.stringify(cleanSchedule, null, 2));
         console.log(`\n📁 Saved ${cleanSchedule.length} courses to data/courses.json`);
-        
+
         // Save per-department structure for debugging and analysis
         const perDeptArtifact = {
           term: term,
@@ -300,10 +300,10 @@ async function main() {
         const multiTermArtifact = {
           terms: []
         };
-        
+
         for (const { term, cleanSchedule, deptResults } of allTermsData) {
           allCourses.push(...cleanSchedule);
-          
+
           multiTermArtifact.terms.push({
             term: term,
             course_count: cleanSchedule.length,
@@ -314,10 +314,10 @@ async function main() {
             }))
           });
         }
-        
+
         fs.writeFileSync('data/courses.json', JSON.stringify(allCourses, null, 2));
         console.log(`\n📁 Saved ${allCourses.length} total courses to data/courses.json`);
-        
+
         fs.writeFileSync('data/schedules-per-department.json', JSON.stringify(multiTermArtifact, null, 2));
         console.log(`   ✅ Saved multi-term per-department structure to data/schedules-per-department.json`);
       }
@@ -331,21 +331,21 @@ async function main() {
     // See docs/ingestion.md for details on the chunking protocol.
     if (supabase && allTermsData.length > 0) {
       console.log('\n🚀 Starting Supabase Sync (Sequential per-term)...');
-      
+
       const supabaseStart = Date.now();
-      
+
       let totalSuccessCount = 0;
       let totalFailureCount = 0;
-      
+
       // Process each term separately to maintain term isolation in Supabase
       // Each term is synced as a single unit - syncToSupabase handles batching internally
       for (const { term, deptResults } of allTermsData) {
         console.log(`\n   📅 Syncing term: ${term}`);
-        
+
         // Perform pre-sync health check to validate department data
         // This prevents data loss from AISIS misrouting or HTML quirks
         const healthCheck = supabase.validateDepartmentHealth(term, deptResults, baselineManager);
-        
+
         // Collect all enriched and transformed courses across all departments for this term
         const allCleanCourses = [];
         for (const { department, courses } of deptResults) {
@@ -353,9 +353,9 @@ async function main() {
           const cleanCourses = supabase.transformScheduleData(enrichedCourses);
           allCleanCourses.push(...cleanCourses);
         }
-        
+
         console.log(`   Total courses for term ${term}: ${allCleanCourses.length}`);
-        
+
         // Sync all courses for this term in a single call
         // syncToSupabase handles batching internally and ensures:
         // - First batch: replace_existing=true (clears old term data) - UNLESS health check failed
@@ -364,7 +364,7 @@ async function main() {
         // Pass health check result to control replace_existing behavior
         try {
           const success = await supabase.syncToSupabase('schedules', allCleanCourses, term, ALL_DEPARTMENTS_LABEL, null, healthCheck);
-          
+
           if (success) {
             totalSuccessCount += allCleanCourses.length;
             console.log(`   ✅ Term ${term} sync complete: ${allCleanCourses.length} records synced`);
@@ -378,9 +378,9 @@ async function main() {
           totalFailureCount += allCleanCourses.length;
         }
       }
-      
+
       phaseTimings.supabase = Date.now() - supabaseStart;
-      
+
       // Final summary log
       console.log('\n✅ SCHEDULE SUPABASE SYNC COMPLETE', {
         total_terms: allTermsData.length,
@@ -422,7 +422,7 @@ async function main() {
     } else {
       phaseTimings.sheets = 0;
     }
-    
+
     // Print summary timing
     const totalTime = Date.now() - startTime;
     console.log('\n⏱  Performance Summary:');
@@ -439,13 +439,13 @@ async function main() {
       console.log(`   Sheets sync: ${formatTime(phaseTimings.sheets)}`);
     }
     console.log(`   Total time: ${formatTime(totalTime)}`);
-    
+
     // Exit with error if regression detected and not in warn-only mode
     if (regressionFailed) {
       console.log('\n❌ Scraping completed with REGRESSION ERROR!');
       process.exit(1);
     }
-    
+
     if (allTermsData.length === 0) {
       console.warn(`\n⚠️ No schedule data found for any terms.`);
       console.log("   This could be because:");
@@ -456,11 +456,17 @@ async function main() {
     }
 
     console.log('\n✅ Schedule scraping completed!');
+    if (supabase) {
+      await supabase.logEvent('info', 'Scraper finished successfully', 'scrape_complete');
+    }
     process.exit(0);
 
   } catch (error) {
     console.error('\n❌ Scraping failed:', error.message);
     console.error('Stack trace:', error.stack);
+    if (supabase) {
+      await supabase.logEvent('error', error.message, 'scraper_fatal_error', { stack: error.stack });
+    }
     process.exit(1);
   }
 }

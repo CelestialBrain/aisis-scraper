@@ -13,17 +13,18 @@ console.log('Step 1: Scraper returns raw course data');
 const mockScrapedData = [
   {
     department: 'BIO',
-    subjectCode: 'BIO 10.01',
+    subject_code: 'BIO 10.01',
     section: 'NSLEC-D-A',
-    title: 'BIODIVERSITY: LIFE ON EARTH, LECTURE',
-    units: '3',
-    time: 'M-TH 0800-0930',
+    course_title: 'BIODIVERSITY: LIFE ON EARTH, LECTURE',
+    units: 3, // Scraper now returns number
+    time_pattern: 'M-TH 0800-0930', // Scraper uses time_pattern
     room: 'SEC-B305A',
     instructor: 'GATCHALIAN, Pamela',
-    maxSlots: '30',
+    max_capacity: 30, // Scraper now returns number
     language: 'ENG',
     level: 'U',
-    freeSlots: '0',
+    available_slots: 0, // Scraper now returns number
+    enrolled_count: 30, // Scraper calculates this
     remarks: '-'
   }
 ];
@@ -56,7 +57,7 @@ console.log();
 
 // Step 5: Verify term_code is present
 console.log('Step 5: Verify term_code field');
-const hasTermCode = cleanSchedule.every(record => 
+const hasTermCode = cleanSchedule.every(record =>
   record.term_code && record.term_code === usedTerm
 );
 if (hasTermCode) {

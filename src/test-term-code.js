@@ -9,32 +9,34 @@ import { SupabaseManager } from './supabase.js';
 const mockScrapedData = [
   {
     department: 'BIO',
-    subjectCode: 'BIO 10.01',
+    subject_code: 'BIO 10.01',
     section: 'NSLEC-D-A',
-    title: 'BIODIVERSITY: LIFE ON EARTH, LECTURE',
-    units: '3',
-    time: 'M-TH 0800-0930',
+    course_title: 'BIODIVERSITY: LIFE ON EARTH, LECTURE',
+    units: 3,
+    time_pattern: 'M-TH 0800-0930',
     room: 'SEC-B305A',
     instructor: 'GATCHALIAN, Pamela',
-    maxSlots: '30',
+    max_capacity: 30,
     language: 'ENG',
     level: 'U',
-    freeSlots: '0',
+    available_slots: 0,
+    enrolled_count: 30,
     remarks: '-'
   },
   {
     department: 'CH',
-    subjectCode: 'CH 10.01',
+    subject_code: 'CH 10.01',
     section: 'NLEC-A',
-    title: 'GENERAL CHEMISTRY I, LECTURE',
-    units: '3',
-    time: 'MWF 1000-1100',
+    course_title: 'GENERAL CHEMISTRY I, LECTURE',
+    units: 3,
+    time_pattern: 'MWF 1000-1100',
     room: 'SEC-B101',
     instructor: 'SANTOS, Maria',
-    maxSlots: '40',
+    max_capacity: 40,
     language: 'ENG',
     level: 'U',
-    freeSlots: '5',
+    available_slots: 5,
+    enrolled_count: 35,
     remarks: '-'
   }
 ];
@@ -79,7 +81,7 @@ if (transformedData.every(course => course.term_code === testTerm)) {
 // Test 3: Defensive normalization in syncToSupabase
 console.log('\nTest 3: Defensive normalization in syncToSupabase');
 const dataWithoutTermCode = mockScrapedData.map(course => ({
-  subject_code: course.subjectCode,
+  subject_code: course.subject_code,
   section: course.section,
   // Intentionally missing term_code
 }));
