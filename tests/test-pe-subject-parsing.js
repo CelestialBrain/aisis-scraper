@@ -26,12 +26,12 @@ async function testPESubjectParsing() {
 
   // Load PE mixed fixture HTML
   const fixturePath = join(__dirname, 'fixtures', 'aisis-schedule-pe-mixed.html');
-  
+
   if (!fs.existsSync(fixturePath)) {
     console.error(`❌ Fixture not found: ${fixturePath}`);
     process.exit(1);
   }
-  
+
   const html = fs.readFileSync(fixturePath, 'utf-8');
   console.log('📄 Loaded test fixture: aisis-schedule-pe-mixed.html\n');
 
@@ -70,9 +70,9 @@ async function testPESubjectParsing() {
 
   // Test 2: All expected subject codes are present
   console.log('Test 2: All expected subject codes are present');
-  const parsedSubjectCodes = courses.map(c => c.subjectCode);
+  const parsedSubjectCodes = courses.map(c => c.subject_code);
   const expectedSubjectCodes = expectedCourses.map(c => c.subjectCode);
-  
+
   let allPresent = true;
   for (const expected of expectedSubjectCodes) {
     if (!parsedSubjectCodes.includes(expected)) {
@@ -80,7 +80,7 @@ async function testPESubjectParsing() {
       allPresent = false;
     }
   }
-  
+
   if (allPresent) {
     console.log(`✅ PASS: All ${expectedSubjectCodes.length} expected subject codes found`);
     passed++;
@@ -103,9 +103,9 @@ async function testPESubjectParsing() {
     }
 
     const tests = [
-      { field: 'subjectCode', expected: exp.subjectCode, actual: actual.subjectCode },
+      { field: 'subject_code', expected: exp.subjectCode, actual: actual.subject_code },
       { field: 'section', expected: exp.section, actual: actual.section },
-      { field: 'title', expected: exp.title, actual: actual.title }
+      { field: 'course_title', expected: exp.title, actual: actual.course_title }
     ];
 
     let coursePassed = true;
@@ -117,7 +117,7 @@ async function testPESubjectParsing() {
     }
 
     if (coursePassed) {
-      console.log(`✅ PASS: Course ${i + 1}: ${actual.subjectCode} ${actual.section} - ${actual.title}`);
+      console.log(`✅ PASS: Course ${i + 1}: ${actual.subject_code} ${actual.section} - ${actual.course_title}`);
       passed++;
     } else {
       failed++;
@@ -129,23 +129,23 @@ async function testPESubjectParsing() {
   console.log('Test 4: Subject prefix breakdown');
   const subjectPrefixCounts = {};
   for (const course of courses) {
-    const prefix = getSubjectPrefix(course.subjectCode);
+    const prefix = getSubjectPrefix(course.subject_code);
     subjectPrefixCounts[prefix] = (subjectPrefixCounts[prefix] || 0) + 1;
   }
-  
+
   const expectedPrefixes = { PEPC: 3, NSTP: 1, PHYED: 1 };
   let prefixesCorrect = true;
-  
+
   console.log('   Expected:', expectedPrefixes);
   console.log('   Actual:  ', subjectPrefixCounts);
-  
+
   for (const [prefix, count] of Object.entries(expectedPrefixes)) {
     if (subjectPrefixCounts[prefix] !== count) {
       console.log(`❌ FAIL: ${prefix} count mismatch - expected ${count}, got ${subjectPrefixCounts[prefix] || 0}`);
       prefixesCorrect = false;
     }
   }
-  
+
   if (prefixesCorrect) {
     console.log(`✅ PASS: Subject prefix breakdown matches expected`);
     passed++;
@@ -159,28 +159,28 @@ async function testPESubjectParsing() {
   try {
     let validCount = 0;
     let invalidCount = 0;
-    
+
     for (const course of courses) {
       // Check not a header
       if (isHeaderLikeRecord(course)) {
-        console.log(`   ⚠️  ${course.subjectCode} flagged as header`);
+        console.log(`   ⚠️  ${course.subject_code} flagged as header`);
         invalidCount++;
         continue;
       }
-      
+
       // Add term_code for validation (required by validateScheduleRecord)
       const courseWithTerm = { ...course, term_code: '2025-1' };
-      
+
       // Check passes validation
       if (!validateScheduleRecord(courseWithTerm)) {
-        console.log(`   ⚠️  ${course.subjectCode} failed validation`);
+        console.log(`   ⚠️  ${course.subject_code} failed validation`);
         invalidCount++;
         continue;
       }
-      
+
       validCount++;
     }
-    
+
     if (validCount === courses.length && invalidCount === 0) {
       console.log(`✅ PASS: All ${courses.length} courses passed validation`);
       passed++;

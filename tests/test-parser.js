@@ -35,7 +35,7 @@ async function testParser() {
       subjectCode: 'ENGG 101',
       section: 'A',
       title: 'ENGINEERING MECHANICS',
-      units: '3.0',
+      units: 3,
       time: 'MWF 10:00-11:00',
       room: 'SEC-A201'
     },
@@ -43,7 +43,7 @@ async function testParser() {
       subjectCode: 'ENLL 399.6',
       section: 'SUB-A',
       title: 'COMPREHENSIVE EXAM (DOCTORAL)',
-      units: '0',
+      units: 0,
       time: 'TBA (~)',  // Should preserve (~)
       room: 'TBA'
     },
@@ -51,7 +51,7 @@ async function testParser() {
       subjectCode: 'ENLL 399.7',
       section: 'SUB-B',
       title: 'FINAL PAPER SUBMISSION (DOCTORAL)',
-      units: '0',
+      units: 0,
       time: 'TBA (~)',  // The specific edge case!
       room: 'TBA'
     },
@@ -59,7 +59,7 @@ async function testParser() {
       subjectCode: 'ENLL 399.5',
       section: 'SUB-C',
       title: 'RESIDENCY (DOCTORAL)',
-      units: '0',
+      units: 0,
       time: 'TBA (~)',
       room: 'TBA'
     },
@@ -67,7 +67,7 @@ async function testParser() {
       subjectCode: 'ENGG 202',
       section: 'B',
       title: 'DATA STRUCTURES',
-      units: '3.0',
+      units: 3,
       time: 'T-TH 14:00-15:30',  // Should remove (FULLY ONLINE)
       room: 'ONLINE'
     },
@@ -75,7 +75,7 @@ async function testParser() {
       subjectCode: 'ENGG 303',
       section: 'C',
       title: 'SOFTWARE ENGINEERING',
-      units: '3.0',
+      units: 3,
       time: 'MWF 13:00-14:00',  // Should remove (FULLY ONSITE)
       room: 'SEC-B105'
     }
@@ -96,11 +96,11 @@ async function testParser() {
     }
 
     const tests = [
-      { field: 'subjectCode', expected: exp.subjectCode, actual: actual.subjectCode },
+      { field: 'subject_code', expected: exp.subjectCode, actual: actual.subject_code },
       { field: 'section', expected: exp.section, actual: actual.section },
-      { field: 'title', expected: exp.title, actual: actual.title },
+      { field: 'course_title', expected: exp.title, actual: actual.course_title },
       { field: 'units', expected: exp.units, actual: actual.units },
-      { field: 'time', expected: exp.time, actual: actual.time },
+      { field: 'time_pattern', expected: exp.time, actual: actual.time_pattern },
       { field: 'room', expected: exp.room, actual: actual.room }
     ];
 

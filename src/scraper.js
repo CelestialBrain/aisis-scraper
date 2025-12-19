@@ -1525,7 +1525,11 @@ export class AISISScraper {
         subject_code: this._cleanText(cellTexts[0]),
         section: this._cleanText(cellTexts[1]),
         course_title: this._cleanText(cellTexts[2]),
-        units: parseFloat(this._cleanText(cellTexts[3])) || 3,
+        course_title: this._cleanText(cellTexts[2]),
+        units: (() => {
+          const val = parseFloat(this._cleanText(cellTexts[3]));
+          return !isNaN(val) ? val : 3;
+        })(),
         time_pattern: timeField,
         room: cellTexts[5].includes('TBA') ? 'TBA' : this._cleanText(cellTexts[5]),
         instructor: this._cleanText(cellTexts[6]),
